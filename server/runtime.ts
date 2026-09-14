@@ -1,31 +1,29 @@
-import express from 'express';
-import { createServer, type Server as HttpServer } from 'node:http';
-import { randomBytes } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { FleetMcpServer } from './runtime-mcp.ts';
 import { AppServerRpc } from './runtime-rpc.js';
 import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
 import type { ToolResult } from '../shared/types.js';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
 
-type RuntimeOptions = {
+export type RuntimeOptions = {
   projectDir: string;
   roster?: FleetRoster;
+  team?: 'blue' | 'red';
+  toolsForRole?: (role: FleetRole) => Tool[];
   toolHandler: (role: FleetRole, name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   onStatus: (status: any) => void;
   onEvent: (event: any) => void;
 };
 const quoted = (value: string) => JSON.stringify(value);
-const resultError = (message: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text: JSON.stringify({ error: message }) }] });
+
 
 export class CodexFleetRuntime {
   private rpc?: AppServerRpc;
-  private http?: HttpServer;
+  private mcp?: FleetMcpServer;
   private runDir?: string;
   private stopped = true;
   private threadId?: string;
@@ -33,7 +31,13 @@ export class CodexFleetRuntime {
   private spawned = new Set<string>();
   private usage = new Map<string, number>();
   private activeTurns = new Map<string, string>();
-  private connections = new Set<Server>();
+  private retired = new Set<FleetRole>();
+  private resumptions = new Map<FleetRole, number>();
+  private turnCatalogs = new Map<FleetRole, string>();
+  private servedCatalogs = new Map<FleetRole, string>();
+  private catalogYields = new Map<FleetRole, number>();
+  private catalogWaiters = new Set<() => void>();
+  private resuming = new Set<string>();
   private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
   private cleanupPromise?: Promise<void>;
@@ -87,7 +91,7 @@ export class CodexFleetRuntime {
       await writeFile(join(runHome, 'config.toml'), (compatibleConfig + rolesConfig).replaceAll('tool_timeout_sec = 60', 'tool_timeout_sec = 60\ndefault_tools_approval_mode = "approve"'));
       for (const role of this.drones) {
         const type = droneAgentType(role);
-        const agentConfig = `name = ${quoted(type)}\ndescription = ${quoted(`The ${role} simulation actor. Spawn exactly once, with clean context.`)}\nmodel = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\ndeveloper_instructions = ${quoted(droneInstructions(role, this.roster))}\n[agents]\nenabled = false\n[features]\nmulti_agent = false\nshell_tool = false\n[mcp_servers.fleet_parent]\nenabled = false\n[mcp_servers.fleet_${type}]\nurl = ${quoted(`${baseUrl}/mcp/${tokens[role]}`)}\nrequired = true\ntool_timeout_sec = 60\n`;
+        const agentConfig = `name = ${quoted(type)}\ndescription = ${quoted(`The ${role} simulation actor. Spawn exactly once, with clean context.`)}\nmodel = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\ndeveloper_instructions = ${quoted(droneInstructions(role, this.roster, this.options.team))}\n[agents]\nenabled = false\n[features]\nmulti_agent = false\nshell_tool = false\n[mcp_servers.fleet_parent]\nenabled = false\n[mcp_servers.fleet_${type}]\nurl = ${quoted(`${baseUrl}/mcp/${tokens[role]}`)}\nrequired = true\ntool_timeout_sec = 60\n`;
         await writeFile(join(runHome, 'agents', `${type}.toml`), agentConfig.replace('[agents]\nenabled = false\n', '').replace('[mcp_servers.fleet_parent]\nenabled = false', `[mcp_servers.fleet_parent]\nurl = ${quoted(`${baseUrl}/mcp/${tokens.parent}`)}\nenabled = false`).replaceAll('tool_timeout_sec = 60', 'tool_timeout_sec = 60\ndefault_tools_approval_mode = "approve"'));
       }
       this.rpc = new AppServerRpc(message => this.onMessage(message), message => {
@@ -122,48 +126,85 @@ export class CodexFleetRuntime {
 
   private assertActive() { if (this.stopped) throw new Error('Fleet startup was cancelled.'); }
 
-  private async startMcp() {
-    const app = express();
-    app.use(express.json({ limit: '2mb' }));
-    const tokens = Object.fromEntries(['parent', ...this.drones].map(role => [role, randomBytes(24).toString('hex')])) as Record<FleetRole, string>;
-    const policyToken = randomBytes(24).toString('hex');
-    app.post(`/policy/${policyToken}`, (req, res) => res.json(this.policy(req.body)));
-    for (const role of ['parent', ...this.drones] as FleetRole[]) {
-      const route = `/mcp/${tokens[role]}`;
-      app.post(route, async (req, res) => {
-        if (this.stopped) { res.status(503).end(); return; }
-        const server = new Server({ name: `fleet-${role}`, version: '0.1.0' }, { capabilities: { tools: {} } });
-        server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: role === 'parent' ? [relayTool] : this.droneTools }));
-        server.setRequestHandler(CallToolRequestSchema, async request => {
-          const name = request.params.name;
-          const allowed = (role === 'parent' ? [relayTool] : this.droneTools).some(tool => tool.name === name);
-          if (!allowed) return resultError('This tool is unavailable for this actor.');
-          try {
-            this.options.onEvent({ type: 'tool', role, name, arguments: request.params.arguments ?? {} });
-            this.toolCalls++;
-            const result = await this.options.toolHandler(role, name, request.params.arguments ?? {});
-            // Camera pixels stay out of diagnostics; the audit writer also redacts
-            // nested sensor JSON and credentials before storing other result fields.
-            this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
-            return { ...result };
-          } catch (error) { return resultError(error instanceof Error ? error.message : String(error)); }
-        });
-        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-        this.connections.add(server);
-        res.on('close', () => { this.connections.delete(server); void server.close(); });
-        try { await server.connect(transport); await transport.handleRequest(req, res, req.body); }
-        catch { if (!res.headersSent) res.status(500).json({ error: 'MCP request failed.' }); }
-      });
-      app.get(route, (_req, res) => res.status(405).end());
-      app.delete(route, (_req, res) => res.status(405).end());
-    }
-    this.http = createServer(app);
-    await new Promise<void>((resolve, reject) => { this.http!.once('error', reject); this.http!.listen(0, '127.0.0.1', resolve); });
-    const address = this.http.address();
-    if (!address || typeof address === 'string') throw new Error('Cannot bind local MCP server.');
-    return { port: address.port, tokens, policyToken };
+  toolsForRole(role: FleetRole): Tool[] {
+    if (this.retired.has(role)) return [];
+    return role === 'parent' ? [relayTool] : this.options.toolsForRole?.(role) ?? this.droneTools;
   }
 
+  async refreshTools() { await this.mcp?.refreshTools(); }
+
+  private recordToolsListed(role: FleetRole, tools: Tool[]) {
+    const catalog = JSON.stringify(tools);
+    this.servedCatalogs.set(role, catalog);
+    // A native turn freezes its callable schemas. Later MCP list refreshes alone
+    // do not change that turn's model request on Codex 0.144.
+    if (!this.turnCatalogs.has(role)) this.turnCatalogs.set(role, catalog);
+    for (const wake of this.catalogWaiters) wake();
+  }
+
+  private catalogBoundary(role: FleetRole, result: ToolResult): ToolResult {
+    if (role === 'parent' || this.stopped || this.retired.has(role)) return result;
+    const catalog = JSON.stringify(this.toolsForRole(role));
+    const previous = this.turnCatalogs.get(role);
+    if (!previous) { this.turnCatalogs.set(role, catalog); return result; }
+    if (previous === catalog) return result;
+    const attempts = (this.catalogYields.get(role) ?? 0) + 1;
+    this.catalogYields.set(role, attempts);
+    if (attempts > 3) { this.failRuntime(`${role} did not yield for its controller interface refresh.`); return result; }
+    this.options.onEvent({ type: 'catalog-yield-requested', role, attempt: attempts });
+    // The original fresh camera and unread events remain untouched. The actor
+    // ends its own turn after reading them; no private reasoning is interrupted.
+    return { ...result, content: [...result.content, { type: 'text', text: JSON.stringify({ controller: {
+      type: 'tool_catalog_changed', instruction: 'Read this complete tool result, then finish this turn now with a brief acknowledgement and no more tool calls. Your same drone session will resume automatically with refreshed callable tools. This is not a new mission.',
+    } }) }] };
+  }
+
+  private async awaitCurrentCatalog(threadId: string, role: FleetRole) {
+    await this.refreshTools();
+    // This supported app-server operation queues MCP configuration refresh for
+    // loaded threads. It is issued only after this actor's turn has completed;
+    // other actors keep their active turns and consume the queued refresh later.
+    await this.rpc?.request('config/mcpServer/reload', {}, 8000);
+    // On older Codex builds the notification marks inventory stale but does not
+    // fetch it until an inventory read. This read is scoped to the idle child.
+    await this.rpc?.request('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly' }, 8000);
+    const current = () => this.servedCatalogs.get(role) === JSON.stringify(this.toolsForRole(role));
+    if (current()) return;
+    await new Promise<void>((resolve, reject) => {
+      const done = (error?: Error) => { clearTimeout(timer); this.catalogWaiters.delete(wake); error ? reject(error) : resolve(); };
+      const wake = () => { if (this.stopped || this.retired.has(role)) done(new Error('Actor stopped during interface refresh')); else if (current()) done(); };
+      const timer = setTimeout(() => done(new Error('Native MCP client did not refresh its callable tool catalog')), 8000);
+      this.catalogWaiters.add(wake); wake();
+    });
+  }
+
+  async retireDrone(role: FleetRole) {
+    if (!this.drones.includes(role as typeof this.drones[number])) return;
+    this.retired.add(role);
+    for (const wake of this.catalogWaiters) wake();
+    this.options.onEvent({ type: 'actor-retired', role });
+    await Promise.allSettled([...this.roles].filter(([, actor]) => actor === role).map(async ([threadId]) => {
+      const turnId = this.activeTurns.get(threadId);
+      if (turnId) await this.rpc?.request('turn/interrupt', { threadId, turnId }, 2000);
+    }));
+    await this.refreshTools();
+  }
+
+  private async startMcp() {
+    this.mcp = new FleetMcpServer({
+      roles: ['parent', ...this.drones], active: () => !this.stopped,
+      tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: this.options.onEvent,
+      onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
+      call: async (role, name, args) => {
+        this.options.onEvent({ type: 'tool', role, name, arguments: args });
+        this.toolCalls++;
+        const result = this.catalogBoundary(role, await this.options.toolHandler(role, name, args));
+        this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
+        return result;
+      },
+    });
+    return this.mcp.start();
+  }
   private policy(event: any) {
     this.options.onEvent({ type: 'policy-check', tool: event.tool_name, model: event.model, transcript: event.transcript_path?.split(/[/\\]/).pop(), sessionId: event.session_id });
     const allow = (updatedInput?: any) => updatedInput ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput } } : {};
@@ -175,10 +216,15 @@ export class CodexFleetRuntime {
     if (this.stopped) return deny('The simulation has stopped.');
     if (event.model !== MODEL) return deny('Only Luna is permitted for this simulation.');
     const tool = String(event.tool_name ?? '');
-    if (tool === `mcp__fleet_parent__${relayTool.name}`) return allow();
+    const actor = this.roles.get(event.session_id);
+    if (actor && this.retired.has(actor)) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'This drone was destroyed. Finish now.' } };
+    if (tool === `mcp__fleet_parent__${relayTool.name}` && (!actor || actor === 'parent')) return allow();
     const droneTool = /^mcp__fleet_(drone_\d+)__(.+)$/.exec(tool);
-    if (droneTool && droneIdFromAgentType(droneTool[1], this.roster) && this.droneTools.some(allowed => allowed.name === droneTool[2])) return allow();
+    const droneRole = droneTool && droneIdFromAgentType(droneTool[1], this.roster);
+    if (droneRole && this.retired.has(droneRole)) return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'This drone was destroyed. Finish now.' } };
+    if (droneRole && (!actor || actor === droneRole) && this.toolsForRole(droneRole).some(allowed => allowed.name === droneTool![2])) return allow();
     if (tool === 'spawn_agent' || tool === 'Agent') {
+      if (actor && actor !== 'parent') return deny('Only the mechanical relay can bootstrap actors.');
       const requested = event.tool_input ?? {};
       const agentType = requested.agent_type;
       if (!droneIdFromAgentType(agentType, this.roster)) return deny(`Spawn only ${this.drones.map(droneAgentType).join(', ')}, exactly once each.`);
@@ -207,13 +253,18 @@ export class CodexFleetRuntime {
         this.options.onEvent({ type: 'child-started', role, threadId: thread.id, parentThreadId: thread.parentThreadId });
       }
     }
-    if (message.method === 'turn/started') this.activeTurns.set(p.threadId, p.turn.id);
+    if (message.method === 'turn/started') {
+      this.activeTurns.set(p.threadId, p.turn.id);
+      const role = this.roles.get(p.threadId);
+      if (role && this.retired.has(role)) void this.retireDrone(role);
+    }
     if (message.method === 'turn/completed') {
       this.activeTurns.delete(p.threadId);
       if (!this.stopped) {
         const role = this.roles.get(p.threadId) ?? 'unknown actor';
         this.options.onEvent({ type: 'actor-ended', role, status: p.turn.status, error: p.turn.error?.message });
-        this.failRuntime(`${role} stopped its event loop. Reset the fleet to reconnect all actors.`);
+        if (this.retired.has(role as FleetRole)) return;
+        void this.resumeActor(p.threadId, role, this.catalogYields.has(role as FleetRole));
       }
     }
     if (message.method === 'thread/tokenUsage/updated') {
@@ -256,10 +307,35 @@ export class CodexFleetRuntime {
     void this.stop(false);
   }
 
+  private async resumeActor(threadId: string, role: string, catalogRefresh = false) {
+    if (this.resuming.has(threadId)) return;
+    const count = (this.resumptions.get(role as FleetRole) ?? 0) + 1;
+    if (role === 'unknown actor' || (!catalogRefresh && count > 2)) { this.failRuntime(`${role} repeatedly stopped its event loop. The match cannot continue with a missing actor.`); return; }
+    if (!catalogRefresh) this.resumptions.set(role as FleetRole, count);
+    if (this.stopped || this.retired.has(role as FleetRole)) return;
+    this.resuming.add(threadId);
+    try {
+      if (catalogRefresh) await this.awaitCurrentCatalog(threadId, role as FleetRole);
+      if (this.stopped || this.retired.has(role as FleetRole)) return;
+      this.turnCatalogs.set(role as FleetRole, JSON.stringify(this.toolsForRole(role as FleetRole)));
+      this.catalogYields.delete(role as FleetRole);
+      this.options.onEvent({ type: catalogRefresh ? 'catalog-turn-resumed' : 'actor-resumed', role, attempt: count });
+      const turn = await this.rpc?.request('turn/start', { threadId, model: MODEL, effort: EFFORT, input: [{ type: 'text', text: catalogRefresh
+        ? 'Your controller interface is refreshed. Continue your existing drone event loop with your current mission, received observations and currently callable fleet tools.'
+        : role === 'parent'
+        ? 'Continue your existing mechanical relay event loop. Do not create additional actors. Call forward_next_instruction until stopped.'
+        : 'Continue your existing drone event loop using only your fleet tools. Call wait for current events. Finish only when destroyed or stopped.', text_elements: [] }] });
+      if (turn) this.activeTurns.set(threadId, turn.turn.id);
+      if (this.retired.has(role as FleetRole)) await this.retireDrone(role as FleetRole);
+    } catch (error) { if (!this.stopped && !this.retired.has(role as FleetRole)) this.failRuntime(`Could not resume ${role}: ${String(error)}`); }
+    finally { this.resuming.delete(threadId); }
+  }
+
   stop(updateStatus = true): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     if (this.stopped && !this.startPromise && !this.runDir && !this.rpc) return Promise.resolve();
     this.stopped = true;
+    for (const wake of this.catalogWaiters) wake();
     this.stopPromise = this.stopInternal(updateStatus).finally(() => { this.stopPromise = undefined; });
     return this.stopPromise;
   }
@@ -283,14 +359,13 @@ export class CodexFleetRuntime {
       await this.rpc.stop();
       this.rpc = undefined;
     }
-    await Promise.allSettled([...this.connections].map(server => server.close()));
-    if (this.http) { const http = this.http; this.http = undefined; http.closeAllConnections(); await new Promise<void>(resolve => http.close(() => resolve())); }
+    await this.mcp?.stop(); this.mcp = undefined;
     if (this.runDir) {
       // Only remove the exact mkdtemp-created directory, never the user's Codex home.
       const owned = resolve(this.runDir);
       if (owned.startsWith(resolve(tmpdir()) + (process.platform === 'win32' ? '\\' : '/')) && /^drone-fleet-[^/\\]+$/.test(owned.split(/[/\\]/).pop()!)) await rm(owned, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
       this.runDir = undefined;
     }
-    this.activeTurns.clear(); this.connections.clear();
+    this.activeTurns.clear();
   }
 }

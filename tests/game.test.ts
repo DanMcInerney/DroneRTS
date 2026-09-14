@@ -45,14 +45,14 @@ test('a new instruction hovers drones and rejects delayed commands carrying the 
   assert.equal((await game.tool('drone-1', 'send', { mission: 1, to: 'all', kind: 'claim', text: 'Old task' })).isError, true);
   game.stop();
 });
-test('movement is continuous, collision emits event, and browser loss pauses simulation', async () => {
+test('movement is continuous, unarmored building contact destroys, and browser loss pauses simulation', async () => {
   const game = await ready(), drone = game.state.drones[0];
   game.state.obstacles = [{ x: -7, z: 3, width: 4, depth: 5, height: 3 }];
   Object.assign(drone, { x: -7, y: 2, z: 9 });
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -7, y: 2, z: -5 });
   for (let i = 0; i < 30; i++) game.tick(0.2);
-  assert.match(drone.status, /Obstacle/);
-  assert.equal(game.inboxes['drone-1'].events.at(-1)?.type, 'blocked');
+  assert.equal(drone.alive, false);
+  assert.equal(game.inboxes['drone-1'].events.at(-1)?.type, 'destroyed');
   const simTime = game.state.simTime; game.setConnected(false); game.tick(0.2);
   assert.equal(game.state.simTime, simTime);
   game.stop();
@@ -141,6 +141,7 @@ test('look turns through the shortest arc with bounded yaw and pitch rates', asy
 
 test('waypoint translation accelerates, brakes, and arrives once without a pose snap', async () => {
   const game = await ready(), drone = game.state.drones[0];
+  for (const peer of game.state.drones.slice(1)) peer.z += 20;
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 1, y: 7, z: 23 });
   assert.equal(drone.x, -5); assert.equal(drone.yaw, 0);
   const distances: number[] = [];
@@ -192,20 +193,25 @@ test('new missions and fleet restarts clear pending flight and orientation targe
   game.tick(0.1); game.stop(); game.start();
   const restarted = { x: drone.x, yaw: drone.yaw, pitch: drone.pitch };
   game.tick(0.25);
-  assert.deepEqual({ x: drone.x, yaw: drone.yaw, pitch: drone.pitch }, restarted);
+  assert.equal(drone.x, restarted.x); assert.ok(Math.abs(drone.yaw - restarted.yaw) < 1e-10); assert.equal(drone.pitch, restarted.pitch);
   game.stop();
 });
 
-test('reset changes every chest intersection while launching preserves the chosen map', () => {
+test('reset and launch replenish deposits, clear equipment and restore all six spawn poses', () => {
   const game = new FleetGame();
-  const original = new Set(game.state.treasures.map(chest => `${chest.x},${chest.z}`));
+  const chosen = structuredClone(game.state.match!.resources);
+  assert.equal(game.state.drones.length, 6);
+  game.state.match!.resources[0].remaining = 0;
   game.reset();
-  assert.ok(game.state.treasures.every(chest => !original.has(`${chest.x},${chest.z}`)));
-  const chosen = game.state.treasures.map(chest => ({ ...chest }));
-  game.state.treasures[0].found = true;
-  game.state.treasures[0].foundBy = 'drone-1';
-  game.state.treasures[0].foundAt = 12;
+  assert.deepEqual(game.state.match!.resources, chosen);
+  const initialX = game.state.drones[0].x;
+  game.state.drones[0].x += 2;
+  game.state.drones[0].alive = false;
+  game.state.drones[0].equipment!.gun = true;
   game.setConnected(true); game.start();
-  assert.deepEqual(game.state.treasures, chosen);
+  assert.deepEqual(game.state.match!.resources, chosen);
+  assert.equal(game.state.drones[0].x, initialX);
+  assert.equal(game.state.drones[0].alive, true);
+  assert.equal(game.state.drones[0].equipment!.gun, false);
   game.stop();
 });

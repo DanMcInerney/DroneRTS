@@ -3,23 +3,25 @@
 The game now uses native Zenoh and MAVLink 2 on loopback. It does not install an operating-system radio mesh. Its Network lab buttons simulate an entire drone's network partition by closing/reopening that drone's native Zenoh session. Link range, interference, arbitrary per-edge loss, multihop radio routing and bandwidth constraints remain unmodeled.
 
 ```text
-Player -> relay agent -> operator Zenoh bridge
-                            | mission group publication
-     drone-1 bridge <----> drone-2 bridge <----> drone-3 bridge
-          ^                      ^                     ^
-          | role-scoped MCP       |                     |
-       drone-1 LLM            drone-2 LLM           drone-3 LLM
-          |                      |                     |
-          +---------- MAVLink 2 UDP endpoint pairs -----+
-                                 |
-                          Node world simulation
+Player blue instructions          Fixed initial red objective
+           |                                  |
+  blue mechanical parent             red mechanical parent
+           |                                  |
+ blue operator Zenoh bridge          red operator Zenoh bridge
+           |                                  |
+ blue drone-1 / drone-2 / drone-3     red drone-4 / drone-5 / drone-6
+       native peer graph                 native peer graph
+           |                                  |
+           +------ six MAVLink 2 UDP pairs ---+
+                              |
+                     Node RTS simulation
 ```
 
-All three drone bridges connect directly to each other; the diagram abbreviates the complete peer graph. The operator publishes instructions and receives their acknowledgements; it does not subscribe to drone group traffic or route peer messages. Native model hosting, physics and browser rendering still share one application. The bridge processes are separate nodes; the LLMs are three native children of the requested Luna/xhigh parent session.
+Within each team, all three drone bridges connect directly to each other; the diagram abbreviates each complete peer graph. There is no radio edge between teams. Each operator publishes its team's instructions and receives acknowledgements; it does not subscribe to drone group traffic or route peer messages. Native hosting, physics and browser rendering share one application. The six drone LLMs are clean-context native children of two separate Luna/xhigh mechanical parent sessions. Both teams receive the same initial goal; subsequent player UI instructions go to blue only.
 
 ## Setup and scope
 
-Run `npm install`, `npm run network:setup`, then `npm run dev`. Setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Tested interpreter: Python 3.12.4. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
+Run `npm ci`, `npm run network:setup`, then `npm run dev`. Setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Tested interpreter: Python 3.12.4. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
 
 Every bridge opens an OS-assigned loopback TCP port, uses Zenoh `peer` mode, explicit peer endpoints, and no multicast/gossip discovery or central router. Native sessions exchange data even while no model tool is running. See [Zenoh deployment documentation](https://zenoh.io/docs/getting-started/deployment/) and its [Python implementation](https://github.com/eclipse-zenoh/zenoh-python).
 
@@ -27,7 +29,7 @@ Each drone's control/telemetry pair exchanges actual binary MAVLink 2 UDP datagr
 
 ## Delivery rules
 
-`shared/fleet.ts` is the default roster authority. Each `FleetNetwork` instance accepts a validated roster and an optional independent `networkId` UUID, defaulting to its game session ID. Worker membership, broadcast recipients and acknowledgement expectations derive from that roster; Python validates the supplied roster at startup. Future teams can share a game session while using separate network IDs, endpoints and stores. The game still launches the original three-drone team.
+`shared/fleet.ts` owns the explicit blue/red and combined match rosters. `server/team-session.ts` creates two `FleetNetwork` instances with separate random `networkId` UUIDs under the same match session. Worker membership, broadcast recipients and acknowledgement expectations derive from each team's roster; Python validates it at startup. Namespaced topics, endpoints and SQLite stores remain separate. MCP tool destinations and game receive checks also reject opposing-team roles. `DEFAULT_FLEET` is still the three-member blue roster for reusable single-network adapters; `MATCH_FLEET` is the complete six-drone match.
 
 Radio publications use `fleet/<networkId>/radio/group` and `fleet/<networkId>/radio/direct/<drone>`, with separate ACK keys. A group peer message targets the other two drones; an operator mission targets all three. Sender identities are bound by each bridge's role. Mesh partitions do not magically deliver player instructions: each drone tracks only its latest received mission. A future-mission peer message waits locally for its associated directive, and obsolete messages/commands are rejected after that directive arrives.
 
@@ -35,7 +37,7 @@ The existing `fleet-radio/1` JSON message is carried in a network envelope with 
 
 The PoC retries pending packets every 250 ms until receipt or expiry; this fixed cadence suits the bounded local test. Backoff/jitter and storage quotas/garbage collection would be needed for a longer-lived deployment. Receipt proves storage, not agent comprehension. Local model handoff is not transactional with model execution. The per-run databases remain in `artifacts/network/<session>/<networkId>/`; starting a new fleet creates a new identity and does not replay old missions. Worker restart durability is tested independently; the app stops on helper failure and does not automatically reconnect model contexts.
 
-Stop terminates all protocol workers and the native agent session. Merely isolating a radio peer leaves its sensors and controller available and its last received mission active. The player's global Stop is an application lifecycle operation, not evidence of an emergency radio command crossing a partition.
+Stop terminates both native sessions and all protocol workers. Match completion also shuts them down. Destroying a drone retires its model actor, revokes tool access and disconnects its radio peer. Merely isolating a live peer leaves its sensors and controller available and its last received mission active. The player's global Stop is an application lifecycle operation, not evidence of an emergency radio command crossing a partition. Mining, attachments and firing are local simulator operations; peer coordination still travels through native radio.
 
 ## Reuse on hardware
 
@@ -47,8 +49,8 @@ The simulation is a protocol integration step, not evidence of hardware flight r
 
 ## Evidence
 
-All 41 tests and the TypeScript/Vite production build passed. `npm test` includes real-process Zenoh delivery, partition, retry, expiry, duplicate and restart tests; MAVLink wire/CRC/frame/identity/lifecycle tests; and an integrated game test proving missions do not bypass a partition. These deterministic tests use no inference. Independent review found a telemetry-failure shutdown gap; the repair and its regression are recorded in [NETWORK-REVIEW.md](NETWORK-REVIEW.md).
+`npm test` includes real-process Zenoh delivery, partition, retry, expiry, duplicate, restart and namespace-isolation tests; MAVLink wire/CRC/frame/identity/lifecycle tests; and integrated game/runtime tests for team routing and delayed missions. These deterministic tests use no inference. The older telemetry-failure shutdown repair is recorded in [NETWORK-REVIEW.md](NETWORK-REVIEW.md); that report applies to its historical revision.
 
-The single live browser trial used Luna/xhigh and confirmed partition/reconnection, queued mission delivery, replies from all three drones, and the responsive Network lab. It switched missions before two drones completed their first movement experiment, so it did not pass the full three-movement criterion; their stale actions were correctly rejected. See [NETWORK-PLAYTEST.md](NETWORK-PLAYTEST.md) for historical evidence and limits.
+The historical single-team Luna/xhigh browser trial confirmed partition/reconnection, queued mission delivery and replies from all three drones, but did not complete its three-movement criterion. [NETWORK-PLAYTEST.md](NETWORK-PLAYTEST.md) records those limits. Current RTS browser QA uses `scripts/verify-rts.ts` without inference and `scripts/playtest-rts.ts` for bounded real two-team trials, both on isolated port 4318 after checking `/api/state`. See [RTS-PLAYTEST.md](RTS-PLAYTEST.md) for current evidence. Preserve active player sessions on port 4317.
 
 Admin now exposes bounded, searchable session audits, including new Zenoh application payload records with topics, envelopes, acknowledgements, direction and byte counts. Logging samples at most 12 payloads per peer per second, recording suppression counts; it is not a TCP framing capture. MAVLink records contain actual CRC-validated datagram hex and decoded fields, with telemetry limited to one sample per message type per second and an overall 20 packets/drone/s logging cap. Transport behavior remains unsampled; these caps affect diagnostics only. Older sessions retain their original publication/receipt and operation records.

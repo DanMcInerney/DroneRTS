@@ -1,3 +1,5 @@
+import type { TeamId } from './rts.ts';
+export type { TeamId } from './rts.ts';
 /** Fleet membership is configuration, never inferred from array order or ID suffixes. */
 export type DroneId = `drone-${number}`;
 export interface FleetMember {
@@ -24,12 +26,25 @@ export function validateRoster(input: unknown): FleetRoster {
   return Object.freeze(members);
 }
 
-// The current experiment has exactly three equal actors. This is the only default roster.
+// Each team has exactly three equal actors and its own radio domain.
 export const DEFAULT_FLEET = validateRoster([
-  { id: 'drone-1', label: 'Drone 1', color: '#d7ed9e', systemId: 1 },
-  { id: 'drone-2', label: 'Drone 2', color: '#92c9fa', systemId: 2 },
-  { id: 'drone-3', label: 'Drone 3', color: '#f1bca9', systemId: 3 },
+  { id: 'drone-1', label: 'Blue 1', color: '#63d9ff', systemId: 1 },
+  { id: 'drone-2', label: 'Blue 2', color: '#63d9ff', systemId: 2 },
+  { id: 'drone-3', label: 'Blue 3', color: '#63d9ff', systemId: 3 },
 ]);
+export const ENEMY_FLEET = validateRoster([
+  { id: 'drone-4', label: 'Red 1', color: '#ff746f', systemId: 4 },
+  { id: 'drone-5', label: 'Red 2', color: '#ff746f', systemId: 5 },
+  { id: 'drone-6', label: 'Red 3', color: '#ff746f', systemId: 6 },
+]);
+export const MATCH_FLEET = validateRoster([...DEFAULT_FLEET, ...ENEMY_FLEET]);
+export const MATCH_DRONE_IDS = Object.freeze(MATCH_FLEET.map(member => member.id));
+export function teamRoster(team: TeamId): FleetRoster { return team === 'blue' ? DEFAULT_FLEET : ENEMY_FLEET; }
+export function teamForDrone(id: DroneId): TeamId {
+  if (DEFAULT_FLEET.some(member => member.id === id)) return 'blue';
+  if (ENEMY_FLEET.some(member => member.id === id)) return 'red';
+  throw new Error('Unknown match drone');
+}
 export const DRONE_IDS: readonly DroneId[] = Object.freeze(DEFAULT_FLEET.map(member => member.id));
 export function fleetMember(id: unknown, roster: FleetRoster = DEFAULT_FLEET): FleetMember | undefined {
   return roster.find(member => member.id === id);

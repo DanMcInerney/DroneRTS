@@ -47,6 +47,7 @@ function classify(type: string, value: Record<string, unknown>): DiagnosticCateg
   if (type === 'mavlink') return 'mavlink';
   if (type === 'network' || type === 'radio' || type === 'network-link') return 'network';
   if (type === 'observation') return 'sensors';
+  if (type === 'combat') return 'combat';
   if (type === 'tool' || (type === 'agent' && /tool|mcp-result/.test(String(value.type)))) return 'tools';
   if (type === 'agent') return 'agents';
   return 'system';
