@@ -80,4 +80,21 @@ Before a server restart or trial, inspect `/api/state` and preserve an active pl
 
 `node --import tsx scripts/verify-replay.ts` separately checks actual browser images, live recording append, scrubbing, playback, event navigation and camera isolation through local replay HTTP APIs. It uses a deterministic duel without inference and keeps its fixture data under `artifacts/replay-ui/`. [REPLAY-VERIFICATION.md](REPLAY-VERIFICATION.md) records replay validation.
 
+Focused evaluation has separate deterministic and autonomous commands:
+
+```sh
+node --import tsx scripts/measure-controls.ts
+node --import tsx scripts/playtest-focused.ts flight
+node --import tsx scripts/playtest-focused.ts aim-stationary
+node --import tsx scripts/playtest-focused.ts aim-moving
+node --import tsx scripts/playtest-focused.ts match
+node --import tsx scripts/analyze-trial.ts artifacts/focused-trials/<run-directory>
+```
+
+`measure-controls.ts` runs 34 prescribed flight and ballistic fixtures with synthetic camera placeholders and no inference. The four `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually, with port 4318 free; each command owns its test server and requires a camera browser at [port 4318](http://127.0.0.1:4318) within 60 seconds. It inspects both local ports first and refuses an existing server on 4318. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Port 4317 is preserved.
+
+Flight uses the normal opening with a flight-only operator objective. Aiming fixtures position three visible pairs above the city and grant blue guns; red receives either a holding or a repeated-flight objective. These objectives contain no coordinates, calibration or enemy telemetry. Moving targets choose their own waypoints and can pause between commands, so a hit during that trial does not necessarily mean a hit on a moving target. `match` uses the unmodified production opening, equipment and missions. The test host disables other UI mutations except Stop.
+
+Each live trial saves its source manifest, fixture description, audit, actual camera replay and result under ignored `artifacts/focused-trials/`. `analyze-trial.ts` calculates flight distance, delivered arrivals, shots, physical contacts and pre-shot camera age from those files. It separates expired shots from projectiles still unresolved when the match stops; target speed is estimated from recorded poses. Analysis refuses a checkout whose `shared/rts.ts` differs from the saved calibration, preserving existing results. Replay is watchable in Admin while the test host is running. Raw evidence is local; the measured outcomes and limitations are recorded in [RTS-PLAYTEST.md](RTS-PLAYTEST.md).
+
 Session audits and screenshots are local under ignored `artifacts/`; temporary isolated Codex settings are cleaned up on Stop and never change the user's standing configuration. Earlier `PLAYTEST.md`, `NETWORK-PLAYTEST.md`, `CITY-PLAYTEST.md` and review reports document previous treasure-hunt revisions, not proof of current RTS behavior. Regenerate city geometry with `node scripts/build-city.mjs` after geographic source edits and preserve the displayed OpenStreetMap attribution.

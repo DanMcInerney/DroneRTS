@@ -31,6 +31,9 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Replay timeline | `client/replay-model.ts` | Acquisition-time indexing, discrete past frames, actor camera selection, event navigation and cursor-relative metrics. No extrapolated evidence. |
 | Replay presentation | `client/replay.ts`, `client/replay-plot.ts` | Fetch/playback lifecycle and independent 2D recorded-scene rendering. Closing Admin or changing sessions cancels pending work. Never accesses the live Three.js renderer. |
 | Application lifecycle | `server/index.ts` | HTTP/WebSocket connections, capture delivery, match startup/stop, browser disconnect timeout and protocol/runtime failures. |
+| Developer trial arrangements | `scripts/trial-scenarios.ts` | Flight objectives and explicit aiming fixtures; never imported by production prompts, rules or hosting. |
+| Bounded live evaluation | `scripts/playtest-focused.ts`, `scripts/trial-host.ts` | Port checks, source fingerprint, time limit and owned test-host lifecycle. Composes the existing game, team session, native transports, actual browser cameras and replay writer. |
+| Developer measurements | `scripts/measure-controls.ts`, `scripts/analyze-trial.ts` | Prescribed no-inference control fixtures and offline analysis of real trial records. Private calibration and spectator telemetry stay outside actor observations. |
 
 ## Team and actor isolation
 
