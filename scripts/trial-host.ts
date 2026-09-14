@@ -1,6 +1,7 @@
 /** Test-only host: real renderer, game, team runtime, Zenoh, MAVLink and replay writer. */
 import express from 'express';
 import { createServer } from 'node:http';
+import type { Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
@@ -16,8 +17,14 @@ import { BATTLEFIELD } from '../shared/battlefield.ts';
 import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { arrangeTrial, type TrialScenario } from './trial-scenarios.ts';
 
-export async function createTrialHost(projectDir: string, directory: string, scenario: TrialScenario) {
+export async function createTrialHost(projectDir: string, directory: string, scenario: TrialScenario, port = 4318) {
+  if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4317) throw new Error('Invalid isolated trial port');
   const game = new FleetGame(), app = express(), server = createServer(app);
+  const connections = new Set<Socket>();
+  server.on('connection', socket => {
+    connections.add(socket);
+    socket.on('close', () => connections.delete(socket));
+  });
   const sockets = new WebSocketServer({ noServer: true, maxPayload: 3_000_000 });
   const sessionId = `session-${scenario}-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
   const log = createWriteStream(resolve(directory, sessionId));
@@ -25,6 +32,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   let runtime: TeamSession | undefined, recorder: ReplayRecorder | undefined;
   let ticker: ReturnType<typeof setInterval> | undefined, disconnect: ReturnType<typeof setTimeout> | undefined;
   let stopPromise: Promise<void> | undefined, starting = false;
+  let closePromise: Promise<void> | undefined;
   const pending = new Map<string, { socket: WebSocket; resolve: (image: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   const audit = (type: string, value: unknown) => log.write(JSON.stringify({ wallTime: new Date().toISOString(), type, value: redactDiagnostic(value) }) + '\n');
   const broadcast = () => {
@@ -99,7 +107,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   const vite = await createViteServer({ root: projectDir, server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
   app.use(vite.middlewares);
   try {
-    await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(4318, '127.0.0.1', done); });
+    await new Promise<void>((done, reject) => { server.once('error', reject); server.listen(port, '127.0.0.1', done); });
   } catch (error) { await vite.close(); log.end(); throw error; }
   return {
     game, sessionId, failures, warnings,
@@ -126,13 +134,21 @@ export async function createTrialHost(projectDir: string, directory: string, sce
       return fixture;
     },
     stop,
-    async close() {
-      await stop();
-      for (const socket of sockets.clients) socket.terminate();
-      await new Promise<void>(done => sockets.close(() => done()));
-      await vite.close(); server.closeAllConnections();
-      await new Promise<void>(done => server.close(() => done()));
-      await new Promise<void>(done => log.end(done));
+    close() {
+      if (closePromise) return closePromise;
+      closePromise = (async () => {
+        await stop();
+        // Stop accepting reconnects before Vite removes its HMR upgrade listener.
+        // HTTP closeAllConnections does not own upgraded or unanswered upgrade sockets.
+        const httpClosed = new Promise<void>(done => server.close(() => done()));
+        for (const socket of sockets.clients) socket.terminate();
+        for (const connection of connections) connection.destroy();
+        await new Promise<void>(done => sockets.close(() => done()));
+        await vite.close();
+        await httpClosed;
+        await new Promise<void>(done => log.end(done));
+      })();
+      return closePromise;
     },
   };
 }

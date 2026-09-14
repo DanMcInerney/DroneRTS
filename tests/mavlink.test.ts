@@ -6,7 +6,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { MavlinkAdapter } from '../server/mavlink.ts';
-import { DRONE_IDS, type DroneId, type Pose } from '../shared/types.ts';
+import { FleetGame } from '../server/game.ts';
+import { DRONE_IDS, type DroneId, type Pose, type ToolResult } from '../shared/types.ts';
 import { DEFAULT_FLEET, validateRoster } from '../shared/fleet.ts';
 
 const projectDir = fileURLToPath(new URL('..', import.meta.url));
@@ -102,6 +103,43 @@ test('partial look commands preserve actuator independence; invalid requests nev
   await assert.rejects(adapter.command('drone-1', { kind: 'look', pitch: NaN }, pose, 1), /finite/);
   await assert.rejects(adapter.sample('drone-1', pose, -1), /millisecond interval/);
   assert.equal((await adapter.sample('drone-1', pose, 2)).simTime, 2);
+});
+
+test('fractional XYZ adjustments cross native MAVLink, move continuously and settle without coordinate rounding', { timeout: 15_000 }, async t => {
+  const adapter = new MavlinkAdapter({ projectDir }), game = new FleetGame();
+  t.after(async () => { game.stop(); await adapter.stop(); });
+  await adapter.start(); game.setConnected(true); game.start(); game.state.obstacles = [];
+  game.capture = async () => 'data:image/jpeg;base64,AQID';
+  game.state.drones.forEach((drone, index) => Object.assign(drone, { x: 12.125 + index * 20, y: 7.375, z: -9.625, yaw: 0, pitch: 0 }));
+  for (const id of DRONE_IDS) await game.tool(id, 'observe');
+  await game.forwardTeam('blue');
+  game.vehicleTransport = adapter;
+  const drone = game.state.drones[0], decode = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
+  const position = () => ({ x: drone.x, y: drone.y, z: drone.z });
+  const steps = [['x', 0.05], ['y', 0.01], ['z', -0.01], ['x', -0.01], ['y', -0.05], ['z', 0.05]] as const;
+  for (const [axis, adjustment] of steps) {
+    const before = position(), requested = { ...before, [axis]: before[axis] + adjustment };
+    const expected = { x: Math.fround(requested.x), y: Math.fround(requested.y), z: Math.fround(requested.z) };
+    const receipt = decode(await game.tool(drone.id, 'act', { mission: 1, kind: 'fly_to', ...requested }));
+    assert.equal(receipt.accepted, true);
+    assert.deepEqual(receipt.target, expected, 'the actual float32 command controls the waypoint');
+    assert.deepEqual(drone.action?.target, expected);
+    assert.deepEqual(position(), before, 'command acceptance never teleports the aircraft');
+
+    game.tick(1 / 120);
+    const progressed = (drone[axis] - before[axis]) * Math.sign(adjustment);
+    assert.ok(progressed > 0 && progressed < Math.abs(adjustment), `${axis} must move by a fractional intermediate step`);
+    for (let step = 0; step < 600 && drone.action; step++) game.tick(1 / 120);
+    assert.equal(drone.action, undefined, `${axis} ${adjustment} adjustment must finish within five simulation seconds`);
+    assert.deepEqual(position(), expected, 'arrival retains the decoded fractional waypoint');
+    const observation = decode(await game.tool(drone.id, 'observe'));
+    assert.deepEqual(observation.sensors.position, { frame: 'local', ...expected }, 'fresh position crosses native telemetry without display rounding');
+    assert.ok(observation.events.some((event: any) => event.type === 'arrived' && event.actionId === receipt.actionId));
+    near(drone[axis] - before[axis], adjustment, 0.000002);
+    assert.equal(drone.alive, true);
+    game.tick(0.25);
+    assert.deepEqual(position(), expected, 'settled control does not drift after a fine adjustment');
+  }
 });
 
 test('reference dialect rejects corrupt, malformed and misdirected real UDP packets and recovers', async () => {

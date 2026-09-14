@@ -1,6 +1,6 @@
 # Protocols in the game
 
-The game now uses native Zenoh and MAVLink 2 on loopback. It does not install an operating-system radio mesh. Its Network lab buttons simulate an entire drone's network partition by closing/reopening that drone's native Zenoh session. Link range, interference, arbitrary per-edge loss, multihop radio routing and bandwidth constraints remain unmodeled.
+The game uses native Zenoh and MAVLink 2 on loopback. It does not install an operating-system radio mesh. Network lab buttons and in-game jammers simulate an entire drone's network partition by closing/reopening that drone's native Zenoh session. Jammer proximity is a simple game rule; physical RF propagation, ordinary link range, arbitrary per-edge loss, multihop radio routing and bandwidth constraints remain unmodeled.
 
 ```text
 Player blue instructions          Fixed initial red objective
@@ -38,6 +38,8 @@ The existing `fleet-radio/1` JSON message is carried in a network envelope with 
 The PoC retries pending packets every 250 ms until receipt or expiry; this fixed cadence suits the bounded local test. Backoff/jitter and storage quotas/garbage collection would be needed for a longer-lived deployment. Receipt proves storage, not agent comprehension. Local model handoff is not transactional with model execution. The per-run databases remain in `artifacts/network/<session>/<networkId>/`; starting a new fleet creates a new identity and does not replay old missions. Worker restart durability is tested independently; the app stops on helper failure and does not automatically reconnect model contexts.
 
 Stop terminates both native sessions and all protocol workers. Match completion also shuts them down. Destroying a drone retires its model actor, revokes tool access and disconnects its radio peer. Merely isolating a live peer leaves its sensors and controller available and its last received mission active. The player's global Stop is an application lifecycle operation, not evidence of an emergency radio command crossing a partition. Mining, attachments and firing are local simulator operations; peer coordination still travels through native radio.
+
+Jammers apply the same native partition mechanism automatically to nearby drones, including the emitter and its allies. `TeamSession` serializes link transitions and combines the current interference flag with manual isolation, actor retirement and destruction. A newer desired state is reconciled after an in-flight native transition completes; clearing interference never overrides another reason for isolation. A radio send waits for pending reconciliation before queueing through the native sender. Packets already in flight before a transition may have arrived; the system does not erase delivered mail or claim instantaneous physical RF behavior. Link failures use the existing explicit session-failure path. Simulation ticks and camera capture do not wait on radio reconnection.
 
 ## Reuse on hardware
 

@@ -119,7 +119,8 @@ export class ReplayRecorder {
 
   recordObservation(value: RecordedObservation) {
     if (!this.accepting) return;
-    const record: ReplayObservation = { type: 'observation', drone: value.drone, pose: value.pose, simTime: value.simTime, capturedAt: value.capturedAt, mission: value.mission, imageAvailable: false };
+    const record: ReplayObservation = { type: 'observation', drone: value.drone, pose: value.pose, simTime: value.simTime, capturedAt: value.capturedAt, mission: value.mission, imageAvailable: false,
+      ...(typeof value.cameraFov === 'number' && Number.isFinite(value.cameraFov) && value.cameraFov > 0 && value.cameraFov < 180 ? { cameraFov: value.cameraFov } : {}) };
     let image: Job['image'];
     const source = value.image;
     if (!source) record.omission = 'No camera image was delivered.';

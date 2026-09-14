@@ -21,6 +21,7 @@ export interface ReplayCommand {
 }
 export interface ReplayObservation {
   type: 'observation'; simTime: number; drone: DroneId; pose: Pose; capturedAt: string; mission: number;
+  cameraFov?: number;
   imageId?: string; imageAvailable: boolean; omission?: string;
 }
 export interface ReplayCombatEvent { type: 'event'; simTime: number; event: MatchEvent }
@@ -36,5 +37,6 @@ export interface ReplayPage {
 /** Internal acquisition event; persisted only by the separate bounded replay recorder. */
 export interface RecordedObservation {
   drone: DroneId; pose: Pose; simTime: number; capturedAt: string; mission: number;
+  cameraFov?: number;
   image?: { mimeType: string; data: string };
 }

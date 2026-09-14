@@ -1,5 +1,6 @@
 /** Developer-only arrangements and objectives; never imported by production gameplay. */
 import type { FleetGame } from '../server/game.ts';
+import { RTS_CONFIG } from '../shared/rts.ts';
 
 export const SCENARIOS = ['flight', 'aim-stationary', 'aim-moving', 'encounter', 'encounter-reversed', 'match'] as const;
 export type TrialScenario = typeof SCENARIOS[number];
@@ -20,6 +21,7 @@ export function arrangeTrial(game: FleetGame, scenario: TrialScenario) {
     Object.assign(drone, { x: -45 + (index % 3) * 20, y: 30, z: north ? 26 : 40,
       yaw: (north ? 180 : 0) + (encounter || blue ? 8 : 0), pitch: 0 });
     drone.equipment = { gun: blue || encounter, armor: false, miner: false };
+    drone.ammo = drone.equipment.gun ? RTS_CONFIG.magazineSize : 0;
   }
   if (encounter) {
     const mission = 'This is a combat encounter trial. Eliminate the opposing team while keeping your team alive. Use your attached gun, choose your own movement and aim, and coordinate with teammates using what you observe. Avoid contact with terrain, buildings and other drones, and avoid friendly fire. Do not mine or buy during this trial.';

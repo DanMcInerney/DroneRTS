@@ -1,14 +1,24 @@
 import { Router } from 'express';
 import { pipeline } from 'node:stream/promises';
 import type { ReplayPage, ReplayRecord } from '../shared/replay.ts';
-import { missing, REPLAY_IMAGE, replayDirectory, ReplayError, replayFile } from './replay-paths.ts';
+import { missing, REPLAY_IMAGE, replayDirectory, ReplayError, replayFile, ReplayFileReplacedError } from './replay-paths.ts';
 
 const PAGE_BYTES = 4 * 1024 * 1024, RECORD_BYTES = 2 * 1024 * 1024, PAGE_RECORDS = 256;
 const TYPES = new Set(['header', 'frame', 'command', 'observation', 'event', 'end']);
 
 /** Byte cursors read only complete records, even while a match is recording. */
 export class ReplayStore {
-  constructor(private directory: string) {}
+  constructor(private directory: string, private dependencies: { openStatus?: (directory: string) => ReturnType<typeof replayFile> } = {}) {}
+  private async openStatus(directory: string) {
+    for (let attempt = 0; ; attempt++) {
+      try { return await (this.dependencies.openStatus?.(directory) ?? replayFile(directory, 'status.json')); }
+      catch (error) {
+        // Only this marker is atomically replaced by the recorder. Repeat all
+        // path/identity checks; immutable frames and images never use this retry.
+        if (!(error instanceof ReplayFileReplacedError) || attempt >= 2) throw error;
+      }
+    }
+  }
   async page(id: string, after = 0): Promise<ReplayPage> {
     if (!Number.isSafeInteger(after) || after < 0) throw new ReplayError('Invalid replay cursor.');
     let directory: string, file;
@@ -18,7 +28,7 @@ export class ReplayStore {
       // This small independent marker exposes writer failures even after a partial line.
       let status;
       try {
-        status = await replayFile(directory, 'status.json');
+        status = await this.openStatus(directory);
         if ((await status.stat()).size > 2048) throw new ReplayError('Replay status is oversized.', 409);
         const value = JSON.parse(await status.readFile('utf8')) as { state: string };
         if (value.state === 'error') throw new ReplayError('Replay recording failed. Its audit log contains the storage error.', 409);

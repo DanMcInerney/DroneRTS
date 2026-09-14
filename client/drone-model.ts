@@ -24,6 +24,21 @@ export function makeDrone(id: string) {
   const miner = new THREE.Group(); miner.name = 'miner'; miner.position.set(0, -0.11, 0);
   const drill = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.19, 8), new THREE.MeshLambertMaterial({ color: '#f6c767' })); drill.rotation.z = Math.PI; drill.position.y = -0.04;
   miner.add(drill, new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.065, 0.2), dark)); group.add(miner);
+  const upgrade = new THREE.Group(); upgrade.name = 'miner-upgrade';
+  for (const x of [-0.11, 0.11]) {
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.1, 8), material); motor.position.set(x, -0.005, 0); upgrade.add(motor);
+  }
+  miner.add(upgrade);
+  const optics = new THREE.Group(); optics.name = 'optics'; optics.position.set(0, 0.03, -0.21);
+  const scope = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.14, 12), dark); scope.rotation.x = Math.PI / 2; optics.add(scope);
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.047, 12), new THREE.MeshLambertMaterial({ color: '#78ebed', emissive: '#185967', emissiveIntensity: 0.5 })); lens.rotation.y = Math.PI; lens.position.z = -0.071; optics.add(lens); group.add(optics);
+  const battery = new THREE.Group(); battery.name = 'battery'; battery.position.set(0, 0.06, 0.19);
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 0.12), dark); battery.add(pack);
+  const strap = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.025, 0.04), material); strap.position.y = 0.07; battery.add(strap); group.add(battery);
+  const jammer = new THREE.Group(); jammer.name = 'jammer'; jammer.position.set(0, 0.12, 0.07);
+  const housing = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.055, 0.09), dark); jammer.add(housing);
+  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.012, 0.2, 6), material); antenna.position.y = 0.12; jammer.add(antenna);
+  const crossbar = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.012, 0.012), dark); crossbar.position.y = 0.2; jammer.add(crossbar); group.add(jammer);
   return group;
 }
 
@@ -34,6 +49,10 @@ export function positionDrone(mesh: THREE.Group, drone: Drone) {
   const gun = mesh.getObjectByName('gun')!; gun.visible = Boolean(drone.equipment?.gun); gun.rotation.x = THREE.MathUtils.degToRad(drone.pitch);
   mesh.getObjectByName('armor')!.visible = drone.alive !== false && Boolean(drone.equipment?.armor);
   mesh.getObjectByName('miner')!.visible = Boolean(drone.equipment?.miner);
+  mesh.getObjectByName('miner-upgrade')!.visible = Boolean(drone.equipment?.miner && drone.equipment.minerUpgrade);
+  const optics = mesh.getObjectByName('optics')!; optics.visible = Boolean(drone.equipment?.optics); optics.rotation.x = THREE.MathUtils.degToRad(drone.pitch);
+  mesh.getObjectByName('battery')!.visible = Boolean(drone.equipment?.battery);
+  mesh.getObjectByName('jammer')!.visible = Boolean(drone.equipment?.jammer);
   const body = mesh.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>;
   body.material.color.set(drone.alive === false ? '#363b3f' : dronePresentation(drone.id).color);
 }

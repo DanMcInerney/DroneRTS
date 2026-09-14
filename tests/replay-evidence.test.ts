@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { FleetGame } from '../server/game.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import type { RecordedObservation } from '../shared/replay.ts';
-import type { MatchEvent } from '../shared/rts.ts';
+import { RTS_CONFIG, type MatchEvent } from '../shared/rts.ts';
 import type { ToolResult } from '../shared/types.ts';
 
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
@@ -60,8 +60,9 @@ test('player combat events correlate physical shots and impacts without adding h
   const game = await fixture(), events: MatchEvent[] = [];
   game.on('match-event', event => events.push(event));
   try {
-    game.state.drones.forEach((d, i) => { d.alive = i === 0 || i === 3; Object.assign(d, { x: 0, y: 8, z: i === 0 ? 20 : 8 }); });
+    game.state.drones.forEach((d, i) => { d.alive = i === 0 || i === 3; d.equipment!.armor = false; Object.assign(d, { x: 0, y: 8, z: i === 0 ? 20 : 8 }); });
     game.state.drones[0].equipment!.gun = true;
+    game.state.drones[0].ammo = RTS_CONFIG.magazineSize;
     const result = body(await game.tool('drone-1', 'fire', { mission: 1 }));
     assert.equal(result.fired, true);
     const fired = events.find(e => e.type === 'fired'); assert.ok(fired?.projectileId);
@@ -71,6 +72,8 @@ test('player combat events correlate physical shots and impacts without adding h
     assert.equal(events.find(e => e.type === 'destroyed')?.projectileId, fired.projectileId);
     assert.equal(game.state.match!.winner, 'blue');
     assert.equal(JSON.stringify(result).includes(fired.projectileId), false);
-    assert.equal(JSON.stringify(result).includes('impact'), false);
+    // The commander briefing may explain impacts; actor receipts still cannot expose hit events.
+    assert.equal(Object.hasOwn(result, 'impact'), false);
+    assert.equal(result.events.some((event: any) => event.type === 'impact'), false);
   } finally { game.stop(); }
 });

@@ -20,7 +20,16 @@ type Dependencies = {
 /** One match, two independent native parents, two radio namespaces, six vehicle IDs. */
 export class TeamSession {
   private stopped = false;
+  private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
+  private radioReady = false;
+  private radioDirty = false;
+  private radioTask?: Promise<void>;
+  private radioFailure?: Error;
+  private manualIsolation = new Set<DroneId>();
+  private retired = new Set<DroneId>();
+  private appliedLinks = new Map<DroneId, boolean>();
+  private readonly interferenceChanged = () => { void this.reconcileRadio().catch(() => {}); };
   private runtimes = new Map<TeamId, RuntimeActor>();
   private networks = new Map<TeamId, NetworkActor>();
   private runtimeStates = new Map<TeamId, RuntimeState>();
@@ -29,10 +38,12 @@ export class TeamSession {
   readonly radio = {
     send: async (message: RadioMessage) => {
       if (message.from === 'player') throw new Error('Player radio must select a team');
+      await this.reconcileRadio();
       return this.networkFor(teamForDrone(message.from as DroneId)).send(message);
     },
     sendTeam: async (team: TeamId, message: RadioMessage) => {
       if (message.from !== 'player') throw new Error('Only original player instructions use the team relay');
+      await this.reconcileRadio();
       return this.networkFor(team).send(message);
     },
     consume: (id: DroneId, ids: string[]) => this.networkFor(teamForDrone(id)).consume(id, ids),
@@ -97,27 +108,85 @@ export class TeamSession {
       threadId: this.runtimeStates.get('blue')?.threadId,
     });
   }
-  async start() {
-    await Promise.all([...this.networks.values()].map(network => network.start()).concat([this.vehicle.start()]));
-    if (this.stopped || !this.options.game.state.running) throw new Error('Match startup cancelled');
-    this.options.game.radioTransport = this.radio; this.options.game.vehicleTransport = this.vehicle;
-    await Promise.all([...this.runtimes.values()].map(runtime => runtime.start()));
-    if (this.stopped) throw new Error('Match startup cancelled');
+  start(): Promise<void> {
+    if (this.stopped) return Promise.reject(new Error('Match startup cancelled'));
+    if (this.startPromise) return this.startPromise;
+    this.options.game.radioInterferenceChanged = this.interferenceChanged;
+    this.startPromise = (async () => {
+      try {
+        await Promise.all([...this.networks.values()].map(network => network.start()).concat([this.vehicle.start()]));
+        if (this.stopped || !this.options.game.state.running) throw new Error('Match startup cancelled');
+        // Native workers start online. Desired restrictions are reconciled before actors start.
+        for (const { id } of MATCH_FLEET) this.appliedLinks.set(id, true);
+        this.radioReady = true;
+        this.options.game.radioTransport = this.radio; this.options.game.vehicleTransport = this.vehicle;
+        await this.reconcileRadio();
+        if (this.stopped) throw new Error('Match startup cancelled');
+        await Promise.all([...this.runtimes.values()].map(runtime => runtime.start()));
+        if (this.stopped) throw new Error('Match startup cancelled');
+      } catch (error) { await this.stop(); throw error; }
+    })();
+    return this.startPromise;
+  }
+
+  private desiredLink(id: DroneId) {
+    const drone = this.options.game.state.drones.find(member => member.id === id);
+    return Boolean(drone && drone.alive !== false && !drone.radioJammed && !this.manualIsolation.has(id) && !this.retired.has(id));
+  }
+
+  private async applyRadioLinks() {
+    while (!this.stopped && this.radioDirty) {
+      this.radioDirty = false;
+      for (const { id } of MATCH_FLEET) {
+        if (this.stopped) return;
+        const online = this.desiredLink(id);
+        if (this.appliedLinks.get(id) === online) continue;
+        await this.networkFor(teamForDrone(id)).link(id, online);
+        if (this.stopped) return;
+        this.appliedLinks.set(id, online);
+      }
+    }
+  }
+
+  /** Settles native link changes before sending; native peers retain queued bytes while offline. */
+  async reconcileRadio(): Promise<void> {
+    this.radioDirty = true;
+    while (!this.stopped && this.radioReady) {
+      if (this.radioFailure) throw this.radioFailure;
+      this.radioTask ??= this.applyRadioLinks();
+      const task = this.radioTask;
+      try { await task; }
+      catch (error) {
+        if (this.stopped) return;
+        if (!this.radioFailure) {
+          this.radioFailure = error instanceof Error ? error : new Error(String(error));
+          this.fail(`Native radio reconciliation failed: ${this.radioFailure.message}`);
+        }
+        throw this.radioFailure;
+      } finally { if (this.radioTask === task) this.radioTask = undefined; }
+      // A newer request can arrive while the preceding task's completion is queued.
+      if (!this.radioDirty && !this.radioTask) return;
+    }
   }
   async link(id: DroneId, online: boolean) {
-    if (this.options.game.state.drones.find(drone => drone.id === id)?.alive === false) throw new Error('Destroyed drones cannot reconnect');
-    await this.networkFor(teamForDrone(id)).link(id, online);
+    this.networkFor(teamForDrone(id));
+    if (online && (this.retired.has(id) || this.options.game.state.drones.find(drone => drone.id === id)?.alive === false)) throw new Error('Destroyed drones cannot reconnect');
+    if (online) this.manualIsolation.delete(id); else this.manualIsolation.add(id);
+    await this.reconcileRadio();
   }
   async retireDrone(id: DroneId) {
-    if (this.stopped) return;
+    if (this.stopped || this.retired.has(id)) return;
+    this.retired.add(id);
     const team = teamForDrone(id);
-    try { await Promise.all([this.runtimes.get(team)?.retireDrone(id), this.networkFor(team).link(id, false)]); }
-    catch (error) { this.fail(`Could not retire ${id}: ${String(error)}`); }
+    try { await Promise.all([this.runtimes.get(team)?.retireDrone(id), this.reconcileRadio()]); }
+    catch (error) { if (!this.radioFailure) this.fail(`Could not retire ${id}: ${String(error)}`); }
   }
   async refreshTools() { await Promise.allSettled([...this.runtimes.values()].map(runtime => runtime.refreshTools())); }
   stop() {
     if (this.stopPromise) return this.stopPromise;
     this.stopped = true;
+    this.radioReady = false;
+    if (this.options.game.radioInterferenceChanged === this.interferenceChanged) this.options.game.radioInterferenceChanged = undefined;
     this.stopPromise = (async () => {
       await Promise.allSettled([...this.runtimes.values()].map(runtime => runtime.stop()).concat([...this.networks.values()].map(network => network.stop()), [this.vehicle.stop()]));
       if (this.options.game.radioTransport === this.radio) this.options.game.radioTransport = undefined;

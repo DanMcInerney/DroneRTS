@@ -79,7 +79,7 @@ async function command(path: string, body?: unknown) {
 }
 startButton.addEventListener('click', async () => {
   element('alert').hidden = true; element('mission-feedback').textContent = `Starting both teams and ${state?.drones.length ?? MATCH_DRONE_IDS.length} independent Luna drone agents…`;
-  const result = await command('start'); element('mission-feedback').textContent = result === undefined ? 'Launch failed. See the notice above.' : 'Both teams launched. Their elimination objectives are queued automatically.';
+  const result = await command('start'); element('mission-feedback').textContent = result === undefined ? 'Launch failed. See the notice above.' : 'Both teams launched. Their objectives and commander briefings are queued automatically.';
 });
 stopButton.addEventListener('click', async () => { await command('stop'); element('mission-feedback').textContent = 'Match stopped. Reset to restore drones, resources and equipment.'; });
 resetButton.addEventListener('click', async () => { if (await command('reset') !== undefined) element('mission-feedback').textContent = 'World reset. Launch the match for a fresh six-drone battle.'; });

@@ -21,6 +21,8 @@ Mining, purchases, armor and firing are game-layer actions in `server/rts.ts`; t
 
 The simulator axes are east/up/south. The private conversion is NED north = `-sim.z`, east = `sim.x`, down = `-sim.y`; compass heading = `-sim.yaw mod 360`. MAVLink positions and angles use float32 precision, which intentionally carries through to accepted commands and observations.
 
+XYZ values are not rounded to whole units. The native integration regression sends positive and negative 0.01/0.05 adjustments along each axis through the real MAVLink bridge, observes continuous flight, checks arrival at the decoded float32 waypoint, and confirms matching telemetry with no subsequent drift. Only simulation timestamps are quantized to milliseconds. Player XYZ readouts show three decimals; no new scale, axis conventions or movement calibration are supplied to agents.
+
 Mission numbers stay in the TypeScript pending request closure. They are restored to the result after the wire operation. They are **not encoded in MAVLink**, and this bridge does not invent a MAVLink mission-epoch field. IPC request IDs and MAVLink sequence numbers are different concepts.
 
 # Observation boundary

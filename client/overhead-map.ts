@@ -14,6 +14,7 @@ export class OverheadMap {
   private lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private markers = new Map<string, HTMLElement>();
   private resources = new Map<string, HTMLElement>();
+  private servicePads = new Map<string, HTMLElement>();
   private abort = new AbortController();
 
   constructor(readonly view: HTMLElement, private invalidate: () => void, enter: (x: number, z: number, altitude: number) => void) {
@@ -88,8 +89,25 @@ export class OverheadMap {
         marker.innerHTML = '<span>◆</span><b></b>'; this.resources.set(node.id, marker); this.markerLayer.append(marker);
       }
       const [x, y] = project(node.x, node.z);
-      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
-      marker.classList.toggle('depleted', node.remaining <= 0); marker.querySelector('b')!.textContent = `${String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}`;
+      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height || (node.zoneSize !== undefined && node.remaining <= 0);
+      marker.querySelector('span')!.textContent = node.zoneSize === undefined ? '◆' : '□';
+      const rich = (node.extractionMultiplier ?? 1) > 1;
+      marker.classList.toggle('depleted', node.remaining <= 0); marker.classList.toggle('rich', rich);
+      marker.querySelector('b')!.textContent = `${rich ? 'MEGA' : String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}${rich ? ` · ${node.extractionMultiplier}×` : ''}`;
+      marker.title = `${rich ? 'Central mega deposit' : `Deposit ${index + 1}`} · ${Math.ceil(node.remaining)} salvage remaining`;
+    }
+    const padIds = new Set(match?.servicePads?.map(pad => pad.id) ?? []);
+    for (const [id, marker] of this.servicePads) if (!padIds.has(id)) { marker.remove(); this.servicePads.delete(id); }
+    for (const pad of match?.servicePads ?? []) {
+      let marker = this.servicePads.get(pad.id);
+      if (!marker) {
+        marker = document.createElement('div'); marker.className = 'map-service-pad'; marker.dataset.padId = pad.id;
+        marker.innerHTML = '<span>H</span><b>SERVICE</b>'; this.servicePads.set(pad.id, marker); this.markerLayer.prepend(marker);
+      }
+      marker.dataset.team = pad.team; marker.classList.toggle('cube', pad.zoneSize !== undefined);
+      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} service ${pad.zoneSize === undefined ? 'pad' : 'cube'} · refit, rearm and automatic charging`;
+      const [x, y] = project(pad.x, pad.z); marker.style.left = `${x}px`; marker.style.top = `${y}px`;
+      marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
     }
     const displayedIds = new Set<string>(displayed.map(drone => drone.id));
     for (const [id, marker] of this.markers) if (!displayedIds.has(id)) { marker.remove(); this.markers.delete(id); }
@@ -106,6 +124,9 @@ export class OverheadMap {
       }
       const [x, y] = project(drone.x, drone.z);
       marker.classList.toggle('eliminated', drone.alive === false);
+      marker.classList.toggle('jamming', drone.alive !== false && Boolean(drone.jamming));
+      marker.classList.toggle('radio-jammed', drone.alive !== false && Boolean(drone.radioJammed));
+      marker.title = `${drone.id}${drone.jamming ? ' · Jammer active' : ''}${drone.radioJammed ? ' · Radio jammed' : ''}`;
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
       marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       (marker.firstElementChild as HTMLElement).style.transform = `rotate(${-drone.yaw}deg)`;
@@ -113,5 +134,5 @@ export class OverheadMap {
     this.lines.replaceChildren(...paths);
   }
 
-  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); this.resources.clear(); }
+  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); this.resources.clear(); this.servicePads.clear(); }
 }

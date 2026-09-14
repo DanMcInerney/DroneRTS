@@ -47,6 +47,7 @@ test('a new instruction hovers drones and rejects delayed commands carrying the 
 });
 test('movement is continuous, unarmored building contact destroys, and browser loss pauses simulation', async () => {
   const game = await ready(), drone = game.state.drones[0];
+  drone.equipment!.armor = false;
   game.state.obstacles = [{ x: -7, z: 3, width: 4, depth: 5, height: 3 }];
   Object.assign(drone, { x: -7, y: 2, z: 9 });
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -7, y: 2, z: -5 });

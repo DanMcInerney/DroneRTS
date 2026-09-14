@@ -91,18 +91,29 @@ test('overlapping failure and UI shutdown share one cleanup and retain the error
   assert.equal(events.at(-1).status, 'error');
 });
 
-test('catalog discovers purchases after mining and weapons only after attachment', () => {
+test('catalog exposes purchases with team credit access and equipment tools only after attachment', () => {
   const base = createDroneTools().map(tool => tool.name);
-  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'mine']);
+  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'mine', 'recharge']);
   const shop = createDroneTools(undefined, { shop: true, gun: false, alive: true }).map(tool => tool.name);
   assert.deepEqual(shop, [...base, 'buy']);
   const armed = createDroneTools(undefined, { shop: true, gun: true, alive: true }).map(tool => tool.name);
-  assert.deepEqual(armed, [...shop, 'fire']);
+  assert.deepEqual(armed, [...shop, 'fire', 'rearm']);
+  const optics = createDroneTools(undefined, { shop: true, gun: false, optics: true, alive: true }).map(tool => tool.name);
+  assert.deepEqual(optics, [...shop, 'camera']);
+  const equipped = createDroneTools(undefined, { shop: true, gun: true, optics: true, alive: true });
+  assert.deepEqual(equipped.map(tool => tool.name), [...armed, 'camera']);
+  assert.deepEqual(equipped.find(tool => tool.name === 'camera')!.inputSchema.required, ['mission', 'mode']);
+  assert.deepEqual(equipped.find(tool => tool.name === 'rearm')!.inputSchema.required, ['mission']);
+  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'miner', 'optics', 'battery', 'jammer']);
+  const jammer = createDroneTools(undefined, { shop: true, gun: false, jammer: true, alive: true });
+  assert.deepEqual(jammer.map(tool => tool.name), [...shop, 'jam']);
+  assert.deepEqual(jammer.find(tool => tool.name === 'jam')!.inputSchema.required, ['mission', 'enabled']);
+  assert.deepEqual(jammer.find(tool => tool.name === 'jam')!.inputSchema.properties!.enabled, { type: 'boolean' });
   assert.deepEqual(createDroneTools(undefined, { shop: true, gun: true, alive: false }), []);
   const instructions = droneInstructions('drone-1', undefined, 'blue');
   assert.match(instructions, /blue team/);
   assert.match(instructions, /tool_catalog_changed[\s\S]*finish this turn immediately/);
-  assert.doesNotMatch(instructions, /Cincinnati|gun|armor|miner|metres|meters|north|south|treasure/);
+  assert.doesNotMatch(instructions, /Cincinnati|gun|miner|metres|meters|north|south|treasure/);
 });
 
 test('destroying one native child interrupts only that child and revokes all its tools', async () => {

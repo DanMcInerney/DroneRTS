@@ -6,7 +6,7 @@ export type ReplayMoment = ReplayCombatEvent | ReplayCommand;
 export interface ReplaySample {
   time: number; frame?: ReplayFrame; observation?: ReplayObservation;
   events: ReplayCombatEvent[]; moments: ReplayMoment[];
-  metrics: { shots: number; hits: number; deaths: number; terrain: number; ram: number; bullet: number; unknown: number; salvage: number };
+  metrics: { shots: number; hits: number; deaths: number; terrain: number; ram: number; bullet: number; power?: number; unknown: number; salvage: number };
 }
 
 /** Indexes evidence by acquisition/simulation time, never by the order disk writes finish. */
@@ -44,15 +44,17 @@ export class ReplayTimeline {
     const frame = atOrBefore(this.frames, time), observation = actor ? atOrBefore(this.observations.get(actor) ?? [], time) : undefined;
     const moments = this.moments.filter(record => record.simTime <= time);
     const events = moments.filter((record): record is ReplayCombatEvent => record.type === 'event');
-    const metrics = { shots: 0, hits: 0, deaths: 0, terrain: 0, ram: 0, bullet: 0, unknown: 0, salvage: 0 };
+    const metrics: ReplaySample['metrics'] = { shots: 0, hits: 0, deaths: 0, terrain: 0, ram: 0, bullet: 0, unknown: 0, salvage: 0 };
     for (const { event } of events) {
       if (event.type === 'fired') metrics.shots++;
       if (event.type === 'impact' && event.target) metrics.hits++;
       if (event.type === 'destroyed') {
         metrics.deaths++;
         // Accept historical recordings that predate the structured cause field.
-        const cause = (event.cause !== 'expired' ? event.cause : undefined) ?? event.message.match(/destroyed by (terrain|ram|bullet)\./)?.[1] as 'terrain' | 'ram' | 'bullet' | undefined;
-        metrics[cause ?? 'unknown']++;
+        const cause = (event.cause !== 'expired' ? event.cause : undefined) ?? event.message.match(/destroyed by (terrain|ram|bullet)\./)?.[1];
+        if (cause === 'power') metrics.power = (metrics.power ?? 0) + 1;
+        else if (cause === 'terrain' || cause === 'ram' || cause === 'bullet') metrics[cause]++;
+        else metrics.unknown++;
       }
     }
     metrics.salvage = Object.values(frame?.match?.teams ?? {}).reduce((sum, team) => sum + team.earned, 0);

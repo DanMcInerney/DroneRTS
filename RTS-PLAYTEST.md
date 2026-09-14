@@ -189,3 +189,78 @@ Verified interactively in the Codex in-app browser with an isolated, inference-f
 `npm run build` passed, with the existing bundle-size advisory. All 23 tests in `tests/game.test.ts` and `tests/rts-game.test.ts` passed. No new live gameplay inference was launched for these UI checks. This validates the presentation change; it does not establish improved agent combat performance.
 
 Before PR merge, the full automated suite passed all 149 tests, including real Zenoh and MAVLink integration checks. The production build passed with the existing bundle-size advisory. The watchable UI checks above used the same final client code.
+
+## Strategic economy milestone 1 — September 14, 2026
+
+The working tree based on `d4a11e5b46a84c02be37a9766bbd3e8980e8b9d5` adds the one-purchase opening, hidden outer deposits and central rich deposit, two equipment slots, real camera zoom, finite ammunition and service-pad refitting/rearming. [STRATEGY-PLAN.md](STRATEGY-PLAN.md) defines the design and later milestones; [STRATEGY-VERIFICATION.md](STRATEGY-VERIFICATION.md) records the current implementation checks and local artifact paths.
+
+The full suite passed 190 tests, including native Zenoh/MAVLink integration. All 34 deterministic control fixtures, TypeScript/production build and both deterministic browser verification workflows passed. The replay fixture produced 244 records with exact delivered image bytes and no browser errors. A later recorder regression verified that capture-specific field of view survives recording even if the supplied observation changes afterward; all 16 recorder/store tests passed.
+
+No live gameplay inference was launched for this milestone. The new economy's autonomous strategy and balance remain unmeasured; the historical live results above retain their original scope. QA used an owned server on 4319 to preserve another checkout's idle 4318 server, then closed its temporary browser and server.
+
+## Endurance and radio interference — September 14, 2026
+
+Milestone 2 adds finite battery charge, free timed pad charging, larger battery modules and powered radio jammers that also affect nearby allies and the emitter. Native Zenoh link transitions combine interference, manual isolation and actor death. Camera/control access continues. [ENDURANCE-VERIFICATION.md](ENDURANCE-VERIFICATION.md) records the implementation, exact test scope, artifacts and the replay status-marker race repaired during verification.
+
+The final automated suite passed **242 tests**, including real native transport integration. All **34** prescribed control fixtures and both deterministic browser workflows passed; the replay fixture contains **381 records**, with recorded operational state and exact delivered camera bytes. TypeScript/production build passed with the existing bundle-size advisory. No gameplay inference was launched, so battery-return strategy and jammer coordination remain unmeasured. The owned 4319 test service and temporary browser were closed; the other checkout's idle 4318 service was preserved.
+
+## Strategic economy live follow-up — September 14, 2026
+
+Two bounded, normal-opening **Luna/xhigh** matches used the same source manifest and actual Codex sidebar camera browser on owned port 4319. [STRATEGY-LIVE-PLAYTEST.md](STRATEGY-LIVE-PLAYTEST.md) records the complete scope, evidence and next steps.
+
+| Result | First match | Second match |
+| --- | --- | --- |
+| Duration / outcome | 479.986 s; time limit, one survivor per team | 277.181 s; natural blue victory, three blue survivors |
+| Opening purchases | One gun per team | One gun per team |
+| Mined salvage | 0 for both teams | 0 for both teams |
+| Completed charging | Four drones | None before early finish |
+| Deaths / shots | Four teammate-ram deaths; two missed shots | Two teammate-ram deaths, one terrain death; no shots |
+| Delivered images / drone radio | 397 / 55 | 236 / 35 |
+
+The first match never reached mining distance. The second did: Blue 1 approached the Elm deposit, but a close-up observation replaced its recent valid resource evidence with an empty list when the tested center fell outside the camera margin. Its in-reach mining attempt at 255.925 s was rejected. Fixing recent evidence retention and testing a gather-and-return objective is the next useful step; the current matches do not validate an expanding economy, competitive prices or useful jamming.
+
+Both replays have all delivered images and no recorded gameplay errors or replay warnings. The second runner stalled during shutdown, so its summary is explicitly recovered from complete replay/audit evidence. The cleanup defect is now fixed: stop accepting connections before Vite shutdown, close all owned TCP sockets and save results before teardown. An actual-host no-inference regression and the final build passed. The owned server/browser and actors/helpers are stopped; the other checkout's idle 4318 service was preserved. The full 242-test suite above predates this isolated runner fix.
+
+## Automatic cube simplification — September 14, 2026
+
+Per the user's follow-up, resource and service props are now translucent six-unit cubes. A living drone inside a yellow cube mines automatically; inside its team's cube it charges continuously, retaining partial charge when it leaves. Three drones can share a cube. The previous camera-evidence gate and required mining/charging commands are removed from active gameplay. Base/pack capacities are now 300/600; existing decimal XYZ controls are verified through native MAVLink and displayed to three decimals.
+
+[CUBE-ZONES-VERIFICATION.md](CUBE-ZONES-VERIFICATION.md) records the current implementation, layout changes and evidence. All **251 tests**, **34 control fixtures**, TypeScript/production build and both deterministic browser workflows passed. Browser checks include three simultaneous miners/chargers and a **635-record replay** with actual delivered images and charging state. No model inference was launched, so earlier autonomous match results do not validate this revision's strategy or navigation. The owned QA service/browser were closed and the other checkout's idle 4318 service preserved.
+
+## Intersection cubes and minimal briefing — September 14, 2026, 16:18 UTC
+
+One bounded normal-opening match used the intersection-sized resource cubes, approximately five-minute base flight endurance, automatic mining/charging and the recognition/rules-only opening briefing. All six native drones and both relay parents used **gpt-5.6-luna / xhigh**, with actual Codex sidebar camera images, Zenoh radio and MAVLink control. The owned trial ran on 4319; the other checkout's idle 4318 service was preserved.
+
+Local evidence: `artifacts/focused-trials/2026-09-14T16-18-40-430Z-match/`. Its source-manifest SHA-256 is `e660a837e19cd9c96da1e0fe2566826c539c51201f8c0714743d9c5709e7ebeb`. `result.json`, the original audit/replay and `analysis.json` from `scripts/analyze-trial.ts` preserve the result.
+
+- Natural **blue victory at 401.867 simulation seconds**, with Blue 2 and Blue 3 surviving. Red 1 and Red 2 collided with each other at 189.478 s; Blue 1 and Red 3 later exhausted their batteries. This was not a combat victory.
+- Blue 2 and Red 3 independently bought guns at 31.667 s and 37.233 s. Neither team earned salvage; all five deposits remained full. Blue 2 fired one shot, which struck terrain. No drone hit was recorded.
+- **234 delivered camera observations**, with no missing images, and **15 drone-sent radio messages**. Messages included requests for sightings and reported intentions, but this run did not demonstrate an expanding economy or effective coordinated combat.
+- Blue 2 returned to automatic charging and reached full charge at 377.599 s. Two power-loss deaths still occurred, so reliable team battery management was not demonstrated.
+- No recorded runtime/transport failures or replay warnings. Three purchases were rejected for insufficient shared funds, and two camera commands were rejected by actuator limits; these are explicit game feedback, not runtime failures. Cleanup completed, and the owned server and gameplay actors/helpers stopped.
+
+During the run, the user requested a peer-radio explanation and a general expectation of efficient teamwork. The revised shared briefing explains private messages and delayed delivery, and asks drones to share relevant observations, intentions and help requests while choosing their own plans. That text applies to subsequent launches. The saved audit confirms this match received only the earlier two opening messages, so it does **not** validate the revised teamwork briefing. The new briefing passed 32 focused runtime/observation/mission tests and the production build; no additional inference trial was launched.
+
+## Communication briefing trial and starting armor — September 14, 2026, 16:28 UTC
+
+The next normal-opening Luna/xhigh match did use the revised peer-radio/teamwork briefing. It ended in natural blue victory at **145.283 s** after all three red drones hit buildings. It produced **109 delivered images**, **14 peer messages**, one gun purchase per team, no shots and no mined salvage. The audit/replay recorded no missing images, runtime failures or replay warnings, and cleanup completed. Local evidence is `artifacts/focused-trials/2026-09-14T16-28-13-099Z-match/`, with source-manifest SHA-256 `bca706441b7309161fbb095b7bde4913f977cc932502ab447e7643d983202032`.
+
+[ARMOR-AND-COLLISION-ANALYSIS.md](ARMOR-AND-COLLISION-ANALYSIS.md) details each death, actual pre-command camera context, communication and subsequent implementation. Each fatal command used integer waypoints decoded exactly by MAVLink. The routes intersected buildings; the evidence does not implicate decimal precision, and the movement/controller conversion code had not changed.
+
+Following the user's request, all six drones now receive one free starting armor charge, while retaining the 30-salvage team opening budget. An absorbed collision clears movement and sends local **Collision detected. Armor lost.** feedback. Bullet absorption produces generic hit/armor-loss feedback. These alerts expose no impact locator or attacker identity. The existing one-hit, replacement-purchase and power-loss rules remain in force.
+
+Deterministic replays of all three fatal approaches now survive the first impact and receive the alert; a repeated unprotected approach remains lethal. The focused 135-check set passed after updating obsolete battery expectations and rerunning the affected replay checks; the native fractional-MAVLink test and production build also passed. No full-suite, browser or additional inference run was performed. The new armor behavior has not yet been evaluated with autonomous actors.
+
+## Opening agreement and starting armor trial — September 14, 2026, 16:48 UTC
+
+A fresh normal-opening match used both changes with six clean native **gpt-5.6-luna / xhigh** drones, mechanical parents, actual sidebar camera images, Zenoh radio and MAVLink control. The run stopped at its **479.995-second time limit**, with one blue and three red survivors, no winner, **47 peer messages**, **274 delivered images**, one gun purchase per team, **zero mined salvage and zero shots**. Four surviving drones completed recharging. No images were missing and there were no recorded runtime/transport errors, trial failures or replay warnings; cleanup completed and the owned port-4319 host stopped. The other checkout's idle 4318 service was preserved.
+
+Local evidence: `artifacts/focused-trials/2026-09-14T16-48-54-374Z-match/`. Source-manifest SHA-256: `9dd3a7ad76e410849b89205d17bf9e3ae9c77e9af184a33c863968c55b6d6e66`. Both offline analyzers completed against matching source. Original audit/replay and `result.json` are preserved; `analysis.json`, `engagement-analysis.json` and `coordination-and-collision-analysis.json` contain derived evidence.
+
+The briefing reached all six drones and prompted discussion: 26 messages occurred in the first 101 seconds. However, overlapping proposals and acknowledgements named conflicting buyers. Blue 2 purchased at 48.161 seconds and Red 2 at 53.264 seconds, followed by confusion about ownership. No duplicate purchase was attempted. Message count alone does not demonstrate consensus or more efficient coordination.
+
+All three absorbed collisions delivered local armor-loss feedback with cleared current movement. Blue 3 survived an environment contact at 128.754 seconds, climbed and continued, then died at 192.472 seconds after flying to Blue 1's occupied `(8,5,40.5)` destination. Blue 1's armor absorbed that impact; it later died when Blue 2 flew to its occupied `(30,20,40.5)` destination at 291.642 seconds. Blue 2 survived on armor. The associated waypoints decoded exactly; decimal precision does not explain these contacts. This run contained one protected environment contact and two friendly collision incidents.
+
+Resource reports did not become successful approaches: the closest sampled drone center was still 5.86 local units outside a resource volume. Blue 1's optional mining status query correctly reported that its guessed destination was not in reach. A real pre-command image shows a distant yellow cube, but its guessed coordinates did not identify a resource. Median camera acquisition-to-delivery was 15 ms; median delivery-to-next-command was 6.095 seconds, with a 15.627-second 95th percentile. These are combined transport/model/tool timings, not a direct measurement of private reasoning.
+
+The user subsequently requested a simpler, more realistic cargo economy, improved camera readability, useful sensors, batched control and private scripting. [DRONE-RTS-NEXT-SESSION-PLAN.md](DRONE-RTS-NEXT-SESSION-PLAN.md) records the proposed design, graphics-subagent review, current capabilities and staged acceptance criteria. Those proposed features are not implemented by this trial or documentation update. No further live run or full test suite was started.

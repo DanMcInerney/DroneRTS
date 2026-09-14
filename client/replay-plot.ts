@@ -1,4 +1,5 @@
 import type { DroneId } from '../shared/types';
+import { resourceZoneSize, serviceZoneSize } from '../shared/rts';
 import { ReplayTimeline, type ReplaySample } from './replay-model';
 
 type Extent = { x: [number, number]; z: [number, number] };
@@ -73,7 +74,25 @@ export class ReplayPlot {
       for (let index = 1; index < points.length; index++) if (points[index].time - points[index - 1].time <= maxGap) line([points[index - 1].point, points[index].point], '#f7cf84', 1.8);
     }
     for (const resource of sample.frame.match?.resources ?? []) {
-      const at = xy(resource); ctx.fillStyle = resource.remaining > 0 ? '#d9c78f' : '#4c514a'; ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-3, -3, 6, 6); ctx.restore();
+      const rich = (resource.extractionMultiplier ?? 1) > 1, size = rich ? 5 : 3;
+      if (resource.zoneSize !== undefined && resource.remaining <= 0) continue;
+      const at = xy(resource);
+      if (resource.zoneSize !== undefined) {
+        const side = resourceZoneSize(resource) * scale;
+        ctx.fillStyle = '#ffe05c22'; ctx.strokeStyle = '#ffe05c'; ctx.lineWidth = 1;
+        ctx.fillRect(at.x - side / 2, at.y - side / 2, side, side); ctx.strokeRect(at.x - side / 2, at.y - side / 2, side, side); ctx.fillStyle = '#ffe05c';
+      } else {
+        ctx.fillStyle = resource.remaining > 0 ? '#d9c78f' : '#4c514a'; ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(Math.PI / 4); ctx.fillRect(-size, -size, size * 2, size * 2); ctx.restore();
+      }
+      if (rich) { ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText(`MEGA · ${Math.ceil(resource.remaining)} · ${resource.extractionMultiplier}×`, at.x, at.y + 18); }
+    }
+    for (const pad of sample.frame.match?.servicePads ?? []) {
+      const at = xy(pad), color = pad.team === 'blue' ? '#63d9ff' : '#ff746f'; ctx.strokeStyle = color; ctx.lineWidth = 1.3;
+      if (pad.zoneSize !== undefined) {
+        const side = serviceZoneSize(pad) * scale; ctx.fillStyle = `${color}22`;
+        ctx.fillRect(at.x - side / 2, at.y - side / 2, side, side); ctx.strokeRect(at.x - side / 2, at.y - side / 2, side, side);
+      } else { ctx.beginPath(); ctx.arc(at.x, at.y, 7, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.fillStyle = color; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText('H', at.x, at.y + 3);
     }
     for (const { event } of sample.events) {
       if (!['impact', 'destroyed', 'armor_consumed'].includes(event.type) || sample.time - event.simTime > 8 || event.x === undefined || event.z === undefined) continue;
@@ -87,7 +106,8 @@ export class ReplayPlot {
       ctx.save(); ctx.translate(at.x, at.y); ctx.rotate(-drone.yaw * Math.PI / 180); ctx.fillStyle = drone.alive === false ? '#687078' : color;
       ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5, 5); ctx.lineTo(0, 2); ctx.lineTo(-5, 5); ctx.closePath(); ctx.fill(); ctx.restore();
       if (drone.id === selected) { ctx.strokeStyle = '#e6f2d0'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(at.x, at.y, 12, 0, Math.PI * 2); ctx.stroke(); }
-      ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = color; ctx.fillText((member?.label ?? drone.id) + (drone.alive === false ? ' ×' : ''), at.x + 15, at.y + 3);
+      const signal = drone.alive === false ? ' ×' : drone.jamming ? ' · JAM' : drone.radioJammed ? ' · RF' : '';
+      ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = color; ctx.fillText((member?.label ?? drone.id) + signal, at.x + 15, at.y + 3);
       this.hits.push({ id: drone.id, ...at });
     }
     ctx.font = '10px monospace'; ctx.textAlign = 'left'; ctx.fillStyle = '#9ab2be'; ctx.fillText('N ↑', 16, 25);

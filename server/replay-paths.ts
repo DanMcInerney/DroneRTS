@@ -5,6 +5,7 @@ import { resolve, sep } from 'node:path';
 export const REPLAY_SESSION = /^session-[A-Za-z0-9_-]+\.jsonl$/;
 export const REPLAY_IMAGE = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}\.(jpg|png)$/;
 export class ReplayError extends Error { constructor(message: string, public status = 400) { super(message); } }
+export class ReplayFileReplacedError extends ReplayError { constructor() { super('Replay file changed; retry.', 409); } }
 export const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 
 async function directory(path: string, parent?: string) {
@@ -34,6 +35,6 @@ export async function replayFile(directory: string, filename: string) {
   if (!stat.isFile() || stat.isSymbolicLink() || !(await realpath(path)).startsWith(directory + sep)) throw new ReplayError('Replay file unavailable.', 404);
   const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   const opened = await file.stat();
-  if (opened.dev !== stat.dev || opened.ino !== stat.ino) { await file.close(); throw new ReplayError('Replay file changed; retry.', 409); }
+  if (opened.dev !== stat.dev || opened.ino !== stat.ino) { await file.close(); throw new ReplayFileReplacedError(); }
   return file;
 }

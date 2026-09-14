@@ -1,4 +1,4 @@
-/** Bounded live trials on owned port 4318. Keep a camera browser open there. */
+/** Bounded live trials on an owned port (4318 by default). Keep a camera browser open there. */
 import assert from 'node:assert/strict';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -14,18 +14,21 @@ const scenario = process.argv[2] as TrialScenario;
 assert.ok(SCENARIOS.includes(scenario), `Choose ${SCENARIOS.join(', ')}`);
 const seconds = Number(process.env.RTS_TRIAL_SECONDS ?? (scenario === 'match' ? 480 : 180));
 assert.ok(Number.isFinite(seconds) && seconds >= 30 && seconds <= 600, 'Trial must be 30–600 wall seconds');
+const port = Number(process.env.RTS_TRIAL_PORT ?? 4318);
+assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Trial port must be 1024–65535 and must preserve player port 4317');
+const url = `http://127.0.0.1:${port}`;
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const directory = resolve(projectDir, 'artifacts/focused-trials', `${new Date().toISOString().replace(/[:.]/g, '-')}-${scenario}`);
 const preflight: Record<string, unknown> = {};
-for (const port of [4317, 4318]) {
+for (const checkedPort of new Set([4317, 4318, port])) {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/api/state`, { signal: AbortSignal.timeout(5000) });
-    assert.ok(response.ok, `Port ${port} returned ${response.status}`);
+    const response = await fetch(`http://127.0.0.1:${checkedPort}/api/state`, { signal: AbortSignal.timeout(5000) });
+    assert.ok(response.ok, `Port ${checkedPort} returned ${response.status}`);
     const state = await response.json();
-    preflight[port] = { running: state.running, simTime: state.simTime, runtime: state.runtime.status };
-    assert.notEqual(port, 4318, 'Port 4318 already has a server; preserve it and stop only an owned server first');
+    preflight[checkedPort] = { running: state.running, simTime: state.simTime, runtime: state.runtime.status };
+    assert.notEqual(checkedPort, port, `Port ${port} already has a server; preserve it and stop only an owned server first`);
   } catch (error) {
-    if (error instanceof TypeError && (error.cause as NodeJS.ErrnoException)?.code === 'ECONNREFUSED') preflight[port] = 'unavailable';
+    if (error instanceof TypeError && (error.cause as NodeJS.ErrnoException)?.code === 'ECONNREFUSED') preflight[checkedPort] = 'unavailable';
     else throw error;
   }
 }
@@ -34,15 +37,15 @@ const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--
   .split(/\r?\n/).filter(path => /\.(ts|json|mjs|py|html|css)$/.test(path)).sort();
 const manifest = Object.fromEntries(await Promise.all(sourcePaths.map(async path => [path, createHash('sha256').update(await readFile(resolve(projectDir, path))).digest('hex')])));
 await writeFile(resolve(directory, 'source-manifest.json'), JSON.stringify(manifest, null, 2));
-const result: Record<string, any> = { scenario, seconds, model: MODEL, effort: EFFORT, preflight, directory,
+const result: Record<string, any> = { scenario, seconds, port, model: MODEL, effort: EFFORT, preflight, directory,
   revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectDir, encoding: 'utf8' }).trim(),
   manifestSha256: createHash('sha256').update(JSON.stringify(manifest)).digest('hex'), startedAt: new Date().toISOString(), failures: [], samples: [] };
-const host = await createTrialHost(projectDir, directory, scenario);
+const host = await createTrialHost(projectDir, directory, scenario, port);
 let cancelled = false;
 const cancel = () => { cancelled = true; void host.stop(); };
 process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
 try {
-  console.log(JSON.stringify({ ready: 'http://127.0.0.1:4318', directory, scenario, seconds }));
+  console.log(JSON.stringify({ ready: url, directory, scenario, seconds }));
   const browserDeadline = Date.now() + 60_000;
   while (!host.connected() && !cancelled && Date.now() < browserDeadline) await delay(250);
   assert.ok(host.connected() && !cancelled, 'Camera browser did not connect within 60 seconds');
@@ -62,7 +65,13 @@ try {
   result.endReason = cancelled ? 'signal' : host.game.state.completed ? 'natural-completion' : host.failures.length ? 'failure' : host.game.state.running ? 'time-limit' : 'external-stop';
 } catch (error) { result.failures.push(String(error)); }
 finally {
-  await host.close().catch(error => result.failures.push(`Cleanup: ${error}`));
+  // Preserve the actual final snapshot even if cleanup never settles.
+  result.cleanup = 'pending';
+  await writeFile(resolve(directory, 'result.json'), JSON.stringify({ ...result,
+    failures: [...result.failures, ...host.failures], warnings: host.warnings }, null, 2));
+  await host.close().then(() => { result.cleanup = 'complete'; }).catch(error => {
+    result.cleanup = 'failed'; result.failures.push(`Cleanup: ${error}`);
+  });
   result.failures.push(...host.failures); result.warnings = host.warnings;
   result.stopped = !host.game.state.running; result.completedAt = new Date().toISOString();
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2));

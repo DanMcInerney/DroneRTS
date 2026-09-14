@@ -3,6 +3,7 @@ import type { DroneId } from '../shared/types';
 import type { ReplayPage } from '../shared/replay';
 import { ReplayTimeline, type ReplayMoment } from './replay-model';
 import { ReplayPlot, type ReplayExtent } from './replay-plot';
+import { recordedOperations } from './equipment-presentation';
 
 const MAX_RECORDS = 60_000, MAX_BYTES = 64 * 1024 * 1024;
 const clock = (time: number) => `${Math.floor(time / 60).toString().padStart(2, '0')}:${(time % 60).toFixed(1).padStart(4, '0')}`;
@@ -153,7 +154,7 @@ export class ReplayViewer {
     select.value = this.actor ?? '';
     const sample = this.model.sample(this.time, this.actor), { metrics, frame, observation } = sample;
     const metric = (label: string, value: string, detail: string) => { const item = document.createElement('div'), title = document.createElement('span'), number = document.createElement('strong'), note = document.createElement('small'); title.textContent = label; number.textContent = value; note.textContent = detail; item.append(title, number, note); return item; };
-    this.el('replay-metrics').replaceChildren(metric('SHOTS / DRONE HITS', `${metrics.shots} / ${metrics.hits}`, 'Recorded fire and contact events'), metric('DRONES LOST', String(metrics.deaths), `${metrics.terrain} terrain · ${metrics.ram} ram · ${metrics.bullet} bullet${metrics.unknown ? ` · ${metrics.unknown} other` : ''}`), metric('SALVAGE RECOVERED', metrics.salvage.toFixed(1), 'Both teams · recorded earned balance'));
+    this.el('replay-metrics').replaceChildren(metric('SHOTS / DRONE HITS', `${metrics.shots} / ${metrics.hits}`, 'Recorded fire and contact events'), metric('DRONES LOST', String(metrics.deaths), `${metrics.terrain} terrain · ${metrics.ram} ram · ${metrics.bullet} bullet${metrics.power ? ` · ${metrics.power} power loss` : ''}${metrics.unknown ? ` · ${metrics.unknown} other` : ''}`), metric('SALVAGE RECOVERED', metrics.salvage.toFixed(1), 'Both teams · recorded earned balance'));
     this.el('replay-time').textContent = `${clock(this.time)} / ${clock(this.model.finish)}`;
     const scrub = this.el<HTMLInputElement>('replay-scrub'); scrub.min = String(this.model.start); scrub.max = String(Math.max(this.model.start + 0.01, this.model.finish)); scrub.value = String(this.time); scrub.setAttribute('aria-valuetext', `${this.time.toFixed(2)} simulation seconds`);
     this.el<HTMLButtonElement>('replay-previous').disabled = this.model.adjacent(this.time, -1) === undefined;
@@ -163,12 +164,16 @@ export class ReplayViewer {
     state.replaceChildren();
     if (drone) {
       const status = document.createElement('strong'); status.textContent = drone.alive === false ? 'DESTROYED' : drone.status || 'Active'; status.className = drone.alive === false ? 'replay-lost' : '';
-      const pose = document.createElement('span'); pose.textContent = `XYZ ${drone.x.toFixed(2)}, ${drone.y.toFixed(2)}, ${drone.z.toFixed(2)} · heading ${(((360 - drone.yaw) % 360 + 360) % 360).toFixed(1)}°`;
-      const equipment = document.createElement('span'); equipment.textContent = `Attachments: ${Object.entries(drone.equipment ?? {}).filter(([, equipped]) => equipped).map(([item]) => item).join(' · ') || 'none recorded'}`;
-      const stamp = document.createElement('small'); stamp.textContent = `State sampled at ${frame!.simTime.toFixed(2)}s${drone.action ? ` · ${drone.action.kind}` : ''}`; state.append(status, pose, equipment, stamp);
+      const pose = document.createElement('span'); pose.textContent = `XYZ ${drone.x.toFixed(3)}, ${drone.y.toFixed(3)}, ${drone.z.toFixed(3)} · heading ${(((360 - drone.yaw) % 360 + 360) % 360).toFixed(1)}°`;
+      const itemLabels: Record<string, string> = { gun: 'Gun', miner: 'Drill', optics: 'Optics', armor: 'Armor', minerUpgrade: 'Drill upgrade', battery: 'Extra battery', jammer: 'Jammer' };
+      const equipment = document.createElement('span'); equipment.textContent = `Attachments: ${Object.entries(drone.equipment ?? {}).filter(([, equipped]) => equipped).map(([item]) => itemLabels[item] ?? item).join(' · ') || 'none recorded'}`;
+      state.append(status, pose, equipment);
+      const operations = recordedOperations(drone, frame?.match);
+      if (operations.length) { const line = document.createElement('span'); line.className = 'replay-operations'; line.textContent = operations.join(' · '); state.append(line); }
+      const stamp = document.createElement('small'); stamp.textContent = `State sampled at ${frame!.simTime.toFixed(2)}s${drone.action ? ` · ${drone.action.kind}` : ''}`; state.append(stamp);
     } else state.textContent = 'This drone is absent from the selected frame.';
     this.el('replay-camera-time').textContent = observation ? `Acquired ${observation.simTime.toFixed(2)}s · ${(this.time - observation.simTime).toFixed(1)}s before cursor · ${new Date(observation.capturedAt).toLocaleTimeString()}` : 'Only observations acquired by the selected time appear here.';
-    this.el('replay-camera-time').title = observation ? `Camera pose: XYZ ${observation.pose.x.toFixed(2)}, ${observation.pose.y.toFixed(2)}, ${observation.pose.z.toFixed(2)} · heading ${observation.pose.yaw.toFixed(1)}° · mission ${observation.mission}` : '';
+    this.el('replay-camera-time').title = observation ? `Camera pose: XYZ ${observation.pose.x.toFixed(3)}, ${observation.pose.y.toFixed(3)}, ${observation.pose.z.toFixed(3)} · heading ${observation.pose.yaw.toFixed(1)}° · mission ${observation.mission}` : '';
     const image = observation?.imageAvailable && observation.imageId ? observation.imageId : '';
     void this.showImage(image, observation ? observation.omission || 'Image omitted from this observation.' : 'No camera observation acquired by this time.');
     this.renderEvents();
