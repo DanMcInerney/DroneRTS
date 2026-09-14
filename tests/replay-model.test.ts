@@ -54,7 +54,7 @@ test('appended records preserve equal-time ordering and seek to the next distinc
   const model = new ReplayTimeline();
   model.append([event(4, 'fired'), event(2, 'purchased'), event(4, 'impact')]);
   model.append([{ type: 'command', simTime: 4, drone: 'drone-2', name: 'observe', args: {} }, event(8, 'destroyed')]);
-  assert.deepEqual(model.sample(4).moments.map(moment => moment.type === 'event' ? moment.event.type : moment.name), ['purchased', 'fired', 'impact', 'observe']);
+  assert.deepEqual(model.sample(4).moments.map(moment => moment.type === 'event' ? moment.event.type : moment.type === 'command' ? moment.name : moment.type), ['purchased', 'fired', 'impact', 'observe']);
   assert.equal(model.adjacent(4, 1), 8); assert.equal(model.adjacent(4, -1), 2);
   assert.equal(model.adjacent(8, 1), undefined); assert.equal(model.adjacent(1, -1), undefined);
 });

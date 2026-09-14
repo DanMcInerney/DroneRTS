@@ -20,7 +20,7 @@ test('real MCP connections discover unlocked tools, notify peers and reject gues
   try {
     await first.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
     await peer.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-2']}`)));
-    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'mine', 'recharge']);
+    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'recharge', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
     const rejected = await first.callTool({ name: 'buy', arguments: { mission: 1, item: 'gun' } });
     assert.equal(rejected.isError, true);
     assert.deepEqual(calls, [{ role: 'drone-1', name: 'observe' }]);
@@ -36,11 +36,11 @@ test('real MCP connections discover unlocked tools, notify peers and reject gues
     assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'buy' });
     gun = true; optics = true; jammer = true; await server.refreshTools();
     const equipped = (await first.listTools()).tools.map(tool => tool.name);
-    for (const name of ['fire', 'rearm', 'camera', 'jam']) assert.ok(equipped.includes(name));
+    for (const name of ['fire', 'rearm', 'camera']) assert.ok(equipped.includes(name));
     await first.callTool({ name: 'camera', arguments: { mission: 1, mode: 'zoom' } });
     assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'camera' });
-    await first.callTool({ name: 'jam', arguments: { mission: 1, enabled: true } });
-    assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'jam' });
+    assert.equal((await first.callTool({ name: 'jam', arguments: { mission: 1, enabled: true } })).isError, true);
+    assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'observe' });
     gun = false; optics = false; jammer = false; await server.refreshTools();
     const removed = (await first.listTools()).tools.map(tool => tool.name);
     for (const name of ['fire', 'rearm', 'camera', 'jam']) {

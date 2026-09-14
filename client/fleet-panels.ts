@@ -3,6 +3,7 @@ import type { DroneViewport } from './scene';
 import { dronePresentation } from './drone-presentation';
 import { DroneRadio } from './drone-radio';
 import { EQUIPMENT_MODULES, RTS_CONFIG } from '../shared/rts';
+import { onboardPresentation } from './onboard-presentation';
 import { batteryPresentation, chargingPresentation, equippedModuleCount, servicePresentation } from './equipment-presentation';
 
 type Panels = { card: HTMLElement; mapItem: HTMLElement; networkItem: HTMLElement; radio: DroneRadio };
@@ -43,11 +44,13 @@ export class FleetPanels {
     const card = document.createElement('article'); card.className = `feed-card team-${identity.team ?? 'blue'}`; card.dataset.drone = id; card.dataset.droneId = id;
     card.innerHTML = `<header class="feed-header"><div><span class="drone-dot"></span><h2></h2></div><span class="drone-connection">OFFLINE</span></header>
       <div class="viewport"><div class="camera-top"><span>FPV <i></i> <b class="camera-mode">WIDE</b></span><span class="heading">HDG 000°</span></div><div class="reticle" aria-hidden="true"><span></span><span></span></div><div class="camera-bottom"><span class="altitude">POS Y <b>—</b></span><span class="sensor-count">0 OBS</span></div><div class="camera-vignette" aria-hidden="true"></div></div>
-      <div class="loadout-strip"><span data-item="gun" title="Gun · one module slot">↗ Gun</span><span data-item="miner" title="Mining drill · one module slot">◆ Drill</span><span data-item="optics" title="Optics · one module slot · wide/zoom camera">◎ Optics</span><span data-item="battery" title="Extra battery · one module slot · increased charge capacity">▰ Battery</span><span data-item="jammer" title="Jammer · one module slot · disrupts nearby peer radio including its own">⌁ Jammer</span><span data-item="armor" title="Armor · separate one-hit protection">⬡ Armor</span></div>
+      <div class="loadout-strip"><span data-item="gun" title="Gun · one module slot">↗ Gun</span><span data-item="cargo" title="Cargo module · one module slot · two crates total">◆ Cargo</span><span data-item="miner" title="Historical mining drill" hidden>◆ Drill</span><span data-item="optics" title="Optics · one module slot · wide/zoom camera">◎ Optics</span><span data-item="battery" title="Extra battery · one module slot · increased charge capacity">▰ Battery</span><span data-item="jammer" title="Historical jammer" hidden>⌁ Jammer</span><span data-item="armor" title="Armor · separate one-hit protection">⬡ Armor</span></div>
       <div class="equipment-state"><span class="module-count">0/2 MODULES</span><span class="ammo-status"></span><strong class="mining-status"></strong></div>
       <div class="endurance-state"><span class="battery-status">BATTERY —</span><progress class="battery-meter" max="100" value="0" aria-label="Battery charge" hidden></progress><span class="jamming-status" hidden></span><span class="interference-status" title="Peer radio is interrupted; the local camera and flight controls remain available." hidden>RADIO JAMMED</span></div>
       <div class="charging-status" hidden><span class="charging-label"></span><progress class="charging-progress" max="100" value="0" aria-label="Battery charging progress"></progress></div>
       <div class="service-status" hidden><span class="service-label"></span><progress class="service-progress" max="1" value="0" aria-label="Rearming progress"></progress></div>
+      <div class="cargo-state" hidden><strong class="cargo-label"></strong><span class="logistics-label"></span><progress class="cargo-progress" max="1" value="0" aria-label="Cargo service progress" hidden></progress></div>
+      <details class="onboard-state"><summary class="job-label">LOCAL CONTROLLER · IDLE</summary><span class="source-label"></span><span class="storage-label">Storage usage unavailable.</span></details>
       <footer class="feed-footer"><div class="activity"><span class="activity-dot"></span><span class="activity-text">Awaiting launch</span></div><div class="coordinates"><span>X <b class="coord-x">—</b></span><span>Y <b class="coord-y">—</b></span><span>Z <b class="coord-z">—</b></span></div></footer>`;
     const destroyed = document.createElement('div'); destroyed.className = 'destroyed-overlay'; destroyed.innerHTML = '<strong>SIGNAL LOST</strong><span>DRONE ELIMINATED</span>'; card.querySelector('.viewport')!.append(destroyed);
     card.querySelector('h2')!.textContent = identity.label.toUpperCase();
@@ -111,11 +114,18 @@ export class FleetPanels {
         progress.value = service.progress; progress.setAttribute('aria-label', `${service.label} progress`);
       }
       put('.mining-status', drone.mining && drone.alive !== false ? 'MINING' : '');
+      const onboard = onboardPresentation(drone);
+      items.card.querySelector<HTMLElement>('.cargo-state')!.hidden = !onboard.cargo;
+      put('.cargo-label', onboard.cargo ?? ''); put('.logistics-label', onboard.logistics ?? '');
+      const cargoProgress = items.card.querySelector<HTMLProgressElement>('.cargo-progress')!;
+      cargoProgress.hidden = onboard.progress === undefined; cargoProgress.value = onboard.progress ?? 0;
+      put('.job-label', onboard.job ?? 'LOCAL CONTROLLER · IDLE'); put('.source-label', onboard.source ?? '');
+      put('.storage-label', onboard.storage ?? 'Storage usage unavailable.');
       put('.heading', `HDG ${Math.round(((360 - drone.yaw) % 360 + 360) % 360).toString().padStart(3, '0')}°`);
       put('.altitude b', drone.y.toFixed(3)); put('.sensor-count', `${drone.observations} OBS`);
       put('.activity-text', drone.status || (drone.online ? 'Listening' : 'Awaiting launch'));
       put('.coord-x', drone.x.toFixed(3)); put('.coord-y', drone.y.toFixed(3)); put('.coord-z', drone.z.toFixed(3));
-      items.mapItem.querySelector('.map-fleet-status')!.textContent = `${drone.status} · Y ${drone.y.toFixed(3)}`;
+      items.mapItem.querySelector('.map-fleet-status')!.textContent = `${drone.status} · Y ${drone.y.toFixed(3)}${onboard.cargo ? ` · ${onboard.cargo}` : ''}`;
       const peer = peers.get(drone.id), button = items.networkItem.querySelector('button')!;
       button.disabled = !connectionReady || state.network?.status !== 'online' || !state.running || !peer || interfered;
       button.textContent = interfered ? 'Jammed' : peer?.online ? 'Isolate' : 'Reconnect';

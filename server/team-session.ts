@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CodexFleetRuntime, type RuntimeOptions } from './runtime.ts';
 import { createDroneTools, MODEL, EFFORT } from './runtime-tools.ts';
 import { FleetNetwork } from './network.ts';
+import { RadioTransfers, type TransferRequest } from './radio-transfer.ts';
 import { MavlinkAdapter } from './mavlink.ts';
 import type { FleetGame } from './game.ts';
 import { MATCH_FLEET, teamForDrone, teamRoster, type DroneId, type TeamId } from '../shared/fleet.ts';
@@ -9,7 +10,7 @@ import type { NetworkState, RadioMessage, RuntimeState } from '../shared/types.t
 
 const TEAMS: TeamId[] = ['blue', 'red'];
 type RuntimeActor = Pick<CodexFleetRuntime, 'start' | 'stop' | 'retireDrone' | 'refreshTools'>;
-type NetworkActor = Pick<FleetNetwork, 'start' | 'stop' | 'state' | 'send' | 'consume' | 'link'>;
+type NetworkActor = Pick<FleetNetwork, 'start' | 'stop' | 'state' | 'send' | 'consume' | 'link'> & Partial<Pick<FleetNetwork, 'storage'>>;
 type VehicleActor = Pick<MavlinkAdapter, 'start' | 'stop' | 'command' | 'sample'>;
 type Dependencies = {
   runtime?: (options: RuntimeOptions) => RuntimeActor;
@@ -34,6 +35,7 @@ export class TeamSession {
   private networks = new Map<TeamId, NetworkActor>();
   private runtimeStates = new Map<TeamId, RuntimeState>();
   private networkStates = new Map<TeamId, NetworkState>();
+  private transfers = new Map<TeamId, RadioTransfers>();
   readonly vehicle: VehicleActor;
   readonly radio = {
     send: async (message: RadioMessage) => {
@@ -42,31 +44,49 @@ export class TeamSession {
       return this.networkFor(teamForDrone(message.from as DroneId)).send(message);
     },
     sendTeam: async (team: TeamId, message: RadioMessage) => {
-      if (message.from !== 'player') throw new Error('Only original player instructions use the team relay');
+      if (message.from !== 'player') throw new Error('Only player messages use the operator relay');
+      if (team !== 'blue' && message.kind && message.kind !== 'mission') throw new Error('Ordinary player chat cannot access red');
       await this.reconcileRadio();
       return this.networkFor(team).send(message);
     },
     consume: (id: DroneId, ids: string[]) => this.networkFor(teamForDrone(id)).consume(id, ids),
+    storage: (id: DroneId) => this.networkFor(teamForDrone(id)).storage?.(id),
+    transfer: (id: DroneId, args: Record<string, unknown>) => this.transfers.get(teamForDrone(id))!.tool(id, args as unknown as TransferRequest),
   };
 
   constructor(private options: { projectDir: string; game: FleetGame; onStatus: (status: RuntimeState) => void; onNetwork: (state: NetworkState) => void; onEvent: (type: string, event: unknown) => void; onFailure: (message: string) => void }, dependencies: Dependencies = {}) {
     for (const team of TEAMS) {
       this.runtimeStates.set(team, { status: 'starting', message: `${team} team connecting`, model: MODEL, effort: EFFORT, children: [], usage: 0 });
       const network = (dependencies.network ?? (config => new FleetNetwork(config)))({ projectDir: options.projectDir, sessionId: options.game.sessionIdentity,
-        networkId: randomUUID(), roster: teamRoster(team),
+        networkId: randomUUID(), roster: teamRoster(team), playerChat: team === 'blue',
         onReceive: (id, message) => { if (!this.stopped) options.game.receiveRadio(id, message); },
+        onPlayerReceive: message => { if (!this.stopped && team === 'blue') options.game.receivePlayerRadio(message); },
+        onTransferReceive: (id, message) => { if (!this.stopped) this.transfers.get(team)?.receive(id, message); },
+        onDelivery: event => { if (!this.stopped) options.game.recordRadioDelivery(event.id, event); },
         onState: state => { this.networkStates.set(team, state); this.publishNetwork(); },
         onEvent: event => options.onEvent('network', { team, ...event }),
         onFailure: message => this.fail(`${team} network: ${message}`),
       });
       this.networks.set(team, network); this.networkStates.set(team, network.state);
+      this.transfers.set(team, new RadioTransfers({ sessionId: options.game.sessionIdentity, roster: teamRoster(team),
+        workspace: id => options.game.onboardWorkspace(id),
+        active: id => !this.stopped && options.game.state.running && options.game.state.drones.some(drone => drone.id === id && drone.alive !== false),
+        mission: id => options.game.receivedMission(id),
+        simTime: () => options.game.state.simTime,
+        send: async (message, ttlMs) => {
+          await this.reconcileRadio();
+          if (message.data?.operation === 'chunk' && options.game.receivedMission(message.from as DroneId) !== message.mission) throw new Error('Transfer cancelled by received objective');
+          return this.networkFor(team).send(message, { ttlMs });
+        },
+        consume: (id, ids) => network.consume(id, ids), onEvent: event => options.onEvent('network', { team, ...(event as object) }),
+      }));
       const runtime = (dependencies.runtime ?? (config => new CodexFleetRuntime(config)))({ projectDir: options.projectDir, roster: teamRoster(team), team,
         toolHandler: async (role, name, args) => {
           if (role === 'parent') return options.game.forwardTeam(team);
           if (!teamRoster(team).some(member => member.id === role)) throw new Error('Actor identity is outside this team');
           return options.game.tool(role, name, args);
         },
-        toolsForRole: role => teamRoster(team).some(member => member.id === role) ? createDroneTools(teamRoster(team), options.game.toolCapabilities(role)) : [],
+        toolsForRole: role => teamRoster(team).some(member => member.id === role) ? createDroneTools(teamRoster(team), options.game.toolCapabilities(role), team) : [],
         onStatus: status => {
           if (this.stopped) return;
           Object.assign(this.runtimeStates.get(team)!, status); this.publishRuntime();
@@ -177,6 +197,7 @@ export class TeamSession {
   async retireDrone(id: DroneId) {
     if (this.stopped || this.retired.has(id)) return;
     this.retired.add(id);
+    this.transfers.get(teamForDrone(id))?.retire(id);
     const team = teamForDrone(id);
     try { await Promise.all([this.runtimes.get(team)?.retireDrone(id), this.reconcileRadio()]); }
     catch (error) { if (!this.radioFailure) this.fail(`Could not retire ${id}: ${String(error)}`); }
@@ -186,6 +207,7 @@ export class TeamSession {
     if (this.stopPromise) return this.stopPromise;
     this.stopped = true;
     this.radioReady = false;
+    for (const transfer of this.transfers.values()) transfer.stop();
     if (this.options.game.radioInterferenceChanged === this.interferenceChanged) this.options.game.radioInterferenceChanged = undefined;
     this.stopPromise = (async () => {
       await Promise.allSettled([...this.runtimes.values()].map(runtime => runtime.stop()).concat([...this.networks.values()].map(network => network.stop()), [this.vehicle.stop()]));

@@ -6,11 +6,21 @@ import { resolve } from 'node:path';
 import { FleetGame } from '../server/game.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import type { ToolResult } from '../shared/types.ts';
-import { RTS_CONFIG } from '../shared/rts.ts';
+import { CARGO_CONFIG, RTS_CONFIG, apronServicePositions } from '../shared/rts.ts';
 
 const port = Number(process.env.FLEET_QA_PORT ?? 4318);
-assert.ok(Number.isInteger(port) && port > 0 && port <= 65535);
+assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Use an isolated QA port');
 const base = `http://127.0.0.1:${port}`;
+const preflight: Record<string, unknown> = {};
+for (const checked of new Set([4317, 4318, port])) {
+  try {
+    const state = await (await fetch(`http://127.0.0.1:${checked}/api/state`, { signal: AbortSignal.timeout(2000) })).json();
+    preflight[checked] = { running: state.running, simTime: state.simTime };
+  } catch (error) {
+    if (error instanceof TypeError && (error.cause as NodeJS.ErrnoException)?.code === 'ECONNREFUSED') preflight[checked] = 'unavailable';
+    else throw error;
+  }
+}
 assert.equal((await (await fetch(`${base}/api/state`)).json()).running, false, 'Preserve active match');
 const directory = resolve(process.env.FLEET_QA_OUTPUT ?? 'artifacts/rts-ui'); await mkdir(directory, { recursive: true });
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
@@ -74,150 +84,74 @@ try {
   await page.locator('.admin-link').click(); await page.locator('.admin-page').waitFor({ state: 'visible' });
   assert.equal(body(await game.tool('drone-4', 'observe')).sensors.camera.available, true);
   await page.screenshot({ path: resolve(directory, 'admin.png') }); await page.locator('#admin-back').click();
-  // Three separated drones share the exact visible volume, with no mine/recharge calls.
+  // Prescribed open-ground fixture isolates physical services and spectator UI.
+  // No actor, resource finder or model inference is used here.
   game.state.obstacles = [];
-  game.state.drones.forEach((drone, index) => Object.assign(drone, { x: [-2, 0, 2, 12, 16, 20][index], y: 2, z: 20, yaw: 0, pitch: 0 }));
-  game.state.match!.resources = [{ id: 'qa-three-miners', x: 0, y: 0, z: 20, zoneSize: 6, capacity: 150, remaining: 150 }];
-  game.state.match!.servicePads = [{ id: 'qa-three-chargers', team: 'blue', x: -12, y: 0, z: 20, zoneSize: 6 }];
-  const beforeMining = game.state.match!.teams.blue.earned;
-  for (let i = 0; i < 4; i++) game.tick(0.25);
-  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.alive && drone.mining === 'qa-three-miners'));
-  assert.ok(Math.abs(game.state.match!.teams.blue.earned - beforeMining - 1.5) < 1e-6);
-  broadcast(); await imageFile('yellow-cube-inside.jpg', await game.tool('drone-1', 'observe'));
-  await page.screenshot({ path: resolve(directory, 'three-miners.png'), fullPage: true });
-  Object.assign(game.state.drones[0], { x: 0, y: 3, z: 28 });
-  await imageFile('yellow-cube-outside.jpg', await game.tool('drone-1', 'observe'));
-  game.state.drones.slice(0, 3).forEach((drone, index) => Object.assign(drone, { x: -14 + index * 2, y: 2, z: 20, battery: 60 }));
-  for (let i = 0; i < 4; i++) game.tick(0.25);
-  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.alive && drone.charging && drone.battery! > 60 && !drone.mining));
-  broadcast(); await imageFile('blue-cube-inside.jpg', await game.tool('drone-1', 'observe'));
-  await page.screenshot({ path: resolve(directory, 'three-chargers.png'), fullPage: true });
-  Object.assign(game.state.drones[0], { x: -12, y: 3, z: 28 });
-  await imageFile('blue-cube-outside.jpg', await game.tool('drone-1', 'observe'));
-  // A fixed duel verifies the full earning -> purchase -> aim -> shot -> victory path.
-  game.state.obstacles = [];
-  game.state.drones.forEach((drone, i) => { drone.alive = i === 0 || i === 3; Object.assign(drone, { x: i === 3 ? 8 : 0, y: 2, z: i === 0 ? 20 : 8, yaw: 0, pitch: 0 }); });
-  game.state.match!.resources = [{ id: 'qa-salvage', x: 0, y: 0, z: 18, zoneSize: 6, remaining: 150, capacity: 150 }];
-  game.state.match!.servicePads = [{ id: 'qa-service', team: 'blue', x: 0, y: 0, z: 20, zoneSize: 6 }];
-  broadcast(); await game.tool('drone-1', 'observe');
-  for (let i = 0; i < 248; i++) game.tick(0.25);
-  assert.equal(game.state.drones[0].mining, 'qa-salvage', 'Entering the cube mines without a tool call');
-  const purchase = await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' });
-  assert.equal(body(purchase).equipped, 'gun'); broadcast();
-  await imageFile('armed-camera.jpg', purchase);
-  await firstCard.locator('.module-count').getByText('2/2 MODULES', { exact: true }).waitFor();
-  // Continue mining to fund a new module and a rearm without granting fixture money.
-  for (let i = 0; i < 328; i++) game.tick(0.25);
-  const refit = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'miner', replace: 'optics' }));
-  assert.equal(refit.equipped, 'miner'); assert.equal(refit.availableTools.includes('camera'), false);
-  // The offset target remains out of the test aim while the first magazine is exhausted.
-  for (let i = 0; i < RTS_CONFIG.magazineSize; i++) {
-    assert.equal(body(await game.tool('drone-1', 'fire', { mission: 1 })).fired, true);
-    for (let j = 0; j < 4; j++) game.tick(0.25);
+  game.state.drones.forEach((drone, index) => Object.assign(drone, { x: [-2, 0, 2, 40, 44, 48][index], y: 1.5, z: 20, yaw: 0, pitch: 0 }));
+  const resource = { id: 'qa-three-loaders', x: 0, y: 0, z: 20, zoneSize: 6, capacity: 180, remaining: 180 };
+  const pad = { id: 'qa-three-deliverers', team: 'blue' as const, x: -12, y: 0, z: 20, zoneSize: 6 };
+  game.state.match!.resources = [resource]; game.state.match!.servicePads = [pad];
+  game.state.drones.slice(0, 3).forEach((drone, i) => Object.assign(drone, apronServicePositions(resource, 6)[i]));
+  const tick = (seconds: number) => { for (let time = 0; time < seconds; time += .05) game.tick(Math.min(.05, seconds - time)); };
+  tick(1); broadcast();
+  await firstCard.locator('.logistics-label').getByText(/LOADING/).waitFor();
+  await page.screenshot({ path: resolve(directory, 'three-loading.png'), fullPage: true });
+  tick(CARGO_CONFIG.pickupDuration + .1);
+  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.alive && drone.cargo?.amount === 30));
+  assert.equal(game.state.match!.teams.blue.earned, 0, 'Pickup does not bank income');
+  assert.equal(resource.remaining, 90); broadcast();
+  await imageFile('carrying-camera.jpg', await game.tool('drone-1', 'observe'));
+  await firstCard.locator('.cargo-label').getByText('CARGO 30 / 30', { exact: true }).waitFor();
+  await page.screenshot({ path: resolve(directory, 'three-carrying.png'), fullPage: true });
+  game.state.drones.slice(0, 3).forEach((drone, i) => Object.assign(drone, apronServicePositions(pad, 6)[i], { battery: 60 }));
+  tick(.5); broadcast();
+  await firstCard.locator('.logistics-label').getByText(/UNLOADING/).waitFor();
+  await firstCard.locator('.charging-status').waitFor({ state: 'visible' });
+  await page.screenshot({ path: resolve(directory, 'unloading-and-charging.png'), fullPage: true });
+  tick(CARGO_CONFIG.deliveryDuration + .1); broadcast();
+  assert.equal(game.state.match!.teams.blue.earned, 90);
+  assert.equal(game.state.match!.teams.blue.credits, 90, 'Opening optics spent the original allowance');
+  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.cargo?.amount === 0 && drone.battery! > 60));
+  await firstCard.locator('.cargo-label').getByText('CARGO 0 / 30', { exact: true }).waitFor();
+  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' })).equipped, 'gun');
+  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'optics' })).equipped, 'cargo');
+  assert.equal((await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' })).isError, true);
+  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'miner' })).rejected, true);
+  broadcast(); await firstCard.locator('.module-count').getByText('2/2 MODULES', { exact: true }).waitFor();
+  // Empty a real finite magazine into clear air; rearming reserves then refunds.
+  for (let shot = 0; shot < RTS_CONFIG.magazineSize; shot++) {
+    assert.equal(body(await game.tool('drone-1', 'fire', { mission: 1 })).fired, true); tick(1);
   }
   assert.equal(game.state.drones[0].ammo, 0);
   assert.equal(body(await game.tool('drone-1', 'fire', { mission: 1 })).rejected, true);
-  const balance = game.state.match!.teams.blue.credits;
+  const credits = game.state.match!.teams.blue.credits;
   assert.equal(body(await game.tool('drone-1', 'rearm', { mission: 1 })).accepted, true);
   await game.tool('drone-1', 'act', { mission: 1, kind: 'hover' });
-  assert.equal(game.state.match!.teams.blue.credits, balance);
+  assert.equal(game.state.match!.teams.blue.credits, credits);
   assert.equal(body(await game.tool('drone-1', 'rearm', { mission: 1 })).accepted, true);
-  for (let i = 0; i < 16; i++) game.tick(0.25);
-  broadcast(); await firstCard.locator('.service-status').waitFor({ state: 'visible' });
-  // The map renders only when visible. Scroll it into view before checking its
-  // current fixture markers or taking a full-page screenshot.
-  await page.locator('#overview-map').scrollIntoViewIfNeeded();
-  await page.locator('.map-resource[data-resource-id="qa-salvage"]').waitFor({ state: 'visible' });
-  await page.locator('.map-service-pad[data-pad-id="qa-service"]').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('.map-resource').count(), 1);
-  assert.equal(await page.locator('.map-service-pad').count(), 1);
-  await page.screenshot({ path: resolve(directory, 'service-map.png') });
-  await firstCard.scrollIntoViewIfNeeded();
+  tick(4); broadcast(); await firstCard.locator('.service-status').waitFor({ state: 'visible' });
   await page.screenshot({ path: resolve(directory, 'rearming.png'), fullPage: true });
-  for (let i = 0; i < 17; i++) game.tick(0.25);
-  assert.equal(game.state.drones[0].ammo, RTS_CONFIG.magazineSize);
-  assert.equal(game.state.drones[0].servicing, undefined);
-  broadcast(); await firstCard.locator('.ammo-status').getByText('12/12 ROUNDS', { exact: true }).waitFor();
-  game.state.drones[3].x = 0;
-  // This fixed duel isolates lethal projectile behavior after armor is gone.
-  game.state.drones[3].equipment!.armor = false;
-  // At this range gravity drop is small enough for a centre-aim hit; no target argument is supplied.
-  assert.equal(body(await game.tool('drone-1', 'fire', { mission: 1 })).fired, true);
-  game.tick(0.1); broadcast(); await page.screenshot({ path: resolve(directory, 'projectile.png') });
-  for (let i = 0; i < 10 && game.state.running; i++) game.tick(0.1);
-  assert.equal(game.state.match!.winner, 'blue'); assert.equal(game.state.running, false); broadcast();
-  await page.locator('#match-result').waitFor({ state: 'visible' });
-  await page.screenshot({ path: resolve(directory, 'victory.png') });
+  tick(4.2); broadcast(); assert.equal(game.state.drones[0].ammo, RTS_CONFIG.magazineSize);
+  await firstCard.locator('.ammo-status').getByText('12/12 ROUNDS', { exact: true }).waitFor();
+  await page.locator('#overview-map').scrollIntoViewIfNeeded();
+  await page.locator('.map-resource[data-resource-id="qa-three-loaders"]').waitFor({ state: 'visible' });
+  await page.locator('.map-service-pad[data-pad-id="qa-three-deliverers"]').waitFor({ state: 'visible' });
+  await page.screenshot({ path: resolve(directory, 'delivered-map.png'), fullPage: true });
+  // Blue player conversation uses actual delivered radio state, not model plans.
+  game.receivePlayerRadio({ protocol: 'fleet-radio/1', sessionId: game.state.radio[0].sessionId, sequence: 1, sentAt: new Date().toISOString(),
+    id: 'qa-reply', from: 'drone-1', to: 'player', kind: 'chat', text: 'Cargo delivered; request received.', simTime: game.state.simTime, mission: 1 });
+  broadcast(); await page.locator('#player-chat').getByText('Cargo delivered; request received.').waitFor();
+  await firstCard.scrollIntoViewIfNeeded(); await firstCard.locator('.onboard-state > summary').click();
+  await page.screenshot({ path: resolve(directory, 'cargo-controller.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: resolve(directory, 'mobile.png'), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
-  await page.locator('#reset').click();
-  assert.equal(game.state.match!.phase, 'ready'); assert.equal(game.state.drones.filter(d => d.alive).length, 6);
-  // Separate operational fixture: explicit funds and low charge isolate the
-  // battery/jammer workflow from the earning/purchase/victory fixture above.
-  await page.setViewportSize({ width: 1440, height: 1050 });
-  game.start(); broadcast();
-  for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
-  await game.forwardTeam('blue'); await game.forwardTeam('red');
-  game.state.obstacles = [];
-  game.state.drones.forEach((drone, index) => Object.assign(drone, { x: [-12, -8, -40, 0, 40, 44][index], y: 2, z: 20, yaw: 0, pitch: 0 }));
-  game.state.match!.resources = [];
-  game.state.match!.servicePads = [{ id: 'charge-pad', team: 'blue', x: -12, y: 0, z: 20, zoneSize: 6 }];
-  game.state.match!.teams.blue.credits = RTS_CONFIG.prices.battery + RTS_CONFIG.prices.jammer;
-  const operator = game.state.drones[0]; operator.battery = 20;
-  broadcast();
-  assert.equal(body(await game.tool(operator.id, 'buy', { mission: 1, item: 'battery' })).equipped, 'battery');
-  assert.equal(operator.battery, 20, 'A larger battery grants no charge');
-  assert.equal(body(await game.tool(operator.id, 'buy', { mission: 1, item: 'jammer' })).equipped, 'jammer');
-  broadcast();
-  await firstCard.locator('.battery-status').getByText('BATTERY 3%', { exact: true }).waitFor();
-  assert.equal(await firstCard.locator('.endurance-state.low-battery').count(), 1);
-  for (let i = 0; i < 24; i++) game.tick(0.25);
-  assert.equal(operator.charging, true, 'Charging starts without a tool call');
-  assert.ok(operator.battery! > 20 && operator.battery! < RTS_CONFIG.extendedBatteryCapacity);
-  broadcast();
-  await firstCard.locator('.charging-status').waitFor({ state: 'visible' });
-  await firstCard.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: resolve(directory, 'charging.png') });
-  await game.tool(operator.id, 'act', { mission: 1, kind: 'fly_to', x: -20, y: 2, z: 20 });
-  for (let i = 0; i < 24; i++) game.tick(0.25);
-  assert.equal(operator.charging, false, 'Leaving the cube stops charging');
-  assert.ok(operator.battery! > 20, 'Leaving retains the charge already gained');
-  assert.equal(game.state.match!.teams.blue.credits, 0, 'Charging never changes salvage');
-  await game.tool(operator.id, 'act', { mission: 1, kind: 'fly_to', x: -12, y: 2, z: 20 });
-  for (let i = 0; i < 120; i++) game.tick(0.25);
-  assert.equal(operator.battery, RTS_CONFIG.extendedBatteryCapacity);
-  assert.equal(operator.servicing, undefined);
-  const interference = body(await game.tool(operator.id, 'jam', { mission: 1, enabled: true }));
-  assert.equal(interference.radioJammed, true);
-  assert.equal(interference.sensors.camera.available, true);
-  assert.deepEqual(Object.keys(interference.sensors).sort(), ['camera', 'heading', 'position', 'timestamp']);
-  assert.equal(game.state.drones[1].radioJammed, true, 'Nearby allied radio is affected');
-  assert.equal(game.state.drones[3].radioJammed, true, 'Nearby opposing radio is affected');
-  assert.equal(game.state.drones[2].radioJammed, false, 'Distant teammate stays clear');
-  assert.equal(operator.battery, RTS_CONFIG.extendedBatteryCapacity, 'The friendly cube supplies power');
-  await game.tool(operator.id, 'act', { mission: 1, kind: 'fly_to', x: -16, y: 2, z: 20 });
-  for (let i = 0; i < 20; i++) game.tick(0.25);
-  for (let i = 0; i < 4; i++) game.tick(0.25);
-  assert.ok(operator.battery! < RTS_CONFIG.extendedBatteryCapacity);
-  const jammedCamera = await game.tool(operator.id, 'observe');
-  assert.equal(body(jammedCamera).sensors.camera.available, true);
-  await imageFile('jammed-camera.jpg', jammedCamera); broadcast();
-  await firstCard.locator('.jamming-status').getByText('JAMMER ON', { exact: true }).waitFor();
-  await firstCard.locator('.interference-status').getByText('RADIO JAMMED', { exact: true }).waitFor();
-  await page.screenshot({ path: resolve(directory, 'jamming.png') });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: resolve(directory, 'jamming-mobile.png') });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
-  assert.equal(body(await game.tool(operator.id, 'jam', { mission: 1, enabled: false })).jamming, false);
-  assert.ok(game.state.drones.every(drone => !drone.radioJammed));
-  game.state.drones[1].battery = 0.01; game.state.drones[1].equipment!.armor = true;
-  game.tick(0.1);
-  assert.equal(game.state.drones[1].alive, false, 'Power depletion is fatal despite armor');
-  assert.ok(game.state.match!.events.some(event => event.type === 'destroyed' && event.cause === 'power'));
   game.stop(); broadcast(); await page.locator('#reset').click();
-  assert.ok(game.state.drones.every(drone => drone.battery === RTS_CONFIG.batteryCapacity && !drone.jamming && !drone.radioJammed));
+  assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && drone.equipment?.armor && drone.battery === RTS_CONFIG.batteryCapacity));
   assert.deepEqual(errors, []);
-  const result = { passed: true, inference: false, directory, port, checks: ['six cameras', 'actual sensor images', 'one initial purchase', 'actual wide/zoom images', 'God view camera isolation', 'Admin camera isolation', 'automatic cube mining / shared credit / buy / refit / finite ammo / cancelled and completed rearm / physical shot / victory', '300/600 battery capacity without free refit charge', 'automatic cube charging / retained partial charge / return and full charge', 'friendly and opposing interference with camera access', 'power loss despite armor', 'responsive layout', 'reset'] };
+  const result = { passed: true, inference: false, fixture: true, directory, port, preflight,
+    checks: ['six actual cameras', 'optics wide/zoom', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
+      'simultaneous delivery and automatic charging', 'delivered income funds modules', 'explicit cargo refit', 'legacy miner rejected',
+      'finite gun ammunition', 'cancelled/refunded and completed rearm', 'cargo map and player reply', 'responsive layout', 'fresh reset'] };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally { game.stop(); await browser.close(); }

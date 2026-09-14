@@ -7,12 +7,15 @@
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts --production",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "network:setup": "node scripts/setup-network.mjs"
+    "test": "node --import tsx --test --test-timeout=60000 tests/*.test.ts",
+    "network:setup": "node scripts/setup-network.mjs",
+    "onboard:manifest": "node --import tsx scripts/onboard-manifest.ts"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "express": "^5.1.0",
+    "quickjs-emscripten-core": "0.32.0",
     "three": "^0.183.2",
     "ws": "^8.19.0",
     "zod": "^4.3.6"
@@ -23,6 +26,7 @@
     "@types/node": "^24.10.1",
     "@types/three": "^0.183.1",
     "@types/ws": "^8.18.1",
+    "quickjs-emscripten": "0.32.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"

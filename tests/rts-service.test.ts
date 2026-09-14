@@ -4,7 +4,7 @@ import { RtsRules } from '../server/rts.ts';
 import { emptyEquipment, startingEquipment, RTS_CONFIG, type EquipmentItem, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
 
-function fixture() {
+function fixture(historical = false) {
   const rules = new RtsRules();
   const drones: Drone[] = Array.from({ length: 6 }, (_, i) => ({
     id: `drone-${i + 1}`, x: i * 15, y: 5, z: 0, yaw: 0, pitch: 0, team: i < 3 ? 'blue' : 'red',
@@ -17,6 +17,7 @@ function fixture() {
     match: rules.newMatch([{ id: 'salvage', x: 0, y: 0, z: 0, capacity: 1000, remaining: 1000, zoneSize: 3 }], pads),
   };
   rules.begin(state);
+  if (historical) state.match!.rulesVersion = 'cube-v1';
   // Equipment purchase fixtures exercise replacement after starting armor is lost.
   for (const drone of drones) drone.equipment = emptyEquipment();
   const match = state.match!, drone = drones[0], wallet = match.teams.blue;
@@ -29,8 +30,8 @@ function fixture() {
   return { rules, state, drones, drone, match, wallet, tick, buy, readyToRearm };
 }
 
-test('two modules plus armor fit; replacement is explicit and discards its upgrade without a refund', () => {
-  const { rules, state, drone, wallet, buy } = fixture(); wallet.credits = 300;
+test('historical cube-v1: replacement discards drill upgrade without a refund', () => {
+  const { rules, state, drone, wallet, buy } = fixture(true); wallet.credits = 300;
   buy('miner'); buy('miner_upgrade'); buy('optics'); buy('armor');
   drone.cameraMode = 'zoom';
   assert.equal(wallet.credits, 160);
@@ -47,8 +48,8 @@ test('two modules plus armor fit; replacement is explicit and discards its upgra
   assert.equal(drone.ammo, 0); assert.equal(drone.equipment!.gun, false); assert.equal(wallet.credits, 70);
 });
 
-test('invalid replacement and drill upgrades cannot debit salvage or modify equipment', () => {
-  const { rules, state, drone, wallet, buy } = fixture(); wallet.credits = 100;
+test('historical cube-v1: invalid replacement and drill upgrades preserve equipment and salvage', () => {
+  const { rules, state, drone, wallet, buy } = fixture(true); wallet.credits = 100;
   assert.throws(() => buy('miner_upgrade'), /drill is required/);
   buy('gun');
   const before = structuredClone(drone.equipment);
@@ -77,9 +78,9 @@ test('buying needs friendly cube occupancy with no extra sight gate or pad locat
   assert.deepEqual(rules.buy(state, drone, 'gun'), { equipped: 'gun', credits: 0 });
 });
 
-test('drill payback and upgraded production follow actual extraction time', () => {
+test('historical cube-v1: drill payback follows actual extraction time', () => {
   const income = (items: EquipmentItem[]) => {
-    const { rules, state, drone, wallet, buy, tick } = fixture(); wallet.credits = 100;
+    const { rules, state, drone, wallet, buy, tick } = fixture(true); wallet.credits = 100;
     for (const item of items) buy(item);
     drone.y = 1.5;
     rules.mine(state, drone, 'salvage'); tick(60);
@@ -91,8 +92,8 @@ test('drill payback and upgraded production follow actual extraction time', () =
   assert.equal((upgraded - drill) * 2, RTS_CONFIG.prices.miner_upgrade);
 });
 
-test('richness multiplies extraction and the finite remainder is shared proportionally across teams', () => {
-  const { rules, state, drones, match, tick } = fixture();
+test('historical cube-v1: richness multiplies extraction and finite stock is split proportionally', () => {
+  const { rules, state, drones, match, tick } = fixture(true);
   Object.assign(drones[0], { x: -1, y: 1.5 }); Object.assign(drones[3], { x: 1, y: 1.5 });
   drones[0].equipment!.miner = true;
   match.resources[0].extractionMultiplier = 1.5;

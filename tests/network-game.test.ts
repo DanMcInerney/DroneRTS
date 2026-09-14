@@ -36,8 +36,10 @@ test('game uses Zenoh for missions and peer mail, MAVLink for movement/sensing, 
     assert.equal(game.inboxes['drone-3'].events.some(e => e.type === 'radio'), false);
     const command = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -4, y: 7, z: 23 });
     assert.equal(body(command).accepted, true);
+    await until(() => game.state.drones[0].job?.state === 'running');
     for (let step = 0; game.state.drones[0].action && step < 40; step++) game.tick(0.25);
     assert.equal(body(await game.tool('drone-1', 'observe')).sensors.position.x, -4);
+    assert.equal(game.state.drones[0].job?.state, 'completed');
 
     await network.link('drone-3', false);
     game.queueMission('Hold and report'); await game.tool('parent', 'forward_next_instruction');
@@ -45,6 +47,11 @@ test('game uses Zenoh for missions and peer mail, MAVLink for movement/sensing, 
     assert.equal(body(await game.tool('drone-3', 'observe')).mission, 1);
     assert.equal((await game.tool('drone-3', 'act', { mission: 1, kind: 'hover' })).isError, undefined);
     assert.equal((await game.tool('drone-1', 'act', { mission: 1, kind: 'hover' })).isError, true);
+    const isolated = game.state.drones.find(drone => drone.id === 'drone-3')!;
+    assert.equal(body(await game.tool('drone-3', 'act', { mission: 1, kind: 'fly_to', x: 6, y: 7, z: 23 })).accepted, true);
+    await until(() => isolated.job?.state === 'running');
+    for (let step = 0; isolated.action && step < 40; step++) game.tick(0.25);
+    assert.equal(isolated.job?.state, 'completed'); assert.equal(isolated.x, 6, 'A native radio partition must not freeze local flight');
     await network.link('drone-3', true);
     await until(() => game.inboxes['drone-3'].events.some(e => e.type === 'player' && e.mission === 2));
     assert.equal(body(await game.tool('drone-3', 'observe')).mission, 2);
@@ -53,7 +60,7 @@ test('game uses Zenoh for missions and peer mail, MAVLink for movement/sensing, 
   } finally { game.stop(); await Promise.all([network.stop(), vehicle.stop()]); }
 });
 
-test('mission replacement during MAVLink transit rejects decoded obsolete command', async () => {
+test('mission replacement during MAVLink transit cancels the accepted job before decoded motion can execute', async () => {
   const game = new FleetGame(); game.setConnected(true); game.start();
   game.capture = async () => 'data:image/jpeg;base64,AQID';
   for (const id of DRONE_IDS) await game.tool(id, 'observe');
@@ -63,8 +70,11 @@ test('mission replacement during MAVLink transit rejects decoded obsolete comman
     sample: async (_id, pose, simTime) => ({ position: pose, heading: { degrees: 0 }, simTime }),
   };
   const result = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -3, y: 7, z: 23 });
-  assert.equal(result.isError, true); assert.equal(game.state.drones[0].action, undefined);
-  assert.equal(body(result).mission, 2); game.stop();
+  assert.equal(result.isError, undefined); assert.equal(body(result).accepted, true);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(game.state.drones[0].action, undefined); assert.equal(game.state.drones[0].job?.state, 'cancelled');
+  assert.equal(body(result).commandMission, 1);
+  assert.equal(body(await game.tool('drone-1', 'observe')).mission, 2); game.stop();
 });
 
 test('expiry at the model boundary removes stale text and consumes queued or deferred mail', async () => {

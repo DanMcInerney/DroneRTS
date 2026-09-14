@@ -19,9 +19,10 @@ def loopback_endpoint(value):
 
 
 class PeerTransport:
-    def __init__(self, drone, fleet_session, listen, peers, events):
+    def __init__(self, drone, fleet_session, listen, peers, events, player_chat=False):
         self.drone, self.prefix = drone, f"fleet/{fleet_session}"
         self.events, self.session, self.subscribers = events, None, []
+        self.player_chat = player_chat
         self.generation = 0
         self.config = zenoh.Config.from_json5(json.dumps({
             "mode": "peer",
@@ -46,11 +47,20 @@ class PeerTransport:
         generation = self.generation
 
         def received(sample):
-            self.events.put(("wire", generation, str(sample.key_expr), sample.payload.to_bytes()))
+            # No unbounded hidden memory queue during receiver backpressure. A full
+            # queue drops before application receipt; durable sender retries later.
+            raw = sample.payload.to_bytes()
+            if len(raw) > 12288:
+                return
+            try:
+                self.events.put_nowait(("wire", generation, str(sample.key_expr), raw))
+            except __import__('queue').Full:
+                pass
 
         session = zenoh.open(self.config)
         try:
-            topics = [self.ack_topic("player")] if self.drone == "operator" else [
+            topics = ([self.ack_topic("player"), self.data_topic("all"), self.data_topic("player")]
+                      if self.player_chat else [self.ack_topic("player")]) if self.drone == "operator" else [
                 self.data_topic("all"), self.data_topic(self.drone), self.ack_topic(self.drone)]
             self.subscribers = [session.declare_subscriber(topic, received, allowed_origin=zenoh.Locality.REMOTE)
                                 for topic in topics]
@@ -68,7 +78,7 @@ class PeerTransport:
 
     def put(self, topic, payload):
         if self.session:
-            self.session.put(topic, json.dumps(payload, separators=(",", ":"), allow_nan=False),
+            self.session.put(topic, json.dumps(payload, separators=(",", ":"), allow_nan=False, ensure_ascii=False),
                              encoding=zenoh.Encoding.APPLICATION_JSON, allowed_destination=zenoh.Locality.REMOTE,
                              congestion_control=zenoh.CongestionControl.DROP)
 

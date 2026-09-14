@@ -17,17 +17,18 @@ import { BATTLEFIELD } from '../shared/battlefield.ts';
 import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import type { ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
 import type { ToolResult } from '../shared/types.ts';
-import { RTS_CONFIG } from '../shared/rts.ts';
+import { CARGO_CONFIG, RTS_CONFIG } from '../shared/rts.ts';
 
 const port = Number(process.env.FLEET_QA_PORT ?? 4318);
-assert.ok(Number.isInteger(port) && port > 0 && port <= 65535);
+assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Use an isolated QA port');
 const base = `http://127.0.0.1:${port}`;
 assert.equal((await (await fetch(`${base}/api/state`)).json()).running, false, 'Preserve active match');
 const output = resolve(process.env.FLEET_QA_OUTPUT ?? 'artifacts/replay-ui'), directory = resolve(output, `store-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
-const sessionId = 'session-replay-qa.jsonl', legacyId = 'session-legacy-qa.jsonl';
+const sessionId = 'session-replay-qa.jsonl', legacyId = 'session-legacy-qa.jsonl', historicalId = 'session-historical-qa.jsonl';
 await writeFile(resolve(directory, sessionId), JSON.stringify({ type: 'system', value: { message: 'Deterministic replay fixture; no inference.' } }) + '\n');
 await writeFile(resolve(directory, legacyId), '{}\n');
+await writeFile(resolve(directory, historicalId), '{}\n');
 const game = new FleetGame(); game.setConnected(true); game.start();
 game.capture = async () => 'data:image/jpeg;base64,AQID';
 for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
@@ -36,20 +37,35 @@ game.state.obstacles = [];
 game.state.drones.forEach((drone, i) => {
   drone.alive = i === 0 || i === 3;
   Object.assign(drone, { x: i === 0 || i === 3 ? 0 : i * 10, y: 2, z: i === 3 ? 8 : 20, yaw: 0, pitch: 0, charging: false });
+  drone.equipment!.armor = false;
 });
-game.state.match!.resources = [{ id: 'qa-salvage', x: 0, y: 0, z: 18, remaining: 80, capacity: 80, zoneSize: 6 }];
+game.state.match!.resources = [{ id: 'qa-salvage', x: 8, y: 0, z: 20, remaining: 80, capacity: 80, zoneSize: 6 }];
 game.state.match!.servicePads = [{ id: 'qa-service', team: 'blue', x: 0, y: 0, z: 20, zoneSize: 6 }];
 const header: ReplayHeader = {
-  type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
+  type: 'header', protocol: 'fleet-replay/1', rulesVersion: 'cargo-v1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
   roster: MATCH_FLEET, scene: { name: CITY.name, bounds: CITY.bounds, focus: BATTLEFIELD.focus,
     obstacles: [], roads: CITY.roads, river: CITY.river }, camera: DRONE_CAMERA,
 };
 const warnings: string[] = [];
 const recorder = await ReplayRecorder.create({ directory, sessionId, header, onWarning: message => warnings.push(message) });
 recorder.recordFrame(game.state, true);
+// Explicit historical evidence fixture, not a current-rules match.
+const historical = structuredClone(game.state);
+historical.simTime = 1; historical.match!.rulesVersion = 'cube-v1'; historical.match!.servicePads = [];
+historical.match!.resources = historical.match!.resources.map(({ zoneSize: _zoneSize, ...resource }) => resource);
+for (const drone of historical.drones) {
+  delete drone.cargo; delete drone.logistics; delete drone.storage; delete drone.job;
+  drone.battery = 50; drone.jamming = true; drone.equipment!.jammer = true; drone.equipment!.miner = true;
+}
+const historicalRecorder = await ReplayRecorder.create({ directory, sessionId: historicalId, header: { ...header, rulesVersion: undefined } });
+historicalRecorder.recordFrame(historical, true); await historicalRecorder.stop(1);
 game.on('tool', ({ drone, name, args }) => recorder.recordCommand(drone, name, args, game.state.simTime));
 game.on('recorded-observation', sample => recorder.recordObservation(sample));
 game.on('match-event', event => recorder.recordEvent(event));
+game.on('script-source', source => recorder.recordScriptSource(source));
+game.on('sdk-execution', execution => recorder.recordExecution(execution));
+game.on('routine-state', status => { if (status.state === 'cancelled' || status.state === 'failed') recorder.recordCancellation({ drone: status.drone, simTime: status.simTime, jobId: status.id, sourceHash: status.sourceHash, reason: status.reason ?? status.error ?? status.state }); });
+for (const event of ['radio', 'radio-delivery', 'player-radio']) game.on(event, message => recorder.recordRadio(message, game.state.simTime));
 const app = express();
 app.use('/api/diagnostics', diagnosticsRouter({ directory, roster: MATCH_FLEET, state: () => game.state, activeSession: () => game.state.running ? sessionId : undefined }));
 app.use('/api/diagnostics', replayRouter({ directory }));
@@ -88,6 +104,7 @@ const seek = async (time: number) => {
   await page.locator('#replay-scrub').fill(String(Number(time.toFixed(2))));
   await page.locator('#replay-scrub').dispatchEvent('input');
 };
+const until = async (check: () => boolean) => { const deadline = performance.now() + 5000; while (!check() && performance.now() < deadline) await delay(20); assert.ok(check(), 'Bounded routine reached expected state'); };
 try {
   await page.goto(base); await page.locator('#connection-text').getByText('Simulator connected').waitFor();
   assert.equal(body(await game.tool('drone-1', 'observe')).sensors.camera.available, true);
@@ -96,22 +113,26 @@ try {
   await page.locator('#replay-workspace').waitFor({ state: 'visible' });
   assert.equal(await page.locator('#replay-actor option').count(), 6);
   const drone = game.state.drones[0], earnedBefore = game.state.match!.teams.blue.earned;
-  // Physical cube occupancy drives mining and charging without interaction calls.
-  await step(220);
-  assert.equal(drone.mining, 'qa-salvage'); assert.ok(game.state.match!.teams.blue.earned > earnedBefore);
+  // Prescribed fixture positions isolate cargo rules, not autonomous navigation.
+  Object.assign(drone, { x: 8, y: 2, z: 20 }); await step(10); const loadingTime = game.state.simTime;
+  assert.equal(drone.logistics?.state, 'loading');
+  await step(Math.ceil(CARGO_CONFIG.pickupDuration * 10) + 1); const carryingTime = game.state.simTime;
+  assert.equal(drone.cargo?.amount, CARGO_CONFIG.gripCapacity);
+  assert.equal(game.state.match!.teams.blue.earned, earnedBefore, 'Pickup does not bank income');
+  Object.assign(drone, { x: 0, y: 2, z: 20, battery: RTS_CONFIG.batteryCapacity - 30 }); await step(5); const unloadingTime = game.state.simTime;
+  assert.equal(drone.logistics?.state, 'unloading');
+  await step(Math.ceil(CARGO_CONFIG.deliveryDuration * 10) + 1);
+  assert.equal(drone.cargo?.amount, 0); assert.equal(game.state.match!.teams.blue.earned, earnedBefore + 30);
+  Object.assign(drone, { x: 8, y: 2, z: 20 }); await step(Math.ceil(CARGO_CONFIG.pickupDuration * 10) + 1);
+  Object.assign(drone, { x: 0, y: 2, z: 20 }); await step(Math.ceil(CARGO_CONFIG.deliveryDuration * 10) + 1);
+  assert.equal(game.state.match!.teams.blue.earned, earnedBefore + 60);
+  assert.equal(game.state.match!.resources[0].remaining, 20);
   assert.equal(drone.charging, true); assert.equal(drone.servicing, undefined);
-  assert.equal(drone.battery, RTS_CONFIG.batteryCapacity, 'The friendly cube supplies power while mining');
+  assert.equal(drone.battery, RTS_CONFIG.batteryCapacity, 'Friendly base charging overlaps unloading');
+  const purchaseTime = game.state.simTime;
   const purchase = await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' });
   assert.equal(body(purchase).equipped, 'gun');
-  // A fixture grant adds jammer coverage without claiming this is an economy
-  // benchmark. The separate RTS browser fixture verifies earned purchases.
-  game.state.match!.teams.blue.credits += RTS_CONFIG.prices.jammer;
-  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'jammer' })).equipped, 'jammer');
-  assert.equal(body(await game.tool('drone-1', 'jam', { mission: 1, enabled: true })).jamming, true);
-  await step(2); const jamTime = game.state.simTime;
-  assert.equal(body(await game.tool('drone-1', 'jam', { mission: 1, enabled: false })).jamming, false);
-  game.state.match!.teams.blue.credits += RTS_CONFIG.prices.battery;
-  const enlarged = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'battery', replace: 'jammer' }));
+  const enlarged = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'battery' }));
   assert.equal(enlarged.battery.capacity, RTS_CONFIG.extendedBatteryCapacity);
   assert.equal(drone.battery, RTS_CONFIG.batteryCapacity, 'Installing extra capacity creates no charge');
   // Explicit low-charge/ammo fixture states let replay cover partial charging
@@ -125,7 +146,7 @@ try {
   assert.equal(body(await game.tool('drone-1', 'rearm', { mission: 1 })).accepted, true);
   await step(10); const chargingAndRearmTime = game.state.simTime;
   assert.equal(drone.charging, true); assert.equal(game.state.drones[0].servicing?.kind, 'rearm');
-  assert.equal(drone.mining, 'qa-salvage', 'Rearming is independent of occupancy mining and charging');
+  assert.equal(drone.cargo?.amount, 0, 'Rearming creates no cargo or income');
   assert.equal(body(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 4, y: 2, z: 20 })).accepted, true);
   for (let i = 0; i < 80 && drone.action; i++) await step(1);
   assert.equal(drone.action, undefined); assert.equal(drone.charging, false); assert.equal(drone.servicing, undefined);
@@ -133,7 +154,7 @@ try {
   const retainedCharge = drone.battery;
   await step(5); const outsideTime = game.state.simTime;
   assert.ok(drone.battery > depletedCharge && drone.battery <= retainedCharge && drone.battery > retainedCharge - 1,
-    'Leaving the cube retains accumulated charge, apart from normal flight consumption');
+    'Leaving the base retains accumulated charge, apart from normal flight consumption');
   assert.equal(body(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0, y: 2, z: 20 })).accepted, true);
   for (let i = 0; i < 80 && drone.action; i++) await step(1);
   assert.equal(drone.action, undefined); assert.equal(drone.charging, true);
@@ -141,6 +162,16 @@ try {
   await step(Math.ceil(2 * RTS_CONFIG.rechargeDuration * 10) + 1);
   assert.equal(drone.battery, RTS_CONFIG.extendedBatteryCapacity); assert.equal(drone.servicing, undefined);
   assert.equal(drone.ammo, RTS_CONFIG.magazineSize);
+  // Execute a neutral routine in the production QuickJS worker and capture its
+  // real source, SDK calls and explicit cancellation without supplying tactics.
+  const source = 'globalThis.replayExecutionMarker = true; const own = await drone.telemetry(); await drone.files.write("once.json", JSON.stringify({x: own.position.x})); while (true) await drone.sleep(100);';
+  assert.notEqual((await game.tool('drone-1', 'workspace', { mission: 1, op: 'write', path: 'evidence.js', content: source })).isError, true);
+  assert.equal(body(await game.tool('drone-1', 'routine', { mission: 1, op: 'start', path: 'evidence.js' })).accepted, true);
+  await until(() => game.onboardWorkspace('drone-1').list().some(file => file.path === 'once.json'));
+  assert.equal(body(await game.tool('drone-1', 'routine', { mission: 1, op: 'cancel' })).routine.state, 'cancelled');
+  game.receivePlayerRadio({ protocol: 'fleet-radio/1', sessionId: game.state.radio[0].sessionId, sequence: 1, sentAt: new Date().toISOString(),
+    id: 'qa-replay-reply', from: 'drone-1', to: 'player', kind: 'chat', text: 'Replay fixture cargo delivered.', simTime: game.state.simTime, mission: 1 });
+  await step(1); const routineTime = game.state.simTime;
   await game.tool('drone-1', 'act', { mission: 1, kind: 'look', heading: 0, pitch: 0 }); await step(40);
   await page.waitForFunction(() => Number((document.querySelector('#replay-scrub') as HTMLInputElement).max) >= 21);
   // Seeking a historical frame cannot change the pixels used for a current live observation.
@@ -175,18 +206,32 @@ try {
   assert.equal(recordedDrone(chargingAndRearmTime)?.charging, true); assert.equal(recordedDrone(chargingAndRearmTime)?.servicing?.kind, 'rearm');
   assert.equal(recordedDrone(outsideTime)?.charging, false); assert.ok(recordedDrone(outsideTime)!.battery! > depletedCharge);
   assert.equal(records.some(record => record.type === 'command' && (record.name === 'mine' || record.name === 'recharge')), false);
-  const actual = records.find((record): record is ReplayObservation => record.type === 'observation' && record.drone === 'drone-1' && record.simTime > 21 && record.imageAvailable);
+  assert.equal(records.find(record => record.type === 'header')?.rulesVersion, 'cargo-v1');
+  assert.equal(recordedDrone(loadingTime)?.logistics?.state, 'loading');
+  assert.equal(recordedDrone(carryingTime)?.cargo?.amount, 30);
+  assert.equal(recordedDrone(unloadingTime)?.logistics?.state, 'unloading');
+  assert.equal(recordedDrone(unloadingTime)?.charging, true);
+  const scriptRecord = records.find(record => record.type === 'script-source'); assert.ok(scriptRecord);
+  assert.equal(scriptRecord.source, source);
+  assert.ok(records.some(record => record.type === 'execution' && record.operation === 'telemetry' && record.sourceHash === scriptRecord.sourceHash));
+  assert.ok(records.some(record => record.type === 'execution' && record.operation === 'files.write'));
+  assert.ok(records.some(record => record.type === 'cancellation' && record.reason === 'requested'));
+  assert.ok(records.some(record => record.type === 'radio' && record.message.id === 'qa-replay-reply'));
+  const actual = records.find((record): record is ReplayObservation => record.type === 'observation' && record.drone === 'drone-1' && record.simTime === purchaseTime && record.imageAvailable);
   assert.ok(actual?.imageId);
   const evidence = await fetch(`${api}/api/diagnostics/sessions/${sessionId}/replay/images/${actual.imageId}`);
   const purchaseImage = purchase.content.find(item => item.type === 'image'); assert.ok(purchaseImage?.type === 'image');
   assert.deepEqual(Buffer.from(await evidence.arrayBuffer()), Buffer.from(purchaseImage.data, 'base64'));
   await page.locator('#replay-actor').selectOption('drone-1');
   await page.locator('#replay-extent').selectOption('activity');
-  await seek(jamTime);
-  assert.match(await page.locator('#replay-drone-state').innerText(), /jammer on/i);
-  assert.match(await page.locator('#replay-drone-state').innerText(), /radio jammed/i);
-  assert.match(await page.locator('#replay-drone-state').innerText(), /battery/i);
-  await page.locator('#admin-replay').screenshot({ path: resolve(output, 'replay-interference.png') });
+  await seek(loadingTime);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /LOADING/);
+  await page.locator('#admin-replay').screenshot({ path: resolve(output, 'replay-loading.png') });
+  await seek(carryingTime);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /CARGO 30 \/ 30/);
+  await seek(unloadingTime);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /UNLOADING/);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /CHARGING/);
   await seek(chargingTime);
   assert.match(await page.locator('#replay-drone-state').innerText(), /charging/i);
   assert.ok((await page.locator('#replay-drone-state').innerText()).includes(
@@ -198,6 +243,16 @@ try {
   assert.match(await page.locator('#replay-drone-state').innerText(), /rearming/i);
   await seek(outsideTime);
   assert.doesNotMatch(await page.locator('#replay-drone-state').innerText(), /charging/i);
+  await seek(routineTime);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /CANCELLED/);
+  assert.match(await page.locator('#replay-source-count').innerText(), /1 recorded version/);
+  await page.locator('.replay-sources > summary').click();
+  await page.locator('#replay-sources details > summary').click();
+  assert.equal(await page.locator('#replay-sources pre').innerText(), source);
+  assert.equal(await page.evaluate(() => (globalThis as Record<string, unknown>).replayExecutionMarker), undefined, 'Archived source never runs in the viewer');
+  assert.ok(game.onboardWorkspace('drone-1').read('once.json'), 'The neutral fixture did execute once in its isolated guest');
+  await page.locator('#admin-replay').screenshot({ path: resolve(output, 'replay-routine-evidence.png') });
+  await page.locator('.replay-sources > summary').click();
   await page.locator('#replay-latest').click();
   await page.locator('#admin-replay').screenshot({ path: resolve(output, 'replay-desktop.png') });
   await page.locator('.replay-event[data-event-type="fired"]').click();
@@ -214,12 +269,20 @@ try {
   await page.locator('.replay-transport').evaluate(el => el.scrollIntoView({ block: 'center' }));
   await page.screenshot({ path: resolve(output, 'replay-mobile-controls.png') });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
+  await page.locator('#admin-session').selectOption(historicalId);
+  await page.locator('#replay-workspace').waitFor({ state: 'visible' });
+  await page.locator('#replay-actor').selectOption('drone-1');
+  await page.waitForFunction(() => document.querySelector('#replay-drone-state')?.textContent?.includes('Jammer on'));
+  assert.match(await page.locator('#replay-drone-state').innerText(), /Drill/);
+  assert.match(await page.locator('#replay-drone-state').innerText(), /Battery 50%/);
+  assert.doesNotMatch(await page.locator('#replay-drone-state').innerText(), /CARGO/);
+  assert.match(await page.locator('#replay-badge').innerText(), /HISTORICAL RULES/);
   await page.locator('#admin-session').selectOption(legacyId);
   await page.locator('#replay-status').getByText('Replay is unavailable', { exact: false }).waitFor();
   assert.equal(await page.locator('#replay-workspace').isVisible(), false);
   assert.deepEqual(warnings, []); assert.deepEqual(errors, []);
   const result = { passed: true, inference: false, records: records.length, directory,
-    checks: ['live recording append', 'time scrubbing', 'playback', 'event seeking', 'six-actor selection', 'physical shot and impact correlation', 'image bytes match delivered camera', 'automatic cube mining without a mine command', 'recorded explicit cube bounds and charging booleans', '300 / 600 battery capacity', 'automatic partial charging independent of rearming', 'charge retained after leaving the cube', 'recorded interference', 'replay/live sensor isolation', 'missing and legacy evidence', 'responsive layout', 'no browser errors'] };
+    checks: ['live recording append', 'time scrubbing', 'playback', 'event seeking', 'six-actor selection', 'physical shot and impact correlation', 'image bytes match delivered camera', 'physical pickup and completed delivery income', 'recorded cargo progress and charging booleans', '300 / 600 battery capacity', 'automatic partial charging independent of rearming', 'charge retained after leaving the base', 'real QuickJS source, SDK calls and cancellation evidence', 'inert source viewer', 'actual player reply radio record', 'historical drill/jammer/capacity interpretation', 'replay/live sensor isolation', 'missing legacy audit evidence', 'responsive layout', 'no browser errors'] };
   await writeFile(resolve(output, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally {
   game.stop(); await recorder.stop(game.state.simTime); await browser.close();

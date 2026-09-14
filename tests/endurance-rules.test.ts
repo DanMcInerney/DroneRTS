@@ -16,7 +16,7 @@ function fixture(onEvent?: (event: MatchEvent) => void) {
     match: rules.newMatch([{ id: 'salvage', x: 10, y: 0, z: 0, capacity: 1000, remaining: 1000 }],
       drones.map(drone => ({ id: `pad-${drone.id}`, x: drone.x, y: drone.y, z: drone.z, team: drone.team! }))),
   };
-  rules.begin(state);
+  rules.begin(state); state.match!.rulesVersion = 'cube-v1';
   const drone = drones[0], wallet = state.match!.teams.blue;
   const tick = (dt: number, previous?: Map<DroneId, Point>) => { state.simTime += dt; return rules.step(state, dt, previous); };
   const buy = (...items: EquipmentItem[]) => {
@@ -57,13 +57,15 @@ test('depleted zones do not incur mining drain and outside-pad depletion still p
   assert.ok(state.match!.events.some(event => event.type === 'destroyed' && event.cause === 'power'));
 });
 
-test('paused, inactive and invalid-duration simulation changes neither charge nor timed rearming', () => {
+test('Stop and inactive matches refund rearming once; invalid durations do not advance an active service', () => {
   const { rules, state, drone, tick, buy } = fixture(); buy('gun'); drone.ammo = 1; drone.battery = 50;
   rules.rearm(state, drone); state.running = false; tick(20);
-  near(drone.battery, 50); assert.equal(drone.servicing!.remaining, 8); assert.equal(drone.charging, false);
+  near(drone.battery, 50); assert.equal(drone.servicing, undefined); assert.equal(drone.charging, false);
+  assert.equal(state.match!.teams.blue.credits, 470);
   state.running = true; state.match!.phase = 'ready'; tick(20);
-  near(drone.battery, 50); assert.equal(drone.servicing!.remaining, 8);
+  near(drone.battery, 50); assert.equal(drone.servicing, undefined); assert.equal(state.match!.teams.blue.credits, 470);
   state.match!.phase = 'active';
+  rules.rearm(state, drone);
   for (const duration of [0, -1, NaN, Infinity]) rules.step(state, duration);
   near(drone.battery, 50); assert.equal(drone.servicing!.remaining, 8);
 });
@@ -208,7 +210,7 @@ test('damage, source death and stale removed modules stop interference immediate
 
 test('begin resets charge and interference while victory shuts off all surviving emitters', () => {
   const { rules, state, drone, drones, buy, tick } = fixture(); buy('jammer', 'battery');
-  drone.battery = 25; rules.jam(state, drone, true); rules.begin(state);
+  drone.battery = 25; rules.jam(state, drone, true); rules.begin(state); state.match!.rulesVersion = 'cube-v1';
   assert.equal(drone.battery, 300); assert.equal(batteryCapacityFor(drone), 300);
   assert.ok(drones.every(unit => unit.jamming === false && unit.radioJammed === false));
   buy('jammer'); rules.jam(state, drone, true);

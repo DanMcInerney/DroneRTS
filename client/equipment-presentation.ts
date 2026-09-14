@@ -1,5 +1,6 @@
 import type { Drone } from './types';
-import { batteryCapacityFor, EQUIPMENT_MODULES, RTS_CONFIG, type MatchState, type ServiceAction } from '../shared/rts';
+import { batteryCapacityFor, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, RTS_CONFIG, type MatchState, type ServiceAction } from '../shared/rts';
+import { onboardPresentation } from './onboard-presentation';
 
 /** Player presentation only. Missing historical telemetry stays unknown. */
 export function batteryPresentation(drone: Drone, recordedCapacity?: number) {
@@ -17,7 +18,7 @@ export function servicePresentation(service?: ServiceAction) {
   return { label: charging ? 'Charging' : 'Rearming', remaining, progress: Math.max(0, Math.min(1, 1 - remaining / duration)) };
 }
 
-export const equippedModuleCount = (drone: Drone) => EQUIPMENT_MODULES.filter(item => drone.equipment?.[item]).length;
+export const equippedModuleCount = (drone: Drone) => [...new Set([...EQUIPMENT_MODULES, ...LEGACY_EQUIPMENT_MODULES])].filter(item => drone.equipment?.[item]).length;
 
 export function chargingPresentation(drone: Drone, battery = batteryPresentation(drone)) {
   if (drone.alive === false || drone.charging !== true) return;
@@ -25,12 +26,13 @@ export function chargingPresentation(drone: Drone, battery = batteryPresentation
 }
 
 /** Replays report the saved fields without guessing absent battery/radio state. */
-export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resources' | 'servicePads'>): string[] {
+export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resources' | 'servicePads' | 'rulesVersion'>, rulesVersion?: string): string[] {
   // Explicit recorded cube sizes mark the revision that increased capacity.
   // Earlier records used 100/150 charge; do not reinterpret them with live tuning.
-  const modern = match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
+  const modern = (rulesVersion ?? match?.rulesVersion) === 'cargo-v1' || match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
   const battery = batteryPresentation(drone, modern ? undefined : drone.equipment?.battery ? 150 : 100), service = servicePresentation(drone.servicing);
   const charging = chargingPresentation(drone, battery);
+  const onboard = onboardPresentation(drone);
   return [
     drone.ammo !== undefined ? `${drone.ammo} rounds` : '',
     drone.cameraMode ? `Camera ${drone.cameraMode}` : '',
@@ -39,5 +41,6 @@ export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resou
     service ? `${service.label} · ${service.remaining.toFixed(1)}s remaining` : '',
     drone.jamming !== undefined ? `Jammer ${drone.jamming ? 'on' : 'off'}` : '',
     drone.radioJammed !== undefined ? drone.radioJammed ? 'Radio jammed' : 'Radio clear' : '',
+    onboard.cargo ?? '', onboard.logistics ?? '', onboard.job ?? '', onboard.source ?? '', onboard.storage ?? '',
   ].filter(Boolean);
 }

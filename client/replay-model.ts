@@ -1,11 +1,12 @@
-import type { ReplayCommand, ReplayCombatEvent, ReplayEnd, ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay';
+import type { ReplayCommand, ReplayCombatEvent, ReplayEnd, ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord, ReplayScriptSource, ReplayExecution, ReplayCancellation, ReplayRadio } from '../shared/replay';
 import type { DroneId } from '../shared/types';
 
 type Timed = Exclude<ReplayRecord, ReplayHeader>;
-export type ReplayMoment = ReplayCombatEvent | ReplayCommand;
+export type ReplayMoment = ReplayCombatEvent | ReplayCommand | ReplayExecution | ReplayCancellation | ReplayRadio | ReplayScriptSource;
 export interface ReplaySample {
   time: number; frame?: ReplayFrame; observation?: ReplayObservation;
   events: ReplayCombatEvent[]; moments: ReplayMoment[];
+  sources: ReplayScriptSource[]; executions: ReplayExecution[]; cancellations: ReplayCancellation[]; radio: ReplayRadio[];
   metrics: { shots: number; hits: number; deaths: number; terrain: number; ram: number; bullet: number; power?: number; unknown: number; salvage: number };
 }
 
@@ -31,7 +32,7 @@ export class ReplayTimeline {
     this.frames = []; this.moments = []; this.observations.clear();
     for (const record of this.records) {
       if (record.type === 'frame') this.frames.push(record);
-      if (record.type === 'event' || record.type === 'command') this.moments.push(record);
+      if (['event', 'command', 'execution', 'cancellation', 'radio', 'script-source'].includes(record.type)) this.moments.push(record as ReplayMoment);
       if (record.type === 'end') this.end = record;
       if (record.type === 'observation') {
         const list = this.observations.get(record.drone) ?? [];
@@ -58,7 +59,12 @@ export class ReplayTimeline {
       }
     }
     metrics.salvage = Object.values(frame?.match?.teams ?? {}).reduce((sum, team) => sum + team.earned, 0);
-    return { time, frame, observation, events, moments, metrics };
+    const own = (record: { drone: DroneId }) => !actor || record.drone === actor;
+    const sources = moments.filter((record): record is ReplayScriptSource => record.type === 'script-source' && own(record));
+    const executions = moments.filter((record): record is ReplayExecution => record.type === 'execution' && own(record));
+    const cancellations = moments.filter((record): record is ReplayCancellation => record.type === 'cancellation' && own(record));
+    const radio = moments.filter((record): record is ReplayRadio => record.type === 'radio');
+    return { time, frame, observation, events, moments, metrics, sources, executions, cancellations, radio };
   }
 
   window(time: number, duration = 8) {

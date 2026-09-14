@@ -29,7 +29,8 @@ async function armed() {
   return game;
 }
 function assertPrivate(result: any) {
-  assert.deepEqual(Object.keys(result.sensors).sort(), ['camera', 'heading', 'position', 'timestamp']);
+  assert.equal(result.protocol, 'fleet-observation/2');
+  assert.ok(result.sensors.ranges); assert.ok(result.currentTelemetry); assert.ok(result.sensors.cameraOrientation);
   for (const secret of ['private-pad', 'servicePads', 'padId', 'cameraFov', 'serviceRange', 'bulletSpeed', 'resources', 'projectiles']) {
     assert.equal(JSON.stringify(result).includes(secret), false, secret);
   }
@@ -37,7 +38,7 @@ function assertPrivate(result: any) {
 
 test('the shared opening wallet funds exactly one of three simultaneous module choices', async () => {
   const game = await ready();
-  const purchases = await Promise.all(['gun', 'miner', 'optics'].map((item, index) => game.tool(MATCH_DRONE_IDS[index], 'buy', { mission: 1, item })));
+  const purchases = await Promise.all(['gun', 'cargo', 'optics'].map((item, index) => game.tool(MATCH_DRONE_IDS[index], 'buy', { mission: 1, item })));
   assert.equal(purchases.map(body).filter(result => result.equipped).length, 1);
   assert.equal(game.state.match!.teams.blue.credits, 0);
   assert.equal(game.state.match!.teams.blue.earned, 0);
@@ -53,7 +54,7 @@ test('refitting revokes removed equipment tools and returns fresh own status wit
   const optics = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' }));
   assert.ok(optics.availableTools.includes('fire')); assert.ok(optics.availableTools.includes('rearm')); assert.ok(optics.availableTools.includes('camera'));
   await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' });
-  const miner = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'miner', replace: 'gun' }));
+  const miner = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'gun' }));
   assert.equal(miner.ammo, 0); assert.equal(miner.cameraMode, 'zoom');
   assert.equal(miner.availableTools.includes('fire'), false); assert.equal(miner.availableTools.includes('rearm'), false);
   for (const tool of ['fire', 'rearm']) {
@@ -61,7 +62,7 @@ test('refitting revokes removed equipment tools and returns fresh own status wit
     assert.equal(rejected.isError, true); assertPrivate(body(rejected));
   }
   const gun = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun', replace: 'optics' }));
-  assert.equal(gun.cameraMode, 'wide'); assert.equal(gun.ammo, RTS_CONFIG.magazineSize);
+  assert.equal(gun.cameraMode, 'wide'); assert.equal(gun.ammo, 0, 'Refitting a previously purchased gun creates no ammunition');
   assert.equal(gun.availableTools.includes('camera'), false);
   const denied = await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' });
   assert.equal(denied.isError, true); assert.equal(drone.cameraMode, 'wide');
@@ -86,6 +87,7 @@ test('rearming stops residual flight, permits looking and radio, and completion 
   game.tick(0.1);
   const receipt = body(await game.tool('drone-1', 'rearm', { mission: 1 }));
   assert.deepEqual(receipt.currentAction, { id: 'servicing', kind: 'rearm' });
+  assert.equal(receipt.job?.state, 'cancelled', 'Rearming must retire the flight writer, not leave a running job with no movement');
   assert.equal(receipt.ammo, RTS_CONFIG.magazineSize - 1); assert.equal(receipt.account.credits, 90);
   const position = { x: drone.x, y: drone.y, z: drone.z };
   await game.tool('drone-1', 'act', { mission: 1, kind: 'look', heading: 30, pitch: -20 });
@@ -124,19 +126,20 @@ test('service completion during capture refreshes the delivered sample once', as
   assert.ok(completed); assert.ok(result.sensors.timestamp.simTime >= completed.simTime); game.stop();
 });
 
-test('optional mining and charging status calls cannot replace an in-progress rearm', async () => {
+test('unavailable legacy mining and charging status calls cannot replace an in-progress rearm', async () => {
   const game = await armed(), drone = game.state.drones[0]; drone.battery = RTS_CONFIG.batteryCapacity / 2;
   await game.tool('drone-1', 'rearm', { mission: 1 }); const service = drone.servicing;
   const charging = body(await game.tool('drone-1', 'recharge', { mission: 1 }));
   assert.equal(charging.accepted, true); assert.equal(charging.charging, true); assert.equal(drone.servicing, service);
-  await game.tool('drone-1', 'mine', { mission: 1 }); assert.equal(drone.servicing, service);
+  assert.equal((await game.tool('drone-1', 'mine', { mission: 1 })).isError, true); assert.equal(drone.servicing, service);
   advance(game, 1); assert.ok(drone.battery! > RTS_CONFIG.batteryCapacity / 2);
   assert.ok(drone.servicing); assert.equal(drone.servicing.kind, 'rearm'); game.stop();
 });
 
-test('recorder projection uses capture-time optics while automatic mining is independent of camera mode', async () => {
+test('recorder projection uses capture-time optics while historical cube mining is independent of camera mode', async () => {
   for (const mode of ['wide', 'zoom'] as const) {
     const game = await ready(), drone = game.state.drones[0];
+    game.state.match!.rulesVersion = 'cube-v1';
     Object.assign(drone, { x: 0, y: 1.4, z: 2, cameraMode: mode }); drone.equipment!.optics = true;
     game.state.match!.resources = [{ id: 'private-node', x: 1.5, y: 0.45, z: 0, remaining: 50, capacity: 50 }];
     const expectedFov = cameraFovFor(drone), records: any[] = [];

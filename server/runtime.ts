@@ -8,20 +8,14 @@ import { AppServerRpc } from './runtime-rpc.js';
 import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
 import type { ToolResult } from '../shared/types.js';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
+import { validateAgentBackend, type AgentBackend, type AgentBackendOptions } from './agent-backend.ts';
 
-export type RuntimeOptions = {
-  projectDir: string;
-  roster?: FleetRoster;
-  team?: 'blue' | 'red';
-  toolsForRole?: (role: FleetRole) => Tool[];
-  toolHandler: (role: FleetRole, name: string, args: Record<string, unknown>) => Promise<ToolResult>;
-  onStatus: (status: any) => void;
-  onEvent: (event: any) => void;
-};
+export type RuntimeOptions = AgentBackendOptions;
 const quoted = (value: string) => JSON.stringify(value);
 
 
-export class CodexFleetRuntime {
+export class CodexFleetRuntime implements AgentBackend {
+  readonly configuration;
   private rpc?: AppServerRpc;
   private mcp?: FleetMcpServer;
   private runDir?: string;
@@ -50,9 +44,10 @@ export class CodexFleetRuntime {
   private readonly droneTools;
   private readonly parentInstructions: string;
   constructor(private options: RuntimeOptions) {
+    this.configuration = validateAgentBackend(options.backend);
     this.roster = validateRoster(options.roster ?? DEFAULT_FLEET);
     this.drones = this.roster.map(member => member.id);
-    this.droneTools = createDroneTools(this.roster);
+    this.droneTools = createDroneTools(this.roster, undefined, options.team);
     this.parentInstructions = createParentInstructions(this.roster);
   }
 
@@ -64,6 +59,7 @@ export class CodexFleetRuntime {
   }
   private async startInternal() {
     this.stopped = false;
+    this.options.onEvent({ type: 'agent-backend', configuration: this.configuration, inputBoundaries: ['tool-result', 'next-turn'], inferenceHardware: 'abstracted' });
     this.options.onStatus({ status: 'starting', message: 'Checking Codex and Luna / xhigh…', model: MODEL, effort: EFFORT });
     try {
       this.runDir = await mkdtemp(join(tmpdir(), 'drone-fleet-'));
@@ -193,7 +189,7 @@ export class CodexFleetRuntime {
   private async startMcp() {
     this.mcp = new FleetMcpServer({
       roles: ['parent', ...this.drones], active: () => !this.stopped,
-      tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: this.options.onEvent,
+      tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: event => this.options.onEvent(event as Record<string, unknown>),
       onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
       call: async (role, name, args) => {
         this.options.onEvent({ type: 'tool', role, name, arguments: args });

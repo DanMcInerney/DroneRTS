@@ -1,0 +1,12 @@
+/* Player diagnostics are DOM-only and do not enter camera captures. */
+.cargo-state{display:grid;gap:5px;padding:8px 12px;background:#292a1e;color:#e0cf94;font:8px/1.5 var(--mono)}
+.cargo-state strong{font-size:9px}.cargo-progress{height:4px;width:100%;accent-color:#dfbd65;border:0}
+.onboard-state{padding:8px 12px;background:#14242b;color:#99b6c1;font:8px/1.7 var(--mono);overflow-wrap:anywhere}
+.onboard-state summary{cursor:pointer;color:#bfd5dd}.onboard-state>span{display:block;margin-top:6px}
+.radio-delivery{display:block;margin:6px 0;color:#879fa9;font:7px/1.6 var(--mono);overflow-wrap:anywhere}
+.player-chat{margin:0 18px 10px;border:1px solid #304551;border-radius:4px}.player-chat .drone-radio-log{height:190px}
+.objective-action{font-size:9px;margin-top:8px}.cargo-state[hidden],.cargo-state [hidden],.loadout-strip [hidden]{display:none!important}
+.haul-totals{display:grid;gap:5px;font:9px/1.5 var(--mono);color:#b8cabe;margin:8px 0 14px}
+.replay-sources{margin:16px 0;padding:12px;border:1px solid #304551;color:#b6cbd6;font:10px/1.7 var(--mono);overflow-wrap:anywhere}
+.replay-sources summary{cursor:pointer}.replay-sources summary span{color:#839dac;margin-left:8px}.replay-sources p{font-size:9px;color:#8da6b2}
+.replay-sources details{margin:9px 0;padding:10px;background:#0b1720;border-radius:4px}.replay-sources pre{max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#071119;padding:12px;color:#cfddd8;font:10px/1.6 var(--mono)}

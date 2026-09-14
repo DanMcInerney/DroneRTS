@@ -63,6 +63,7 @@ export class OverheadMap {
   }
 
   renderMarkers(displayed: readonly Drone[], current: readonly Drone[], match?: MatchState) {
+    const cargoRules = match?.rulesVersion === 'cargo-v1';
     const box = this.view.getBoundingClientRect();
     const project = (x: number, z: number) => {
       const p = new THREE.Vector3(x, 0, z).project(this.camera); return [(p.x + 1) / 2 * box.width, (1 - p.y) / 2 * box.height];
@@ -89,11 +90,11 @@ export class OverheadMap {
         marker.innerHTML = '<span>◆</span><b></b>'; this.resources.set(node.id, marker); this.markerLayer.append(marker);
       }
       const [x, y] = project(node.x, node.z);
-      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height || (node.zoneSize !== undefined && node.remaining <= 0);
+      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height || (!cargoRules && node.zoneSize !== undefined && node.remaining <= 0);
       marker.querySelector('span')!.textContent = node.zoneSize === undefined ? '◆' : '□';
-      const rich = (node.extractionMultiplier ?? 1) > 1;
+      const rich = cargoRules ? node.capacity >= 600 : (node.extractionMultiplier ?? 1) > 1;
       marker.classList.toggle('depleted', node.remaining <= 0); marker.classList.toggle('rich', rich);
-      marker.querySelector('b')!.textContent = `${rich ? 'MEGA' : String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}${rich ? ` · ${node.extractionMultiplier}×` : ''}`;
+      marker.querySelector('b')!.textContent = `${rich ? 'MEGA' : node.kind === 'dropped' ? 'DROP' : String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}${rich && !cargoRules ? ` · ${node.extractionMultiplier}×` : ''}`;
       marker.title = `${rich ? 'Central mega deposit' : `Deposit ${index + 1}`} · ${Math.ceil(node.remaining)} salvage remaining`;
     }
     const padIds = new Set(match?.servicePads?.map(pad => pad.id) ?? []);
@@ -105,7 +106,7 @@ export class OverheadMap {
         marker.innerHTML = '<span>H</span><b>SERVICE</b>'; this.servicePads.set(pad.id, marker); this.markerLayer.prepend(marker);
       }
       marker.dataset.team = pad.team; marker.classList.toggle('cube', pad.zoneSize !== undefined);
-      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} service ${pad.zoneSize === undefined ? 'pad' : 'cube'} · refit, rearm and automatic charging`;
+      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} ${cargoRules ? 'base apron · delivery' : `service ${pad.zoneSize === undefined ? 'pad' : 'cube'}`} · refit, rearm and automatic charging`;
       const [x, y] = project(pad.x, pad.z); marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
     }
@@ -126,7 +127,9 @@ export class OverheadMap {
       marker.classList.toggle('eliminated', drone.alive === false);
       marker.classList.toggle('jamming', drone.alive !== false && Boolean(drone.jamming));
       marker.classList.toggle('radio-jammed', drone.alive !== false && Boolean(drone.radioJammed));
-      marker.title = `${drone.id}${drone.jamming ? ' · Jammer active' : ''}${drone.radioJammed ? ' · Radio jammed' : ''}`;
+      const actual = currentById.get(drone.id) ?? drone;
+      marker.title = `${drone.id}${actual.cargo ? ` · Cargo ${actual.cargo.amount}` : ''}${actual.logistics ? ` · ${actual.logistics.state}` : ''}${actual.job ? ` · ${actual.job.state}` : ''}${drone.jamming ? ' · Jammer active' : ''}${drone.radioJammed ? ' · Radio jammed' : ''}`;
+      marker.querySelector('.map-drone-label')!.textContent = identity.shortLabel + (actual.cargo?.amount ? ` ◆${actual.cargo.amount}` : '');
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
       marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       (marker.firstElementChild as HTMLElement).style.transform = `rotate(${-drone.yaw}deg)`;

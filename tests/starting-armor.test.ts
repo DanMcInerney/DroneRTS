@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { FleetGame } from '../server/game.ts';
+import { terrainContact } from '../server/rts-geometry.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import { RTS_CONFIG } from '../shared/rts.ts';
 import type { ToolResult } from '../shared/types.ts';
@@ -48,14 +49,23 @@ const collisions = [
   { id: 'drone-4' as const, from: { x: 51.599998474121094, y: 20, z: 21.899999618530273 }, target: { x: 39, y: 20, z: 20 } },
   { id: 'drone-5' as const, from: { x: 35, y: 10, z: 22.799999237060547 }, target: { x: 24, y: 10, z: 12 } },
 ];
-for (const collision of collisions) test(`${collision.id}'s recorded building collision consumes starting armor, wakes feedback and stops flight`, async t => {
+for (const collision of collisions) test(`${collision.id}'s recorded route brakes; actual contact consumes armor with private feedback and stops flight`, async t => {
   const game = await ready(); t.after(() => game.stop());
   const drone = game.state.drones.find(drone => drone.id === collision.id)!;
   Object.assign(drone, collision.from);
   const command = { mission: 1, kind: 'fly_to', ...collision.target };
   assert.equal(body(await game.tool(drone.id, 'act', command)).accepted, true);
+  await new Promise(resolve => setImmediate(resolve));
+  for (let step = 0; step < 1200 && drone.action; step++) game.tick(1 / 120);
+  assert.equal(drone.alive, true); assert.equal(drone.equipment!.armor, true);
+  assert.equal(drone.job?.state, 'blocked', 'The modeled local ranges prevent this controllable contact');
+  const hit = terrainContact(collision.from, collision.target, game.state.obstacles, RTS_CONFIG.droneRadius);
+  assert.ok(hit, 'The historical path still intersects authoritative city geometry');
+  const overlap = { x: hit.contact.x - hit.normal.x * 0.001,
+    y: hit.contact.y - hit.normal.y * 0.001, z: hit.contact.z - hit.normal.z * 0.001 };
+  await game.tool(drone.id, 'observe');
   const waiting = game.tool(drone.id, 'wait', { timeout_ms: 1000 });
-  for (let step = 0; step < 1200 && drone.equipment!.armor; step++) game.tick(1 / 120);
+  Object.assign(drone, overlap); game.tick(1 / 120);
   const feedback = body(await waiting);
   assert.equal(drone.alive, true); assert.equal(drone.equipment!.armor, false);
   assert.equal(drone.action, undefined);
@@ -66,7 +76,7 @@ for (const collision of collisions) test(`${collision.id}'s recorded building co
   assert.ok(Number.isFinite(Date.parse(alerts[0].occurredAt)));
   assert.deepEqual(Object.keys(alerts[0]).sort(), ['cause', 'cursor', 'message', 'mission', 'occurredAt', 'simTime', 'type']);
   assert.equal(feedback.equipment.armor, false);
-  assert.deepEqual(Object.keys(feedback.sensors).sort(), ['camera', 'heading', 'position', 'timestamp']);
+  assert.equal(feedback.protocol, 'fleet-observation/2'); assert.ok(feedback.sensors.ranges); assert.ok(feedback.currentTelemetry);
   const stopped = position(drone);
   for (let step = 0; step < 120; step++) game.tick(1 / 120);
   assert.equal(drone.alive, true); assert.deepEqual(position(drone), stopped, 'impact clears residual velocity');
@@ -74,8 +84,7 @@ for (const collision of collisions) test(`${collision.id}'s recorded building co
   const peer = game.state.drones.find(other => other.team === drone.team && other.id !== drone.id)!;
   assert.equal(body(await game.tool(peer.id, 'observe')).events.some((event: any) => event.type === 'armor_lost'), false);
 
-  await game.tool(drone.id, 'act', command);
-  for (let step = 0; step < 1200 && drone.alive; step++) game.tick(1 / 120);
+  Object.assign(drone, overlap); game.tick(1 / 120);
   assert.equal(drone.alive, false, 'a second unprotected collision remains lethal');
 });
 

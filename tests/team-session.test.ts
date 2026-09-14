@@ -26,7 +26,7 @@ function fixture(linkHook?: (id: DroneId, online: boolean) => Promise<void>, sta
       const state = { status: 'starting' as const, transport: 'zenoh-tcp' as const, vehicle: 'mavlink2-udp' as const, message: '', peers: options.roster!.map(member => ({ id: member.id, online: false, peers: 0, pending: 0, inbox: 0 })) };
       return { state, start: async () => { started.push(`${team}-network`); await startHook?.(); options.onState({ ...state, status: 'online' }); }, stop: async () => { stopped.push(`${team}-network`); }, send: async message => { sent.push({ team, message }); }, consume: () => {}, link: async (id, online) => { links.push({ id, online }); await linkHook?.(id, online); } };
     },
-    vehicle: options => { vehicleRoster = options.roster; return { start: async () => {}, stop: async () => { stopped.push('vehicle'); }, command: async () => ({}), sample: async () => ({ position: { x: 0, y: 0, z: 0 }, heading: { degrees: 0 }, simTime: 0 }) }; },
+    vehicle: options => { vehicleRoster = options.roster; return { start: async () => {}, stop: async () => { stopped.push('vehicle'); }, command: async () => ({}), sample: async () => ({ position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, cameraOrientation: { heading: 0, pitch: 0 }, heading: { degrees: 0 }, simTime: 0 }) }; },
   });
   return { session, game, relays, droneCalls, statuses, networks, runtimeOptions, networkOptions, sent, links, retired, stopped, vehicleRoster, failures, started };
 }
