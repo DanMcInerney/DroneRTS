@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { CITY } from '../shared/city';
 import type { Drone } from './types';
 import { dronePresentation } from './drone-presentation';
+import type { MatchState } from '../shared/rts';
+import { BATTLEFIELD } from '../shared/battlefield';
 
 /** Owns overhead projection, map input and ID-keyed annotations. */
 export class OverheadMap {
@@ -11,6 +13,7 @@ export class OverheadMap {
   private markerLayer = document.createElement('div');
   private lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private markers = new Map<string, HTMLElement>();
+  private resources = new Map<string, HTMLElement>();
   private abort = new AbortController();
 
   constructor(readonly view: HTMLElement, private invalidate: () => void, enter: (x: number, z: number, altitude: number) => void) {
@@ -30,17 +33,22 @@ export class OverheadMap {
     const options = { signal: this.abort.signal };
     view.addEventListener('click', event => enterAt(event.clientX, event.clientY), options);
     view.addEventListener('keydown', event => {
+      if (event.key === '+' || event.key === '=' || event.key === '-') {
+        event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * (event.key === '-' ? 1.2 : 1 / 1.2), 25, 18000); this.invalidate(); return;
+      }
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault(); const box = view.getBoundingClientRect(); enterAt(box.left + box.width / 2, box.top + box.height / 2);
     }, options);
+    view.addEventListener('wheel', event => {
+      if (Math.abs(event.deltaY) < 1) return;
+      event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * Math.exp(Math.sign(event.deltaY) * 0.15), 25, 18000); this.invalidate();
+    }, { ...options, passive: false });
     this.fit();
   }
 
   fit(downtown = false) {
-    const objects = downtown ? [...CITY.buildings, ...CITY.spawns] : [];
-    const xs = objects.map(item => item.x), zs = objects.map(item => item.z);
-    const minX = downtown ? Math.min(...xs) - 12 : CITY.bounds.x[0], maxX = downtown ? Math.max(...xs) + 12 : CITY.bounds.x[1];
-    const minZ = downtown ? Math.min(...zs) - 12 : CITY.bounds.z[0], maxZ = downtown ? Math.max(...zs) + 12 : CITY.bounds.z[1];
+    const minX = downtown ? BATTLEFIELD.focus.x[0] : CITY.bounds.x[0], maxX = downtown ? BATTLEFIELD.focus.x[1] : CITY.bounds.x[1];
+    const minZ = downtown ? BATTLEFIELD.focus.z[0] : CITY.bounds.z[0], maxZ = downtown ? BATTLEFIELD.focus.z[1] : CITY.bounds.z[1];
     this.center.set((minX + maxX) / 2, (minZ + maxZ) / 2);
     this.span = Math.max(maxX - minX, maxZ - minZ) * 1.06; this.invalidate();
   }
@@ -53,7 +61,7 @@ export class OverheadMap {
     this.camera.updateProjectionMatrix(); this.camera.updateMatrixWorld();
   }
 
-  renderMarkers(displayed: readonly Drone[], current: readonly Drone[]) {
+  renderMarkers(displayed: readonly Drone[], current: readonly Drone[], match?: MatchState) {
     const box = this.view.getBoundingClientRect();
     const project = (x: number, z: number) => {
       const p = new THREE.Vector3(x, 0, z).project(this.camera); return [(p.x + 1) / 2 * box.width, (1 - p.y) / 2 * box.height];
@@ -67,6 +75,22 @@ export class OverheadMap {
     };
     if (this.span > 500) CITY.cityBoundary.forEach(ring => path(ring.map(p => project(p.x, p.z)), '#4e705c', true));
     const currentById = new Map(current.map(drone => [drone.id, drone]));
+    for (const shot of match?.projectiles ?? []) {
+      path([project(shot.x - shot.vx * 0.07, shot.z - shot.vz * 0.07), project(shot.x, shot.z)], shot.team === 'blue' ? '#c3f5ff' : '#ffb092');
+      paths.at(-1)!.setAttribute('stroke-dasharray', 'none'); paths.at(-1)!.setAttribute('stroke-width', '2');
+    }
+    const resourceIds = new Set(match?.resources.map(node => node.id) ?? []);
+    for (const [id, marker] of this.resources) if (!resourceIds.has(id)) { marker.remove(); this.resources.delete(id); }
+    for (const [index, node] of (match?.resources ?? []).entries()) {
+      let marker = this.resources.get(node.id);
+      if (!marker) {
+        marker = document.createElement('div'); marker.className = 'map-resource'; marker.dataset.resourceId = node.id;
+        marker.innerHTML = '<span>◆</span><b></b>'; this.resources.set(node.id, marker); this.markerLayer.append(marker);
+      }
+      const [x, y] = project(node.x, node.z);
+      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
+      marker.classList.toggle('depleted', node.remaining <= 0); marker.querySelector('b')!.textContent = `${String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}`;
+    }
     const displayedIds = new Set<string>(displayed.map(drone => drone.id));
     for (const [id, marker] of this.markers) if (!displayedIds.has(id)) { marker.remove(); this.markers.delete(id); }
     for (const drone of displayed) {
@@ -81,6 +105,7 @@ export class OverheadMap {
         marker.append(direction, label); this.markers.set(drone.id, marker); this.markerLayer.append(marker);
       }
       const [x, y] = project(drone.x, drone.z);
+      marker.classList.toggle('eliminated', drone.alive === false);
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
       marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       (marker.firstElementChild as HTMLElement).style.transform = `rotate(${-drone.yaw}deg)`;
@@ -88,5 +113,5 @@ export class OverheadMap {
     this.lines.replaceChildren(...paths);
   }
 
-  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); }
+  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); this.resources.clear(); }
 }

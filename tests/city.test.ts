@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { CITY } from '../shared/city.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 
-test('square world contains every Cincinnati boundary vertex and keeps the southern riverfront inside', () => {
+test('geographic world contains every Cincinnati boundary vertex and keeps the southern riverfront inside', () => {
   const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
-  assert.equal(width, depth); assert.ok(width > 2900);
+  assert.notEqual(width, depth); assert.ok(width > 2900); assert.ok(depth > 1900 && depth < width);
   assert.ok(CITY.cityBoundary[0].length > 100);
   for (const p of CITY.cityBoundary.flat()) {
     assert.ok(p.x > CITY.bounds.x[0] && p.x < CITY.bounds.x[1]);

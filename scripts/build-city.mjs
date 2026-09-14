@@ -66,10 +66,13 @@ const cityPoints = cityBoundary.flat();
 const west = Math.floor(Math.min(...cityPoints.map(p => p.x)) / 10) * 10 - 40;
 const east = Math.ceil(Math.max(...cityPoints.map(p => p.x)) / 10) * 10 + 40;
 const south = Math.ceil(Math.max(...cityPoints.map(p => p.z)) / 10) * 10 + 100;
-const side = Math.max(east - west, south - Math.min(...cityPoints.map(p => p.z)) + 40);
-const bounds = { x: [west, west + side], y: [0.6, 40], z: [south - side, south] };
-// Clip geographic polygons against all four straight map edges, retaining the
-// winding shore within. The south edge is beyond the city's southernmost point.
+const north = Math.floor(Math.min(...cityPoints.map(p => p.z)) / 10) * 10 - 40;
+// Follow the municipality's unequal geographic extents. These are distant
+// controller limits; the renderer uses continuous terrain with no cube walls.
+// Below-ground waypoints are accepted so terrain contact can crash a drone.
+const bounds = { x: [west, east], y: [-5, 80], z: [north, south] };
+// Clip distant water geometry at the geographic extent, retaining the winding
+// shore and islands. The southern margin preserves the complete riverfront.
 function clipRing(ring) {
   for (const [axis, edge, direction] of [['x', bounds.x[0], 1], ['x', bounds.x[1], -1], ['z', bounds.z[0], 1], ['z', bounds.z[1], -1]]) {
     const result = [];
@@ -120,10 +123,8 @@ const intersections = [...junctions.values()].filter(point => point.streets.size
   .filter((point, index, all) => !all.slice(0, index).some(other => Math.hypot(point.x - other.x, point.z - other.z) < 2.3))
   .map((point, index) => ({ id: `intersection-${index + 1}`, x: point.x, z: point.z, streets: [...point.streets].sort() }));
 if (intersections.length < 12) throw new Error('Need at least twelve safe street intersections to randomize each reset');
-const spawns = [-4, 0, 4].map((x, i) => ({ x, y: 3, z: 69, yaw: [12, 0, -12][i], pitch: -16 }));
-if (spawns.some(p => blocked(p.x, p.y, p.z))) throw new Error('Spawn overlaps a building');
-const city = { name: 'Downtown Cincinnati', sourceNote: 'OpenStreetMap streets and footprints · CAGIS Ohio River shoreline · researched skyline heights · simplified cubes',
-  bounds, spawns, buildings, roads, parks, river, riverHoles, cityBoundary, intersections };
+const city = { name: 'Cincinnati · Ohio River', sourceNote: 'OpenStreetMap streets and footprints · CAGIS city boundary and Ohio River · researched skyline heights · simplified terrain and architecture',
+  bounds, buildings, roads, parks, river, riverHoles, cityBoundary, intersections };
 const json = JSON.stringify(city, (_key, value) => typeof value === 'number' ? round(value) : value);
 await writeFile(new URL('shared/city-data.json', root), json + '\n');
-console.log(`Generated ${buildings.length} collision boxes, ${roads.length} road ways, ${parks.length} parks, ${intersections.length} safe treasure intersections: ${fileURLToPath(new URL('shared/city-data.json', root))}`);
+console.log(`Generated ${buildings.length} collision boxes, ${roads.length} road ways, ${parks.length} parks, ${intersections.length} safe intersections: ${fileURLToPath(new URL('shared/city-data.json', root))}`);

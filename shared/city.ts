@@ -1,5 +1,6 @@
 import type { Obstacle, Pose } from './types';
 import cityData from './city-data.json';
+import { BATTLEFIELD } from './battlefield';
 
 // Renderer and simulator data only. Never expose this module through drone tools.
 export interface CityPoint { x: number; z: number }
@@ -14,4 +15,4 @@ export interface CityWorld {
 }
 
 // Rebuild with node scripts/build-city.mjs; geographic sources stay out of the model runtime.
-export const CITY = cityData as CityWorld;
+export const CITY = { ...cityData, spawns: Object.values(BATTLEFIELD.spawns) } as CityWorld;

@@ -93,10 +93,12 @@ export class Explorer {
     const movement = new THREE.Vector3(down('KeyD') - down('KeyA'), down('KeyE', 'Space') - down('KeyQ'), down('KeyS') - down('KeyW'));
     if (movement.lengthSq()) {
       movement.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), this.camera.rotation.y);
-      this.camera.position.addScaledVector(movement, dt * (down('ShiftLeft', 'ShiftRight') ? 90 : 24));
+      // Fine control at street height, faster traversal at city-view altitude.
+      const travelSpeed = Math.max(12, Math.min(160, this.camera.position.y * 0.8));
+      this.camera.position.addScaledVector(movement, dt * travelSpeed * (down('ShiftLeft', 'ShiftRight') ? 4 : 1));
       this.camera.position.x = THREE.MathUtils.clamp(this.camera.position.x, CITY.bounds.x[0], CITY.bounds.x[1]);
       this.camera.position.z = THREE.MathUtils.clamp(this.camera.position.z, CITY.bounds.z[0], CITY.bounds.z[1]);
-      this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, 0.7, Math.max(100, CITY.bounds.y[1]));
+      this.camera.position.y = THREE.MathUtils.clamp(this.camera.position.y, 0.7, 2200);
     }
     const { x, y, z } = this.camera.position;
     const heading = ((-THREE.MathUtils.radToDeg(this.camera.rotation.y) % 360) + 360) % 360;

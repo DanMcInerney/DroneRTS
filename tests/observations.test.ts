@@ -86,15 +86,14 @@ test('a replaced mission rejects stale actions and is delivered in that error re
   game.stop();
 });
 
-test('scoring never enters agent inboxes and radio envelopes carry unique session identities', async () => {
+test('radio claims cannot award victory and radio envelopes carry unique session identities', async () => {
   const game = await ready();
   const first = game.state.radio[0];
   assert.equal(first.protocol, 'fleet-radio/1'); assert.ok(Date.parse(first.sentAt));
-  game.state.treasures = [{ id: 'test-chest', x: -5, y: 0, z: 20, found: false }];
   Object.assign(game.state.drones[0], { x: -5, y: 2, z: 23, yaw: 0, pitch: -23 });
   await game.tool('drone-1', 'observe');
-  await game.tool('drone-1', 'send', { mission: 1, to: 'all', kind: 'found', text: 'A treasure chest is in my camera view.' });
-  assert.equal(game.state.completed, true);
+  await game.tool('drone-1', 'send', { mission: 1, to: 'all', kind: 'done', text: 'I eliminated all enemies.' });
+  assert.equal(game.state.completed, false);
   for (const id of DRONE_IDS) assert.equal(game.inboxes[id].events.some(e => e.type === 'mission_complete'), false);
   game.stop(); game.start();
   for (const id of DRONE_IDS) await game.tool(id, 'observe');
@@ -126,7 +125,7 @@ test('agent-facing instructions contain no world calibration or task solution', 
 test('legitimate rejected calibration experiments do not trip fleet error shutdown', async () => {
   const game = await ready();
   game.on('tool-error', error => { if (error.consecutive >= 4) game.stop(); });
-  for (const y of [-1, 0, 0.25, 0.5]) {
+  for (const y of [-1e6, -1e5, 1e5, 1e6]) {
     const result = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -5, y, z: 23 });
     assert.equal(result.isError, undefined); assert.equal(json(result).accepted, false);
     assert.equal(json(result).rejected, true); assert.equal(result.content[1].type, 'image');

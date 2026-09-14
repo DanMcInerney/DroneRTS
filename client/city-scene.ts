@@ -40,15 +40,26 @@ function sign(text: string, width: number, color = '#143e43') {
 export function createCity(buildings: Obstacle[]) {
   const group = new THREE.Group();
   const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
-  const ground = new THREE.Mesh(new THREE.BoxGeometry(width, 12, depth), material('#b8b6a1'));
-  ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, -6, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
+  // A continuous landscape extends beyond the municipal viewing envelope.
+  // The municipality is geography on the ground, not a floating square arena.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(20000, width * 4), Math.max(20000, depth * 4)), material('#a7b49a'));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, 0, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
   ground.receiveShadow = true;
   group.add(ground);
-  if (CITY.river.length > 2) group.add(polygon(CITY.river, '#398b9d', 0.025, CITY.riverHoles));
+  // Low-contrast land tint shows the sourced Cincinnati shape in the full-city
+  // view. Outer neighborhoods remain scenic flat terrain, not invented roads.
+  for (const ring of CITY.cityBoundary) if (ring.length > 2) group.add(polygon(ring, '#bdbea5', 0.008));
+  if (CITY.river.length > 2) {
+    group.add(polygon(CITY.river, '#377e91', 0.025, CITY.riverHoles));
+    const shoreline = CITY.river.map(point => new THREE.Vector3(point.x, 0.029, point.z));
+    shoreline.push(shoreline[0].clone());
+    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(shoreline), new THREE.LineBasicMaterial({ color: '#8fac9c', transparent: true, opacity: 0.6 })));
+  }
   for (const park of CITY.parks) {
     if (park.points.length > 2) group.add(polygon(park.points, park.color ?? '#82ac70', 0.05));
   }
-  const asphalt = material('#6b777c');
+  const asphalt = material('#657479');
   const paving = material('#dedac7');
   const roadMatrices: THREE.Matrix4[][] = [[], []];
   const roadDummy = new THREE.Object3D();
@@ -169,7 +180,7 @@ export function disposeGroup(group: THREE.Group) {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   group.traverse(object => {
-    if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments) {
+    if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
       geometries.add(object.geometry);
       (Array.isArray(object.material) ? object.material : [object.material]).forEach(item => materials.add(item));
     }

@@ -6,6 +6,8 @@ import { PoseBuffer } from './pose-buffer';
 import { Explorer } from './explorer';
 import { OverheadMap } from './overhead-map';
 import { DroneVisuals } from './drone-visuals';
+import { CombatView } from './combat-view';
+import type { MatchState } from '../shared/rts';
 
 export type DroneViewport = { droneId: string; view: HTMLElement };
 const radians = THREE.MathUtils.degToRad;
@@ -23,6 +25,8 @@ export class FleetScene {
   private treasureGroup = new THREE.Group();
   private treasureSignature = '';
   private drones = new DroneVisuals(this.scene);
+  private combat = new CombatView(this.scene);
+  private combatSignature = '';
   private state?: WorldState;
   private worldSignature = '';
   private stopped = false;
@@ -91,6 +95,8 @@ export class FleetScene {
     const poses = JSON.stringify(state.drones.map(({ id, x, y, z, yaw, pitch, action }) => [id, x, y, z, yaw, pitch, action]));
     if (poses !== this.poseSignature) { this.poseSignature = poses; this.frameDirty = true; }
     this.drones.reconcile(state.drones);
+    const combatSignature = JSON.stringify([state.match?.resources, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.mining])]);
+    if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match); this.frameDirty = true; }
   }
 
   private poseCamera(camera: THREE.PerspectiveCamera, pose: Pose) {
@@ -140,21 +146,21 @@ export class FleetScene {
       const fog = this.scene.fog, background = this.scene.background;
       try { this.scene.fog = null; this.scene.background = new THREE.Color('#17252b'); this.renderer.render(this.scene, this.overview.camera); }
       finally { this.scene.fog = fog; this.scene.background = background; }
-      this.overview.renderMarkers(displayed, this.state?.drones ?? []);
+      this.overview.renderMarkers(displayed, this.state?.drones ?? [], this.state?.match);
     }
   }
 
-  capture(droneId: string, pose: Pose, drones = this.state?.drones ?? []): string {
+  capture(droneId: string, pose: Pose, drones = this.state?.drones ?? [], match: MatchState | undefined = this.state?.match): string {
     this.poseCamera(this.captureCamera, pose);
     const { width, height } = DRONE_CAMERA;
     const previousTarget = this.renderer.getRenderTarget(), previousViewport = this.renderer.getViewport(new THREE.Vector4());
     const previousScissor = this.renderer.getScissor(new THREE.Vector4()), previousTest = this.renderer.getScissorTest();
     const pixels = new Uint8Array(width * height * 4);
     try {
-      this.drones.withSnapshot(droneId, drones, () => {
+      this.combat.withSnapshot(match, () => this.drones.withSnapshot(droneId, drones, () => {
         this.renderer.setRenderTarget(this.captureTarget); this.renderer.setScissorTest(false); this.renderer.setViewport(0, 0, width, height);
         this.renderer.render(this.scene, this.captureCamera); this.renderer.readRenderTargetPixels(this.captureTarget, 0, 0, width, height, pixels);
-      });
+      }));
     } finally {
       this.renderer.setRenderTarget(previousTarget); this.renderer.setViewport(previousViewport);
       this.renderer.setScissor(previousScissor); this.renderer.setScissorTest(previousTest);
@@ -168,7 +174,7 @@ export class FleetScene {
 
   dispose() {
     this.stopped = true; this.explorer.dispose(); this.overview.dispose(); this.abort.abort(); this.observer.disconnect();
-    disposeGroup(this.worldGroup); disposeGroup(this.treasureGroup); this.drones.dispose();
+    disposeGroup(this.worldGroup); disposeGroup(this.treasureGroup); this.drones.dispose(); this.combat.dispose();
     this.cameras.clear(); this.captureTarget.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }
