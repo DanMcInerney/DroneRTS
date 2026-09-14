@@ -41,7 +41,7 @@ interface VehicleTransport {
   }>;
 }
 interface RadioTransport {
-  send(message: RadioMessage): Promise<unknown>; sendTeam?(team: TeamId, message: RadioMessage): Promise<unknown>;
+  send(message: RadioMessage, options?: { beforeSend?: () => void }): Promise<unknown>; sendTeam?(team: TeamId, message: RadioMessage): Promise<unknown>;
   consume(id: DroneId, ids: string[]): void;
   transfer?(id: DroneId, args: Record<string, unknown>): Promise<unknown>;
   storage?(id: DroneId): unknown;
@@ -373,7 +373,7 @@ export class FleetGame extends EventEmitter {
     this.inboxes[recipient].push({ type: 'radio', mission: message.mission, message });
   }
 
-  private log(from: string, to: string, kind: string, text: string, data?: Record<string, unknown>, mission = this.state.mission) {
+  private log(from: string, to: string, kind: string, text: string, data?: Record<string, unknown>, mission = this.state.mission): RadioMessage {
     const sequence = ++this.serial;
     const message = { protocol: 'fleet-radio/1' as const, sessionId: this.sessionId, sequence, sentAt: new Date().toISOString(),
       id: `${this.sessionId}:${sequence}`, from, to, kind, text, data, mission, simTime: this.state.simTime };
@@ -715,7 +715,18 @@ export class FleetGame extends EventEmitter {
         }
         const message = this.log(role, to, kind, text, data, this.droneMissions[role]);
         if (this.radioTransport) {
-          await this.radioTransport.send(message);
+          const beforeSend = () => {
+            if (message.sessionId !== this.sessionId) throw new ControllerRejection('Drone session has ended; radio cancelled');
+            this.validateMission(role, message.mission);
+            if (routineContext) this.validateRoutine(role, routineContext);
+          };
+          try { await this.radioTransport.send(message, { beforeSend }); }
+          catch (error) {
+            message.delivery ??= { queuedAt: message.sentAt, storedBy: [], bundledBy: [] };
+            message.delivery.error = error instanceof Error ? error.message : String(error);
+            if (message.sessionId === this.sessionId) { this.emit('radio-delivery', structuredClone(message)); this.emit('change'); }
+            throw error;
+          }
           return textResult({ queued: message.id, delivery: 'Awaiting peer receipt', commandMission: args.mission });
         }
         // In-memory seam is for isolated unit tests. The application always installs Zenoh.

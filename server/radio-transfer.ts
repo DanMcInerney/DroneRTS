@@ -27,7 +27,7 @@ export class RadioTransfers {
   private timer: ReturnType<typeof setInterval>;
   constructor(private options: {
     sessionId: string; roster: FleetRoster; workspace: (id: DroneId) => OnboardWorkspace;
-    send: (message: RadioMessage, ttlMs: number) => Promise<unknown>;
+    send: (message: RadioMessage, ttlMs: number, beforeSend: () => void) => Promise<unknown>;
     consume: (id: DroneId, ids: string[]) => void;
     mission: (id: DroneId) => number; simTime: () => number;
     active: (id: DroneId) => boolean;
@@ -142,7 +142,16 @@ export class RadioTransfers {
     const key = `rpc:${randomUUID()}`, workspace = this.options.workspace(from);
     workspace.reserveStaging(key, Buffer.byteLength(JSON.stringify(message)) * 2 + 512);
     this.pendingSends.set(from, (this.pendingSends.get(from) ?? 0) + 1);
-    try { return await this.options.send(message, ttlMs); }
+    const beforeSend = () => {
+      this.check(from);
+      // Control receipts/tombstones remain valid after explicit cancellation.
+      // Source chunks require the same live entry right up to native admission.
+      if (data.operation === 'chunk' && (entry.cancelled || this.entries(from).get(entry.id) !== entry
+        || this.options.mission(from) !== entry.mission || entry.expiresAt <= performance.now())) {
+        throw new Error('Transfer cancelled by lifecycle or received objective');
+      }
+    };
+    try { beforeSend(); return await this.options.send(message, ttlMs, beforeSend); }
     finally { workspace.releaseStaging(key); this.pendingSends.set(from, this.pendingSends.get(from)! - 1); }
   }
   receive(id: DroneId, message: RadioMessage): void {

@@ -100,11 +100,12 @@ export class FleetNetwork {
     }
   }
   private publish() { this.options.onState(structuredClone(this.state)); }
-  send(message: RadioMessage, options: { ttlMs?: number } = {}) {
+  send(message: RadioMessage, options: { ttlMs?: number; beforeSend?: () => void } = {}) {
     if ((message.from !== 'player' && !isDroneId(message.from, this.roster)) || (message.to !== 'all' && !(message.to === 'player' && this.options.playerChat) && !isDroneId(message.to, this.roster))) throw new Error('Radio identity is outside this fleet');
     if (message.from === 'player' && !this.options.playerChat && message.kind !== 'mission') throw new Error('Ordinary player chat cannot access the red network');
     const worker = this.workers.get(message.from === 'player' ? 'operator' : message.from as DroneId);
     if (!worker || this.stopping) throw new Error('Drone network is unavailable');
+    options.beforeSend?.();
     return worker.request('send', { message, ttlMs: options.ttlMs ?? (message.kind === 'status' ? 5_000 : 120_000) });
   }
   storage(id: DroneId): RadioStorage | undefined { return this.storageByPeer.has(id) ? { ...this.storageByPeer.get(id)! } : undefined; }

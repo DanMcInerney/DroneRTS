@@ -38,9 +38,11 @@ export class TeamSession {
   private transfers = new Map<TeamId, RadioTransfers>();
   readonly vehicle: VehicleActor;
   readonly radio = {
-    send: async (message: RadioMessage) => {
+    send: async (message: RadioMessage, options: { beforeSend?: () => void } = {}) => {
       if (message.from === 'player') throw new Error('Player radio must select a team');
       await this.reconcileRadio();
+      this.validateSender(message, true);
+      options.beforeSend?.();
       return this.networkFor(teamForDrone(message.from as DroneId)).send(message);
     },
     sendTeam: async (team: TeamId, message: RadioMessage) => {
@@ -73,9 +75,10 @@ export class TeamSession {
         active: id => !this.stopped && options.game.state.running && options.game.state.drones.some(drone => drone.id === id && drone.alive !== false),
         mission: id => options.game.receivedMission(id),
         simTime: () => options.game.state.simTime,
-        send: async (message, ttlMs) => {
+        send: async (message, ttlMs, beforeSend) => {
           await this.reconcileRadio();
-          if (message.data?.operation === 'chunk' && options.game.receivedMission(message.from as DroneId) !== message.mission) throw new Error('Transfer cancelled by received objective');
+          this.validateSender(message, message.data?.operation === 'chunk');
+          beforeSend();
           return this.networkFor(team).send(message, { ttlMs });
         },
         consume: (id, ids) => network.consume(id, ids), onEvent: event => options.onEvent('network', { team, ...(event as object) }),
@@ -103,6 +106,13 @@ export class TeamSession {
   }
 
   private fail(message: string) { if (!this.stopped) this.options.onFailure(message); }
+  /** No await between these final lifecycle checks and native queue admission. */
+  private validateSender(message: RadioMessage, requireMission: boolean) {
+    const game = this.options.game, id = message.from as DroneId;
+    if (this.stopped || !game.state.running || game.sessionIdentity !== message.sessionId || this.retired.has(id)
+      || !game.state.drones.some(drone => drone.id === id && drone.alive !== false)) throw new Error('Radio sender is unavailable');
+    if (requireMission && game.receivedMission(id) !== message.mission) throw new Error('Received objective changed; radio cancelled');
+  }
   private networkFor(team: TeamId) {
     const network = this.networks.get(team);
     if (this.stopped || !network) throw new Error('Team radio is unavailable');

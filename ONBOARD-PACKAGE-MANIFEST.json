@@ -424,8 +424,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 15039,
-      "sha256": "d2a0488edc02778bb6a6521907e6fcedde7599ad7f0a414d4a881dfc7e678d05"
+      "bytes": 15604,
+      "sha256": "265a19bccf170002491540aa652d605d5ab5f453912c436181fde2f84dccee97"
     },
     {
       "path": "server/routine-runner.ts",
@@ -452,9 +452,9 @@
       "sha256": "d3f82d448d3ea505f245741f129a914b73f38667602ed4a32680e3a81d047c13"
     }
   ],
-  "artifactBytes": 1581595,
+  "artifactBytes": 1582160,
   "manifestBytes": 17307,
-  "installedBytes": 1598902,
+  "installedBytes": 1599467,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],
