@@ -16,8 +16,8 @@ from datetime import datetime, timezone
 
 from peer_store import PeerStore, encode
 from peer_transport import PeerTransport
+from fleet_config import parse_roster
 
-DRONES = ("drone-1", "drone-2", "drone-3")
 MAX_BYTES = 65536
 
 
@@ -31,16 +31,16 @@ def received_message(message, expires):
             .isoformat(timespec="milliseconds").replace("+00:00", "Z")}
 
 
-def validate_message(message, fleet_session, sender=None):
+def validate_message(message, fleet_session, drones, sender=None):
     if not isinstance(message, dict) or message.get("protocol") != "fleet-radio/1":
         raise ValueError("Expected fleet-radio/1 message")
     if message.get("sessionId") != fleet_session:
         raise ValueError("Message fleet session does not match")
-    if message.get("from") not in (*DRONES, "player") or (sender and message["from"] != sender):
+    if message.get("from") not in (*drones, "player") or (sender and message["from"] != sender):
         raise ValueError("Message sender must be this drone")
     if message["from"] == "player" and (message.get("kind") != "mission" or message.get("to") != "all"):
         raise ValueError("Operator may only broadcast player missions")
-    if message.get("to") not in (*DRONES, "all") or message["to"] == message["from"]:
+    if message.get("to") not in (*drones, "all") or message["to"] == message["from"]:
         raise ValueError("Recipient must be all or another drone")
     for field, limit in (("id", 200), ("kind", 64), ("sentAt", 80), ("text", 4000)):
         if not isinstance(message.get(field), str) or not 1 <= len(message[field]) <= limit:
@@ -59,18 +59,43 @@ def validate_message(message, fleet_session, sender=None):
 class Peer:
     def __init__(self, args):
         uuid.UUID(args.session)
-        peers = args.peers.split(",")
-        valid_count = len(peers) == 3 if args.drone == "operator" else len(peers) in (2, 3)
+        network_id = args.network or args.session
+        uuid.UUID(network_id)
+        self.drones = tuple(parse_roster(args.roster))
+        if args.drone not in (*self.drones, "operator"):
+            raise ValueError("Unknown network drone identity")
+        peers = args.peers.split(",") if args.peers else []
+        count = len(self.drones)
+        valid_count = len(peers) == count if args.drone == "operator" else len(peers) in (count - 1, count)
         if not valid_count or len(set([args.listen, *peers])) != len(peers) + 1:
             raise ValueError("Distinct endpoints for the other drone peers and optional operator are required")
         self.drone, self.fleet_session = args.drone, args.session
         self.sender = "player" if args.drone == "operator" else args.drone
         self.events = queue.Queue()
-        self.transport = PeerTransport(args.drone, args.session, args.listen, peers, self.events)
+        self.transport = PeerTransport(args.drone, network_id, args.listen, peers, self.events)
         self.store = PeerStore(args.store, args.drone, args.session)
         self.running = True
         self.counters = {"txFrames": 0, "rxFrames": 0, "duplicates": 0, "invalidFrames": 0, "retries": 0}
         self.last_status = None
+        self.audit_window = 0
+        self.audit_count = self.audit_suppressed = 0
+
+    def audit_payload(self, direction, topic, payload):
+        now = int(time.monotonic())
+        if now != self.audit_window:
+            self.audit_window, self.audit_count = now, 0
+        if self.audit_count >= 12:
+            self.audit_suppressed += 1
+            return
+        self.audit_count += 1
+        emit({"event": "payload", "direction": direction, "topic": topic, "payload": payload,
+              "bytes": len(encode(payload).encode("utf-8")), "capture": "Zenoh application payload, not TCP framing",
+              "sampling": "at most 12 payloads/peer/s", "suppressedSinceLast": self.audit_suppressed})
+        self.audit_suppressed = 0
+
+    def put(self, topic, payload):
+        self.transport.put(topic, payload)
+        self.audit_payload("published", topic, payload)
 
     def status(self):
         return {"drone": self.drone, "sessionId": self.fleet_session, "transport": "zenoh-tcp-peer",
@@ -87,11 +112,11 @@ class Peer:
             raise ValueError("params must be an object")
         if method == "send":
             message = params.get("message")
-            validate_message(message, self.fleet_session, self.sender)
+            validate_message(message, self.fleet_session, self.drones, self.sender)
             ttl = params.get("ttlMs", 120000)
             if type(ttl) not in (int, float) or not math.isfinite(ttl) or not 1 <= ttl <= 600000:
                 raise ValueError("ttlMs must be between 1 and 600000")
-            recipients = [drone for drone in DRONES if drone != self.drone] if message["to"] == "all" else [message["to"]]
+            recipients = [drone for drone in self.drones if drone != self.drone] if message["to"] == "all" else [message["to"]]
             self.store.queue(message, recipients, time.time() + ttl / 1000)
             return {"queued": True, "id": message["id"]}
         if method == "link":
@@ -124,8 +149,9 @@ class Peer:
             packet = json.loads(raw)
             if not isinstance(packet, dict) or packet.get("sessionId") != self.fleet_session:
                 raise ValueError("Wrong fleet session")
+            self.audit_payload("received", topic, packet)
             if topic == self.transport.ack_topic(self.sender):
-                if packet.get("protocol") != "fleet-ack/1" or packet.get("to") != self.sender or packet.get("from") not in DRONES:
+                if packet.get("protocol") != "fleet-ack/1" or packet.get("to") != self.sender or packet.get("from") not in self.drones:
                     raise ValueError("Invalid ACK")
                 if not isinstance(packet.get("id"), str):
                     raise ValueError("Invalid ACK ID")
@@ -136,7 +162,7 @@ class Peer:
             if packet.get("protocol") != "fleet-zenoh/1":
                 raise ValueError("Invalid transport envelope")
             message = packet.get("message")
-            validate_message(message, self.fleet_session)
+            validate_message(message, self.fleet_session, self.drones)
             if message["from"] == self.drone or message["to"] not in (self.drone, "all") or topic != self.transport.data_topic(message["to"]):
                 raise ValueError("Message not addressed to this peer")
             expires = packet.get("expiresAt")
@@ -150,7 +176,7 @@ class Peer:
                 emit({"event": "received", "message": received})
             else:
                 self.counters["duplicates"] += 1
-            self.transport.put(self.transport.ack_topic(message["from"]), {
+            self.put(self.transport.ack_topic(message["from"]), {
                 "protocol": "fleet-ack/1", "sessionId": self.fleet_session, "id": message["id"],
                 "from": self.drone, "to": message["from"],
             })
@@ -167,7 +193,7 @@ class Peer:
             for row in self.store.due(now):
                 message = json.loads(row["message"])
                 self.store.attempted(row["id"], now)
-                self.transport.put(self.transport.data_topic(message["to"]), {
+                self.put(self.transport.data_topic(message["to"]), {
                     "protocol": "fleet-zenoh/1", "sessionId": self.fleet_session,
                     "message": message, "expiresAt": row["expires"] * 1000,
                 })
@@ -215,7 +241,9 @@ class Peer:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--drone", required=True, choices=(*DRONES, "operator"))
+    parser.add_argument("--drone", required=True)
+    parser.add_argument("--roster", required=True)
+    parser.add_argument("--network")
     parser.add_argument("--session", required=True)
     parser.add_argument("--listen", required=True)
     parser.add_argument("--peers", required=True)

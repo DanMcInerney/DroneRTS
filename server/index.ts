@@ -7,9 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FleetGame } from './game.ts';
 import { CodexFleetRuntime } from './runtime.ts';
+import { MODEL, EFFORT } from './runtime-tools.ts';
 import { FleetNetwork } from './network.ts';
 import { MavlinkAdapter } from './mavlink.ts';
+import { diagnosticsRouter, redactDiagnostic } from './diagnostics.ts';
 import { DRONE_IDS, type DroneId, type Pose } from '../shared/types.ts';
+import { DEFAULT_FLEET } from '../shared/fleet.ts';
 
 const projectDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.FLEET_PORT ?? 4317);
@@ -23,15 +26,12 @@ let vehicle: MavlinkAdapter | undefined;
 let starting = false, stopping = false;
 let disconnectedTimer: ReturnType<typeof setTimeout> | undefined;
 let sessionLog: ReturnType<typeof createWriteStream> | undefined;
+let activeSessionLog: string | undefined;
 const captures = new Map<string, { socket: WebSocket; resolve: (image: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
 function audit(type: string, value: unknown) {
   if (!sessionLog) return;
-  const clean = JSON.parse(JSON.stringify(value, (key, val) => {
-    if (['token', 'authorization', 'api_key', 'access_token', 'refresh_token'].includes(key.toLowerCase())) return '[redacted]';
-    if (typeof val === 'string' && val.startsWith('data:image/')) return '[camera image]';
-    return val;
-  }));
+  const clean = redactDiagnostic(value);
   sessionLog.write(JSON.stringify({ wallTime: new Date().toISOString(), type, value: clean }) + '\n');
 }
 function broadcast() {
@@ -53,7 +53,7 @@ async function stopFleet(message = 'Fleet stopped') {
     game.radioTransport = undefined; game.vehicleTransport = undefined;
     starting = false; stopping = false;
     setRuntime({ status: 'stopped', message });
-    sessionLog?.end(); sessionLog = undefined;
+    sessionLog?.end(); sessionLog = undefined; activeSessionLog = undefined;
   }
 }
 
@@ -65,29 +65,31 @@ app.use('/api', (req, res, next) => {
 });
 app.use(express.json({ limit: '16kb' }));
 app.get('/api/state', (_req, res) => res.json(game.state));
+app.use('/api/diagnostics', diagnosticsRouter({ directory: resolve(projectDir, 'artifacts'), roster: DEFAULT_FLEET, state: () => game.state, activeSession: () => activeSessionLog }));
 app.post('/api/start', async (_req, res) => {
   if (runtime || starting || stopping || game.state.running) { res.status(409).json({ error: 'Fleet is already running or changing state' }); return; }
   try {
     game.start(); starting = true;
     mkdirSync(resolve(projectDir, 'artifacts'), { recursive: true });
-    sessionLog = createWriteStream(resolve(projectDir, 'artifacts', `session-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`));
+    activeSessionLog = `session-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
+    sessionLog = createWriteStream(resolve(projectDir, 'artifacts', activeSessionLog));
     delete game.state.runtime.threadId; game.state.runtime.children = []; game.state.runtime.usage = 0;
-    setRuntime({ status: 'starting', message: 'Verifying Luna / xhigh and creating three native drone agents', model: 'gpt-5.6-luna', effort: 'xhigh' });
+    setRuntime({ status: 'starting', message: `Verifying Luna / xhigh and creating ${DRONE_IDS.length} native drone agents`, model: MODEL, effort: EFFORT });
     const networkFailure = (message: string) => {
       if (network !== activeNetwork || stopping) return;
       void stopFleet(message).then(() => { if (!runtime) setRuntime({ status: 'error', message }); });
     };
-    const activeNetwork = new FleetNetwork({ projectDir, sessionId: game.sessionIdentity,
+    const activeNetwork = new FleetNetwork({ projectDir, roster: DEFAULT_FLEET, sessionId: game.sessionIdentity,
       onReceive: (id, message) => game.receiveRadio(id, message),
       onState: state => { if (network === activeNetwork) { game.state.network = state; broadcast(); } },
       onEvent: event => audit('network', event), onFailure: networkFailure,
     });
-    const activeVehicle = new MavlinkAdapter({ projectDir, onEvent: event => {
+    const activeVehicle = new MavlinkAdapter({ projectDir, roster: DEFAULT_FLEET, onEvent: event => {
       audit('mavlink', event);
       if (event.event === 'fatal') networkFailure(String(event.message));
     } });
     network = activeNetwork; vehicle = activeVehicle;
-    const activeRuntime = new CodexFleetRuntime({ projectDir,
+    const activeRuntime = new CodexFleetRuntime({ projectDir, roster: DEFAULT_FLEET,
       toolHandler: (role, name, args) => game.tool(role, name, args),
       onStatus: status => {
         if (runtime !== activeRuntime) return;
@@ -113,7 +115,7 @@ app.post('/api/start', async (_req, res) => {
       await stopFleet(message);
       setRuntime({ status: 'error', message });
     });
-    res.json({ starting: true, model: 'gpt-5.6-luna', effort: 'xhigh' });
+    res.json({ starting: true, model: MODEL, effort: EFFORT });
   } catch (error) { starting = false; res.status(400).json({ error: String(error) }); }
 });
 app.post('/api/stop', async (_req, res) => { await stopFleet(); res.json({ stopped: true }); });

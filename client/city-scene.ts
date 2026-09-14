@@ -6,10 +6,15 @@ import type { Obstacle, Treasure } from '../shared/types';
 const radians = THREE.MathUtils.degToRad;
 const material = (color: THREE.ColorRepresentation) => new THREE.MeshLambertMaterial({ color });
 
-function polygon(points: CityPoint[], color: THREE.ColorRepresentation, height: number) {
+function polygon(points: CityPoint[], color: THREE.ColorRepresentation, height: number, holes: CityPoint[][] = []) {
   const shape = new THREE.Shape();
   points.forEach((point, index) => index ? shape.lineTo(point.x, -point.z) : shape.moveTo(point.x, -point.z));
   shape.closePath();
+  for (const points of holes) {
+    const path = new THREE.Path();
+    points.forEach((point, index) => index ? path.lineTo(point.x, -point.z) : path.moveTo(point.x, -point.z));
+    path.closePath(); shape.holes.push(path);
+  }
   const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material(color));
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.y = height;
@@ -34,10 +39,12 @@ function sign(text: string, width: number, color = '#143e43') {
 /** Static city geometry. Building surfaces share exactly the simulator's oriented boxes. */
 export function createCity(buildings: Obstacle[]) {
   const group = new THREE.Group();
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(650, 650), material('#c5c2ad'));
-  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+  const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
+  const ground = new THREE.Mesh(new THREE.BoxGeometry(width, 12, depth), material('#b8b6a1'));
+  ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, -6, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
+  ground.receiveShadow = true;
   group.add(ground);
-  if (CITY.river.length > 2) group.add(polygon(CITY.river, '#398b9d', 0.025));
+  if (CITY.river.length > 2) group.add(polygon(CITY.river, '#398b9d', 0.025, CITY.riverHoles));
   for (const park of CITY.parks) {
     if (park.points.length > 2) group.add(polygon(park.points, park.color ?? '#82ac70', 0.05));
   }

@@ -1,9 +1,10 @@
-"""MAVLink 2 common-dialect bridge and three simulated endpoints on local UDP.
+"""MAVLink 2 common-dialect bridge and configured simulated endpoints on local UDP.
 
 No flight firmware or physics lives here. Node applies only the returned,
 validated wire commands. stdout is exclusively the PythonRpc JSON protocol.
 """
 
+import argparse
 import json
 import math
 import socket
@@ -11,9 +12,9 @@ import sys
 import time
 
 from pymavlink.dialects.v20 import common as mav
+from fleet_config import parse_roster
 
 
-DRONES = {"drone-1": 1, "drone-2": 2, "drone-3": 3}
 BRIDGE_SYSTEM = 255
 BRIDGE_COMPONENT = mav.MAV_COMP_ID_MISSIONPLANNER
 VEHICLE_COMPONENT = mav.MAV_COMP_ID_AUTOPILOT1
@@ -48,7 +49,7 @@ def emit(value):
 class Pair:
     """An address-pinned UDP link with independent bridge/vehicle encoders."""
 
-    def __init__(self, drone, system_id):
+    def __init__(self, drone, system_id, on_event=lambda event: None):
         self.drone, self.system_id = drone, system_id
         self.bridge = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.vehicle = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -57,6 +58,10 @@ class Pair:
         self.bridge_codec = mav.MAVLink(None, srcSystem=BRIDGE_SYSTEM, srcComponent=BRIDGE_COMPONENT)
         self.vehicle_codec = mav.MAVLink(None, srcSystem=system_id, srcComponent=VEHICLE_COMPONENT)
         self.sent = self.received = self.bytes_sent = self.rejected = 0
+        self.on_event = on_event
+        self.last_telemetry_audit = {}
+        self.audit_window = 0
+        self.audit_count = self.audit_suppressed = 0
 
     def close(self):
         self.bridge.close()
@@ -113,7 +118,30 @@ class Pair:
         sender.sendto(packet, receiver.getsockname())
         self.sent += 1
         self.bytes_sent += len(packet)
-        return self.receive(receiver, sender.getsockname(), system, component, packet[4], message.get_msgId())
+        decoded = self.receive(receiver, sender.getsockname(), system, component, packet[4], message.get_msgId())
+        now = time.monotonic()
+        if int(now) != self.audit_window:
+            self.audit_window, self.audit_count = int(now), 0
+        telemetry = message.get_msgId() in (30, 32)
+        due = not telemetry or now - self.last_telemetry_audit.get(message.get_msgId(), -10) >= 1
+        if due and self.audit_count < 20:
+            self.audit_count += 1
+            if telemetry:
+                self.last_telemetry_audit[message.get_msgId()] = now
+            fields = {key: (value if not isinstance(value, float) or math.isfinite(value) else "unset / NaN")
+                      for key, value in decoded.to_dict().items()}
+            self.on_event({"event": "packet", "protocol": "MAVLink2", "droneId": self.drone,
+                           "direction": "controller → vehicle" if to_vehicle else "vehicle → controller",
+                           "source": sender.getsockname(), "destination": receiver.getsockname(),
+                           "message": decoded.get_type(), "messageId": decoded.get_msgId(),
+                           "sequence": decoded.get_seq(), "bytes": len(packet), "hex": packet.hex(),
+                           "decoded": fields, "validation": "received and CRC validated",
+                           "sampling": "telemetry at most 1/message/s; all packets at most 20/drone/s",
+                           "suppressedSinceLast": self.audit_suppressed})
+            self.audit_suppressed = 0
+        else:
+            self.audit_suppressed += 1
+        return decoded
 
     def setpoint_action(self, message):
         if message.coordinate_frame != mav.MAV_FRAME_LOCAL_NED:
@@ -169,8 +197,8 @@ class Pair:
 
 
 class FleetBridge:
-    def __init__(self, on_event=lambda event: None):
-        self.pairs = {drone: Pair(drone, system) for drone, system in DRONES.items()}
+    def __init__(self, roster, on_event=lambda event: None):
+        self.pairs = {drone: Pair(drone, system, on_event) for drone, system in parse_roster(roster).items()}
         self.on_event = on_event
 
     def close(self):
@@ -215,7 +243,7 @@ class FleetBridge:
             action.update(pair.execute(message))
         self.on_event({"event": "wire", "protocol": "MAVLink2", "droneId": pair.drone,
                        "kind": action["kind"], "messages": [message.get_type() for message in messages],
-                       "systemId": pair.system_id, "sent": pair.sent, "received": pair.received})
+                       "decodedAction": action, "systemId": pair.system_id, "sent": pair.sent, "received": pair.received})
         return action
 
     def sample(self, params):
@@ -236,7 +264,10 @@ class FleetBridge:
 
 
 def main():
-    bridge = FleetBridge(emit)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--roster", required=True)
+    args = parser.parse_args()
+    bridge = FleetBridge(args.roster, emit)
     emit({"event": "ready", **bridge.status()})
     try:
         for line in sys.stdin:

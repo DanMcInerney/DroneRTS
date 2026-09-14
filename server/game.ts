@@ -1,9 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import { DRONE_IDS, type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage } from '../shared/types.ts';
+import { DRONE_IDS, type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage, type Treasure } from '../shared/types.ts';
 import { CITY } from '../shared/city.ts';
-import { intersectsBuilding, visibleTreasures } from './world-geometry.ts';
+import { DRONE_CAMERA } from '../shared/camera-profile.ts';
+import { intersectsBuilding } from './world-geometry.ts';
 import { Mailbox } from './mailbox.ts';
+import { CAMERA_PITCH_LIMITS, DroneMotion } from './drone-motion.ts';
+import { TreasureHunt } from './treasure-hunt.ts';
+import { MODEL, EFFORT } from './runtime-tools.ts';
 
 const BOUNDS = CITY.bounds;
 const textResult = (value: unknown): ToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value) }] });
@@ -26,7 +30,7 @@ export class FleetGame extends EventEmitter {
   private playerQueue: Array<{ id: string; text: string }> = [];
   private playerWake = new Set<() => void>();
   private serial = 0;
-  private sightings = new Map<DroneId, { ids: string[]; mission: number; simTime: number }>();
+  private treasureHunt = new TreasureHunt(CITY.intersections);
   private connected = false;
   private toolErrors = new Map<Role, number>();
   private sessionId = randomUUID();
@@ -34,6 +38,7 @@ export class FleetGame extends EventEmitter {
   private receivedRadio = new Set<string>();
   private droneMissions = Object.fromEntries(DRONE_IDS.map(id => [id, 0])) as Record<DroneId, number>;
   private deferredRadio = new Map<DroneId, RadioMessage[]>();
+  private motion = new DroneMotion();
   radioTransport?: RadioTransport;
   vehicleTransport?: VehicleTransport;
   get sessionIdentity() { return this.sessionId; }
@@ -46,20 +51,20 @@ export class FleetGame extends EventEmitter {
   }
 
   private newInboxes() { return Object.fromEntries(DRONE_IDS.map(id => [id, new Mailbox()])) as Record<DroneId, Mailbox>; }
-  private newState(): GameState {
+  private newState(previous?: Treasure[]): GameState {
     return {
-      simTime: 0, mission: 0, running: false, speed: 1, completed: false,
-      treasures: CITY.treasures.map(chest => ({ ...chest, found: false })),
+      simTime: 0, mission: 0, running: false, speed: 1,
+      ...this.treasureHunt.newMap(previous),
       obstacles: CITY.buildings.map(building => ({ ...building })),
       drones: DRONE_IDS.map((id, i) => ({ id, ...CITY.spawns[i], status: 'Standby', online: false, observations: 0 })),
-      radio: [], runtime: { status: 'idle', message: 'Ready to launch three native drone agents', model: 'gpt-5.6-luna', effort: 'xhigh' },
+      radio: [], runtime: { status: 'idle', message: `Ready to launch ${DRONE_IDS.length} native drone agents`, model: MODEL, effort: EFFORT },
     };
   }
 
   reset() {
     if (this.state.running) throw new Error('Stop the fleet before resetting');
-    this.stop(); this.state = this.newState(); this.inboxes = this.newInboxes();
-    this.playerQueue = []; this.sightings.clear(); this.emit('change');
+    this.stop(); this.state = this.newState(this.state.treasures); this.inboxes = this.newInboxes();
+    this.playerQueue = []; this.emit('change');
   }
   start() {
     if (!this.connected) throw new Error('Open the game browser before launching the fleet');
@@ -69,15 +74,17 @@ export class FleetGame extends EventEmitter {
     this.receivedRadio.clear();
     for (const id of DRONE_IDS) this.droneMissions[id] = 0;
     this.deferredRadio.clear();
+    this.motion.clear();
     this.state.mission = 0; this.state.radio = [];
-    this.state.running = true; this.state.completed = false; this.sightings.clear();
-    this.state.treasures = CITY.treasures.map(chest => ({ ...chest, found: false }));
-    for (const drone of this.state.drones) { drone.online = false; drone.status = 'Connecting'; }
+    this.state.running = true;
+    Object.assign(this.state, this.treasureHunt.restart(this.state.treasures));
+    for (const drone of this.state.drones) { drone.action = undefined; drone.online = false; drone.status = 'Connecting'; }
     this.emit('change');
   }
   stop() {
     this.state.running = false;
     this.playerQueue = [];
+    this.motion.clear();
     for (const drone of this.state.drones) {
       drone.action = undefined; drone.online = false; drone.status = 'Stopped';
       this.inboxes[drone.id].push({ type: 'stop', mission: this.state.mission, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
@@ -114,6 +121,7 @@ export class FleetGame extends EventEmitter {
       if (message.mission <= this.droneMissions[recipient]) { this.radioTransport?.consume(recipient, [message.id]); return; }
       this.droneMissions[recipient] = message.mission;
       const drone = this.state.drones.find(d => d.id === recipient)!;
+      this.motion.clear(drone);
       drone.action = undefined; drone.status = 'New instruction';
       this.inboxes[recipient].push({ type: 'player', mission: message.mission, text: message.text, id: message.id, simTime: message.simTime, occurredAt: message.sentAt, expiresAt: message.expiresAt });
       const pending = this.deferredRadio.get(recipient) ?? [];
@@ -199,7 +207,7 @@ export class FleetGame extends EventEmitter {
     const currentAction = drone.action ? { id: drone.action.id, kind: drone.action.kind } : null;
     const peers = this.state.drones.map(d => ({ ...d }));
     const telemetry = this.vehicleTransport ? await this.vehicleTransport.sample(role, pose, simTime) : undefined;
-    let camera: { available: boolean; width: number; height: number; error?: string } = { available: true, width: 512, height: 288 };
+    let camera: { available: boolean; width: number; height: number; error?: string } = { available: true, width: DRONE_CAMERA.width, height: DRONE_CAMERA.height };
     let image: ToolResult['content'][number] | undefined;
     try {
       const url = await this.capture(role, pose, simTime, peers);
@@ -244,7 +252,8 @@ export class FleetGame extends EventEmitter {
         : event;
     });
     const { sensors, image } = sample;
-    this.sightings.set(role, { ids: image ? visibleTreasures(sample.pose, this.state.treasures, this.state.obstacles) : [], mission: sample.mission, simTime: sample.simTime });
+    this.treasureHunt.recordObservation({ drone: role, pose: sample.pose, mission: sample.mission,
+      simTime: sample.simTime, imageAvailable: Boolean(image) }, this.state.treasures, this.state.obstacles);
     const original = result.content.find(c => c.type === 'text');
     const value = original?.type === 'text' ? JSON.parse(original.text) : {};
     const bundle = textResult({ ...value, protocol: 'fleet-observation/1', sessionId, mission: this.droneMissions[role],
@@ -311,42 +320,49 @@ export class FleetGame extends EventEmitter {
   private act(drone: Drone, args: Record<string, unknown>) {
     const kind = args.kind;
     if (kind === 'hover') {
+      this.motion.hover(drone);
       drone.action = undefined; drone.status = 'Hovering';
       return textResult({ hovering: true, commandMission: args.mission });
     }
     if (kind === 'look') {
-      const yaw = args.heading === undefined ? drone.yaw : -finite(args.heading, 'heading');
-      const pitch = args.pitch === undefined ? drone.pitch : finite(args.pitch, 'pitch');
-      if (pitch < -85 || pitch > 70) throw new ControllerRejection('Camera command rejected by actuator limit');
-      drone.yaw = ((yaw + 180) % 360 + 360) % 360 - 180; drone.pitch = pitch;
+      const yaw = args.heading === undefined ? undefined : -finite(args.heading, 'heading');
+      const pitch = args.pitch === undefined ? undefined : finite(args.pitch, 'pitch');
+      if (pitch !== undefined && (pitch < CAMERA_PITCH_LIMITS.min || pitch > CAMERA_PITCH_LIMITS.max)) throw new ControllerRejection('Camera command rejected by actuator limit');
+      this.motion.look(drone, yaw, pitch);
       return textResult({ accepted: true, commandMission: args.mission });
     }
     if (kind !== 'fly_to') throw new Error('Unknown action kind');
     const target = { x: finite(args.x, 'x'), y: finite(args.y, 'y'), z: finite(args.z, 'z') };
     for (const axis of ['x', 'y', 'z'] as const) if (target[axis] < BOUNDS[axis][0] || target[axis] > BOUNDS[axis][1]) throw new ControllerRejection('Waypoint rejected by flight controller');
     drone.action = { id: `action-${++this.serial}`, kind, target }; drone.status = 'Flying';
-    const dx = target.x - drone.x, dz = target.z - drone.z;
-    if (Math.hypot(dx, dz) > 0.1) drone.yaw = Math.atan2(-dx, -dz) * 180 / Math.PI;
+    this.motion.faceWaypoint(drone, target);
     return textResult({ actionId: drone.action.id, accepted: true, target, commandMission: args.mission });
   }
 
   tick(dt: number) {
     if (!this.state.running || !this.connected) return;
+    if (!Number.isFinite(dt)) return;
     dt = Math.min(Math.max(dt, 0), 0.25) * this.state.speed;
+    // Fixed maximum integration step keeps acceleration and swept collisions
+    // consistent through slow browser frames and the simulation-speed slider.
+    const steps = Math.ceil(dt * 120);
+    for (let i = 0; i < steps; i++) this.step(dt / steps);
+  }
+
+  private step(dt: number) {
     this.state.simTime += dt;
     for (const drone of this.state.drones) {
-      const target = drone.action?.target;
-      if (!target) continue;
-      const dx = target.x - drone.x, dy = target.y - drone.y, dz = target.z - drone.z;
-      const distance = Math.hypot(dx, dy, dz), fraction = distance > 0 ? Math.min(1, 3 * dt / distance) : 1;
-      const next = { x: drone.x + dx * fraction, y: drone.y + dy * fraction, z: drone.z + dz * fraction };
-      const blocked = this.state.obstacles.some(o => intersectsBuilding(drone, next, o, 0.3));
+      const { next, arrived } = this.motion.step(drone, dt);
+      if (next.x === drone.x && next.y === drone.y && next.z === drone.z && !arrived) continue;
+      const blocked = (['x', 'y', 'z'] as const).some(axis => next[axis] < BOUNDS[axis][0] || next[axis] > BOUNDS[axis][1])
+        || this.state.obstacles.some(o => intersectsBuilding(drone, next, o, 0.3));
       if (blocked) {
-        this.inboxes[drone.id].push({ type: 'blocked', mission: this.droneMissions[drone.id], actionId: drone.action!.id, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
+        this.inboxes[drone.id].push({ type: 'blocked', mission: this.droneMissions[drone.id], actionId: drone.action?.id, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
+        this.motion.clear(drone);
         drone.action = undefined; drone.status = 'Obstacle — hovering';
       } else {
         Object.assign(drone, next);
-        if (fraction === 1) {
+        if (arrived) {
           this.inboxes[drone.id].push({ type: 'arrived', mission: this.droneMissions[drone.id], actionId: drone.action!.id, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
           drone.action = undefined; drone.status = 'Hovering';
         }
@@ -355,16 +371,13 @@ export class FleetGame extends EventEmitter {
   }
 
   private reportTreasure(role: DroneId, message: RadioMessage) {
-    const sighting = this.sightings.get(role);
-    if (!this.state.running || message.kind !== 'found' || !/\b(chests?|treasure)\b/i.test(message.text)
-      || !sighting || sighting.mission !== message.mission || message.mission !== this.droneMissions[role]
-      || this.state.simTime - sighting.simTime > 30) return;
-    const chest = sighting.ids.map(id => this.state.treasures.find(item => item.id === id)).find(item => item && !item.found);
-    if (!chest) return;
-    chest.found = true; chest.foundBy = role; chest.foundAt = this.state.simTime;
+    if (!this.state.running) return;
+    const outcome = this.treasureHunt.report({ drone: role, message, mission: this.droneMissions[role],
+      simTime: this.state.simTime }, this.state.treasures);
+    if (!outcome) return;
     // Score and identities belong to the player HUD; agents see only their own image and radio.
-    this.emit('treasure-found', { id: chest.id, drone: role, simTime: this.state.simTime });
-    this.state.completed = this.state.treasures.length > 0 && this.state.treasures.every(item => item.found);
+    this.emit('treasure-found', outcome.event);
+    this.state.completed = outcome.completed;
     this.emit('change');
   }
 }

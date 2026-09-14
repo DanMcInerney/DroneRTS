@@ -1,10 +1,10 @@
 # DroneRTS
 
-A local Three.js treasure hunt in a simple cube model of downtown Cincinnati, with three FPV cameras, a radio transcript and a plain-English mission box. One real Codex session launches three native drone subagents. The parent forwards player instructions; the drones choose their own movements and communicate through a small radio protocol.
+A local Three.js treasure hunt with a square world enclosing Cincinnati, a detailed downtown core, three FPV cameras, an overhead map, an invisible explorer and a diagnostics dashboard. One real Codex session launches three native drone subagents. The parent forwards player instructions; the drones choose their own movements and communicate through a small radio protocol.
 
 All four gameplay actors are configured as **gpt-5.6-luna / xhigh**. The runtime checks the installed model list before starting inference and does not substitute another model.
 
-Open this repository's root folder as your development workspace. [AGENTS.md](AGENTS.md) provides the project context, development commands and sensor boundaries for a coding agent continuing the work.
+Open this repository's root folder as your development workspace. [AGENTS.md](AGENTS.md) provides the project context, development commands and sensor boundaries for a coding agent continuing the work. [ARCHITECTURE.md](ARCHITECTURE.md) maps concept ownership and extension boundaries for future teams, resources, equipment and combat.
 
 ## Run
 
@@ -22,7 +22,11 @@ Open **http://127.0.0.1:4317**, start the fleet, and send:
 
 Keep the browser open: it supplies the camera images. The simulator pauses when the browser disconnects, and the runtime stops after ten seconds without a browser. Stop halts motion and shuts down the native agent session and protocol helpers. Reset restores the initial world while stopped. A new instruction crosses Zenoh; each drone adopts its version, hovers and rejects old commands when that drone actually receives it. An isolated drone keeps its last received mission until another valid instruction arrives or the player stops the fleet. Message expiry removes undelivered contents; it does not automatically cancel an already accepted mission.
 
-The objective is to discover six chests in parks, a plaza and on rooftops. A nearby clear camera observation followed by a `found` radio report credits a discovery. The player sees progress; agents receive neither hidden target positions nor scoring thresholds or completion events. The city uses mapped streets/footprints and researched landmark heights, with simple rectangular massing. See [CITY.md](CITY.md) for implementation and [CINCINNATI-SOURCES.md](CINCINNATI-SOURCES.md) for geographic evidence and approximations.
+The objective is to discover six chests at random mapped downtown street intersections. Reset moves all six to different intersections; Launch preserves the selected layout and clears discovery progress. A nearby clear camera observation followed by a `found` radio report credits a discovery. The player sees progress; agents receive neither hidden target positions nor scoring thresholds or completion events. The city uses mapped streets/footprints and researched landmark heights, with simple rectangular massing. See [CITY.md](CITY.md) for implementation and [CINCINNATI-SOURCES.md](CINCINNATI-SOURCES.md) for geographic evidence and approximations.
+
+The overhead map beneath the cameras shows the entire world, drone headings and destination lines. **Downtown** zooms to the detailed building area; **Entire map** restores the full square. Click a location to enter **God view**: WASD moves, Q/E changes altitude, Shift increases speed, mouse or arrow keys look around, and Esc returns to the flight deck. This invisible camera never becomes a drone or changes its sensors. Outside downtown, terrain and the sourced winding rivers provide a simple geographic backdrop, not a complete building model of every neighborhood.
+
+Click **Admin** to inspect live fleet health and current or historical session logs. Filter by category or actor, search, expand source JSON, pause the feed or export. New sessions record sampled Zenoh payloads and acknowledgements, CRC-validated MAVLink hex/decoded packets, tool arguments/results, and reasoning summaries the runtime provides. Hidden model reasoning is unavailable; older logs may lack the newer fields. Credentials and camera images are redacted. Drone cameras continue servicing agents while Admin or God view is open.
 
 ```sh
 npm test
@@ -36,11 +40,15 @@ npm start
 
 - `client/`: instanced Cincinnati buildings/streets, treasure props, three cameras and player interface.
 - `shared/city.ts`, `shared/city-data.json`: renderer/simulator-only city layout, generated from `city-research.json`.
-- `server/game.ts`, `server/world-geometry.ts`: continuous movement, rotated building collisions, optical treasure scoring, role-bound sensors, radio and mission versions.
+- `server/game.ts`: simulation/tool orchestration, role-bound sensors, radio and mission versions.
+- `server/drone-motion.ts`, `server/world-geometry.ts`: accelerated movement/turning and swept building collision.
+- `server/treasure-hunt.ts`: randomized placement, private visual evidence and discovery rules.
+- `shared/fleet.ts`, `shared/camera-profile.ts`: fleet membership/vehicle identities and renderer/simulator optical calibration.
+- `server/diagnostics.ts`, `client/admin.ts`: bounded local audit browsing and the admin dashboard.
 - `server/mailbox.ts`: asynchronous event delivery using cursors.
 - `server/runtime*.ts`: Codex app-server integration, isolated native agent configuration, MCP endpoints and bootstrap policy.
 - `server/index.ts`: local HTTP/WebSocket server and lifecycle.
-- `shared/types.ts`: browser/server state contract.
+- `shared/types.ts`, `shared/diagnostics.ts`: browser/server state and diagnostics contracts.
 
 The Node process owns the world, renderer connection and model runtime. Three independent Python drone bridges exchange messages through native **Zenoh peer-mode TCP connections**, with a fourth operator bridge publishing player instructions. No central Zenoh router carries peer traffic. Each bridge has its own SQLite inbox/outbox, receipt acknowledgements, retries, expiry and duplicate suppression. A separate Python MAVLink helper has three controller/vehicle UDP endpoint pairs; actual MAVLink 2 packets carry commands and position/heading telemetry. The simulator acts on decoded wire values. See [NETWORK.md](NETWORK.md) and [MAVLINK.md](MAVLINK.md).
 
@@ -67,13 +75,15 @@ If an action completes or the mission changes during image encoding, the bridge 
 
 The radio envelope is `fleet-radio/1`, with a unique session ID, message ID, sequence, role-bound sender, destination, kind, mission, UTC send time and simulation time. `chat`, `found`, `claim` and `done` are peer conventions. Lower drone ID resolves competing claims once the agents learn about them; no central planner allocates work. A queued send is not a receipt from every peer; inspect pending counts and the audit for delivery status. Player text and peer messages both use Zenoh. The player sees actual sent messages, not private reasoning. UUID namespaces and loopback restrictions isolate this local experiment; cryptographic peer authentication is future work.
 
-Developer-only simulator geometry: Y is up. Internal yaw 0 faces negative Z and positive yaw turns left; HDG and `look.heading` use the opposite sign, wrapping to 0–360. Positive `look.pitch` tilts the camera up, but pitch is only a command, not a returned sensor. Movement is straight-line at three world units per simulation second, turning toward its destination. These relationships are absent from agent instructions. The isolated agent working directory cannot read this README or the scene code. Removing world hints does not erase the model's general prior knowledge, and this PoC still uses idealized positions and simple movement rather than noisy GPS or aerodynamic physics.
+Developer-only simulator geometry: Y is up. Internal yaw 0 faces negative Z and positive yaw turns left; HDG and `look.heading` use the opposite sign, wrapping to 0–360. Positive `look.pitch` tilts the camera up, but pitch is not a returned sensor. Flight accelerates and brakes at up to six units/s², with a three-unit/s cruise limit. Heading turns through the shortest arc at up to 180°/s; pitch is limited to 120°/s, both with eased angular acceleration. Retargeting and hover brake smoothly; Stop or a delivered new mission clears motion immediately. Browser feeds interpolate with a 100 ms display delay at up to 60 fps. Sensor captures always render the requested actual pose directly. These relationships are absent from agent instructions and the isolated runtime cannot read this README. This remains a simple controller, not aerodynamic physics.
 
 ## Session evidence
 
 The server writes `artifacts/session-*.jsonl` during live runs. Logs include model verification, native child startup, tool usage, observations and radio packets. Camera image payloads and credentials are excluded. Session data and dependencies are ignored by Git. The runtime creates a temporary isolated Codex configuration and cleans it up when stopped; it does not edit the user's standing Codex settings.
 
 Historical review and playtest reports describe local development runs. Their raw session logs, screenshots and `runtime-spike-evidence.json` remain local and are not included in this repository. The checked-in scripts can produce fresh evidence on a configured machine; live trials use the locally signed-in Codex account.
+
+For browser verification without inference, serve an idle game on port 4318 and run `node --import tsx scripts/verify-ui.ts`. Its isolated Playwright page uses a test-only `FleetGame`, checks held keys, pointer lock, sensor isolation, diagnostics and reset, and saves results/screenshots to `artifacts/ui-verification`. It never launches Codex.
 
 The interface and continuous simulation remain responsive while the language models think. Agent decision latency varies. The simulation-speed slider changes flight speed, not inference speed. Idle event-wait timeouts may still cause another model step, so use Stop when finished.
 

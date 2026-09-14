@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = new URL('../', import.meta.url);
 const source = JSON.parse(await readFile(new URL('city-research.json', root), 'utf8'));
+const riverSource = JSON.parse(await readFile(new URL('riverfront-source.json', root), 'utf8'));
 const round = n => Math.round(n * 1000) / 1000;
 const project = p => ({ x: (p.lon - source.origin.lon) * source.projection.metersPerDegreeLongitude * 0.1,
   z: (source.origin.lat - p.lat) * source.projection.metersPerDegreeLatitude * 0.1 });
@@ -58,26 +59,71 @@ for (let i = 0; i < landmarkBoxes.length; i++) {
 }
 const roads = source.roads.map(road => ({ name: road.name, width: road.widthM * 0.1, points: road.points.map(project) }));
 const parks = source.parks.map(park => ({ name: park.name, points: park.points.map(project), color: park.id === 'fountain-square' ? '#d8d1bb' : '#94ad7b' }));
-const river = [...source.river.northBank.map(project), { x: 105, z: 125 }, { x: -115, z: 125 }];
+const northBank = riverSource.northBank.map(project).sort((a, b) => a.x - b.x);
 const blocked = (x, y, z, padding = 0.8) => buildings.some(b => y >= (b.baseY ?? 0) - 0.2 && y < (b.baseY ?? 0) + b.height + 0.2 && inside(x, z, b, padding));
-function freeGround(x, z) {
-  for (let ring = 0; ring <= 8; ring++) for (let a = 0; a < 16; a++) {
-    const px = x + ring * 0.5 * Math.cos(a * Math.PI / 8), pz = z + ring * 0.5 * Math.sin(a * Math.PI / 8);
-    if (!blocked(px, 0.55, pz)) return { x: px, y: 0, z: pz };
+const cityBoundary = riverSource.cityBoundary.map(ring => ring.map(([lon, lat]) => project({ lon, lat })));
+const cityPoints = cityBoundary.flat();
+const west = Math.floor(Math.min(...cityPoints.map(p => p.x)) / 10) * 10 - 40;
+const east = Math.ceil(Math.max(...cityPoints.map(p => p.x)) / 10) * 10 + 40;
+const south = Math.ceil(Math.max(...cityPoints.map(p => p.z)) / 10) * 10 + 100;
+const side = Math.max(east - west, south - Math.min(...cityPoints.map(p => p.z)) + 40);
+const bounds = { x: [west, west + side], y: [0.6, 40], z: [south - side, south] };
+// Clip geographic polygons against all four straight map edges, retaining the
+// winding shore within. The south edge is beyond the city's southernmost point.
+function clipRing(ring) {
+  for (const [axis, edge, direction] of [['x', bounds.x[0], 1], ['x', bounds.x[1], -1], ['z', bounds.z[0], 1], ['z', bounds.z[1], -1]]) {
+    const result = [];
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[(i + ring.length - 1) % ring.length], b = ring[i];
+      const inA = (a[axis] - edge) * direction >= 0, inB = (b[axis] - edge) * direction >= 0;
+      if (inA !== inB) { const t = (edge - a[axis]) / (b[axis] - a[axis]); result.push({ x: a.x + t * (b.x - a.x), z: a.z + t * (b.z - a.z) }); }
+      if (inB) result.push(b);
+    }
+    ring = result;
   }
-  throw new Error('Chest has no clear placement');
+  return ring;
 }
-const roof = id => {
-  const b = buildings.find(box => box.id === id);
-  if (!b) throw new Error(`Missing rooftop ${id}`);
-  return { x: b.x, y: (b.baseY ?? 0) + b.height, z: b.z };
-};
-const treasures = [freeGround(0, 64), freeGround(-5, -0.3), freeGround(-27, -31), freeGround(69, 4),
-  roof('convention-center'), roof('great-american-tower-crown')].map((p, i) => ({ id: `chest-${i + 1}`, ...p, found: false }));
+const waterRings = riverSource.waterRings.map(ring => clipRing(ring.map(([lon, lat]) => project({ lon, lat })))).filter(ring => ring.length > 2);
+const river = waterRings[0], riverHoles = waterRings.slice(1);
+function shorelineZ(x) {
+  for (let i = 1; i < northBank.length; i++) {
+    const a = northBank[i - 1], b = northBank[i];
+    if (x >= a.x && x <= b.x) return a.z + (b.z - a.z) * (x - a.x) / (b.x - a.x);
+  }
+  return x < northBank[0].x ? northBank[0].z : northBank.at(-1).z;
+}
+// Exact shared source vertices preserve mapped connectivity. Geometric line crossings
+// would incorrectly create junctions beneath elevated roads that do not connect.
+const junctions = new Map();
+for (const road of source.roads) {
+  if (!road.name || /(?:motorway|trunk|_link)/.test(road.kind) || /bridge|viaduct|ramp/i.test(road.name)) continue;
+  road.points.forEach((point, index) => {
+    const key = `${point.lat.toFixed(7)},${point.lon.toFixed(7)}`;
+    const projected = project(point);
+    const junction = junctions.get(key) ?? { ...projected, streets: new Set(), directions: [] };
+    junction.streets.add(road.name);
+    for (const neighbour of [road.points[index - 1], road.points[index + 1]]) {
+      if (!neighbour) continue;
+      const near = project(neighbour), angle = Math.atan2(near.z - projected.z, near.x - projected.x);
+      if (Math.hypot(near.x - projected.x, near.z - projected.z) < 0.02) continue;
+      if (!junction.directions.some(other => Math.abs(Math.atan2(Math.sin(angle - other), Math.cos(angle - other))) < Math.PI / 12)) {
+        junction.directions.push(angle);
+      }
+    }
+    junctions.set(key, junction);
+  });
+}
+const intersections = [...junctions.values()].filter(point => point.streets.size >= 2 && point.directions.length >= 3
+  && point.x > bounds.x[0] + 2 && point.x < bounds.x[1] - 2 && point.z > bounds.z[0] + 2 && point.z < bounds.z[1] - 2
+  && point.z < shorelineZ(point.x) - 2 && !blocked(point.x, 0.55, point.z, 1))
+  .sort((a, b) => a.x - b.x || a.z - b.z)
+  .filter((point, index, all) => !all.slice(0, index).some(other => Math.hypot(point.x - other.x, point.z - other.z) < 2.3))
+  .map((point, index) => ({ id: `intersection-${index + 1}`, x: point.x, z: point.z, streets: [...point.streets].sort() }));
+if (intersections.length < 12) throw new Error('Need at least twelve safe street intersections to randomize each reset');
 const spawns = [-4, 0, 4].map((x, i) => ({ x, y: 3, z: 69, yaw: [12, 0, -12][i], pitch: -16 }));
 if (spawns.some(p => blocked(p.x, p.y, p.z))) throw new Error('Spawn overlaps a building');
-const city = { name: 'Downtown Cincinnati', sourceNote: 'OpenStreetMap streets and footprints · researched skyline heights · simplified cubes',
-  bounds: { x: [-108, 100], y: [0.6, 40], z: [-85, 85] }, spawns, buildings, roads, parks, river, treasures };
+const city = { name: 'Downtown Cincinnati', sourceNote: 'OpenStreetMap streets and footprints · CAGIS Ohio River shoreline · researched skyline heights · simplified cubes',
+  bounds, spawns, buildings, roads, parks, river, riverHoles, cityBoundary, intersections };
 const json = JSON.stringify(city, (_key, value) => typeof value === 'number' ? round(value) : value);
 await writeFile(new URL('shared/city-data.json', root), json + '\n');
-console.log(`Generated ${buildings.length} collision boxes, ${roads.length} road ways, ${parks.length} parks, ${treasures.length} chests: ${fileURLToPath(new URL('shared/city-data.json', root))}`);
+console.log(`Generated ${buildings.length} collision boxes, ${roads.length} road ways, ${parks.length} parks, ${intersections.length} safe treasure intersections: ${fileURLToPath(new URL('shared/city-data.json', root))}`);

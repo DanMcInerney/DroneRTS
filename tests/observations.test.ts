@@ -102,10 +102,16 @@ test('scoring never enters agent inboxes and radio envelopes carry unique sessio
   assert.notEqual(game.state.radio[0].sessionId, first.sessionId); game.stop();
 });
 
-test('heading command matches heading sensor without revealing camera tilt', async () => {
+test('heading sensor reports the sampled turn, then reaches the command without revealing camera tilt', async () => {
   const game = await ready();
   const body = json(await game.tool('drone-1', 'act', { mission: 1, kind: 'look', heading: 90, pitch: -40 }));
-  assert.equal(body.sensors.heading.degrees, 90);
+  assert.equal(body.sensors.heading.degrees, 0);
+  assert.equal(game.state.drones[0].yaw, 0);
+  game.tick(0.1);
+  const turning = json(await game.tool('drone-1', 'observe'));
+  assert.ok(turning.sensors.heading.degrees > 0 && turning.sensors.heading.degrees < 90);
+  for (let i = 0; i < 30; i++) game.tick(0.2);
+  assert.equal(json(await game.tool('drone-1', 'observe')).sensors.heading.degrees, 90);
   assert.equal(game.state.drones[0].yaw, -90);
   assert.equal(JSON.stringify(body).includes('pitch'), false); game.stop();
 });
@@ -133,7 +139,7 @@ test('legitimate rejected calibration experiments do not trip fleet error shutdo
 test('arrival during capture refreshes the frame once and timestamps the controller event', async () => {
   const game = await ready(); let captures = 0;
   game.capture = async () => {
-    if (++captures === 1) { game.tick(0.25); game.tick(0.25); }
+    if (++captures === 1) for (let step = 0; game.state.drones[0].action && step < 40; step++) game.tick(0.25);
     return 'data:image/jpeg;base64,AQID';
   };
   const body = json(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -4, y: 7, z: 23 }));

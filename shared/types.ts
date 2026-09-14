@@ -1,5 +1,5 @@
-export const DRONE_IDS = ['drone-1', 'drone-2', 'drone-3'] as const;
-export type DroneId = typeof DRONE_IDS[number];
+import type { DroneId } from './fleet.ts';
+export { DRONE_IDS, type DroneId } from './fleet.ts';
 export type Role = 'parent' | DroneId;
 export interface Pose { x: number; y: number; z: number; yaw: number; pitch: number }
 export interface Action { id: string; kind: string; target?: { x: number; y: number; z: number } }

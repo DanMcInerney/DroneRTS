@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { MavlinkAdapter } from '../server/mavlink.ts';
 import { DRONE_IDS, type DroneId, type Pose } from '../shared/types.ts';
+import { DEFAULT_FLEET, validateRoster } from '../shared/fleet.ts';
 
 const projectDir = fileURLToPath(new URL('..', import.meta.url));
 const python = process.env.FLEET_PYTHON || resolve(projectDir,
@@ -14,6 +15,26 @@ const python = process.env.FLEET_PYTHON || resolve(projectDir,
 const pose: Pose = { x: 3.123456789, y: 7, z: -9, yaw: -90, pitch: -23 };
 const near = (actual: number, expected: number, tolerance = 0.00002) =>
   assert.ok(Math.abs(actual - expected) < tolerance, `${actual} != ${expected}`);
+
+test('MAVLink helpers receive configured membership and explicit system IDs', async t => {
+  const roster = validateRoster([
+    { id: 'drone-7', label: 'Scout', color: '#aaccee', systemId: 42 },
+    { id: 'drone-11', label: 'Support', color: '#eeccee', systemId: 87 },
+  ]);
+  const events: any[] = [];
+  const adapter = new MavlinkAdapter({ projectDir, roster, onEvent: event => events.push(event) });
+  t.after(() => adapter.stop());
+  await adapter.start();
+  assert.deepEqual(events.find(event => event.event === 'ready').endpoints.map((endpoint: any) => [endpoint.droneId, endpoint.systemId]), [['drone-7', 42], ['drone-11', 87]]);
+  for (const member of roster) {
+    assert.deepEqual(await adapter.command(member.id, { kind: 'hover' }, pose, 1), { kind: 'hover' });
+    assert.equal((await adapter.sample(member.id, pose, 1)).position.y, pose.y);
+    assert.equal(events.find(event => event.event === 'wire' && event.droneId === member.id).systemId, member.systemId);
+  }
+  await assert.rejects(adapter.sample('drone-1', pose, 1), /identity/);
+  // Exercise the helper boundary separately from the Node membership guard.
+  await assert.rejects((adapter as any).rpc.request('sample', { droneId: 'drone-1', pose, simTime: 1 }), /identity/);
+});
 
 test('MAVLink 2 actions and telemetry cross isolated UDP endpoints for all three drones', async t => {
   const events: any[] = [];
@@ -54,6 +75,15 @@ test('MAVLink 2 actions and telemetry cross isolated UDP endpoints for all three
     assert.deepEqual(wire.map(event => event.kind), ['fly_to', 'hover', 'look']);
     assert.equal(wire.at(-1).sent, wire.at(-1).received);
     assert.ok(wire.at(-1).sent >= 8, 'commands and their standard responses must cross UDP');
+    const packets = events.filter(event => event.event === 'packet' && event.droneId === droneId);
+    assert.ok(packets.some(event => event.message === 'LOCAL_POSITION_NED'));
+    assert.ok(packets.some(event => event.message === 'COMMAND_ACK'));
+    const setpoint = packets.find(event => event.message === 'SET_POSITION_TARGET_LOCAL_NED');
+    assert.equal(Buffer.from(setpoint.hex, 'hex')[0], 0xfd);
+    assert.equal(Buffer.from(setpoint.hex, 'hex').length, setpoint.bytes);
+    assert.equal(setpoint.decoded.target_system, Number(droneId.at(-1)));
+    assert.equal(setpoint.validation, 'received and CRC validated');
+    assert.ok(!JSON.stringify(packets).includes('hiddenWorld'));
   }
 });
 
@@ -80,7 +110,7 @@ import json, math, socket, sys
 sys.path.insert(0, 'network')
 import mavlink as bridge
 from pymavlink.dialects.v20 import common as m
-b = bridge.FleetBridge()
+b = bridge.FleetBridge(json.loads(sys.argv[1]))
 p = b.pairs['drone-2']
 c = p.bridge_codec
 def waypoint(**changes):
@@ -141,7 +171,7 @@ except OSError:
 b.close()
 print(json.dumps(dict(rejected=p.rejected, validRecovery=True)))
 `;
-  const { stdout } = await promisify(execFile)(python, ['-c', script], { cwd: projectDir, windowsHide: true, timeout: 15000 });
+  const { stdout } = await promisify(execFile)(python, ['-c', script, JSON.stringify(DEFAULT_FLEET)], { cwd: projectDir, windowsHide: true, timeout: 15000 });
   assert.deepEqual(JSON.parse(stdout), { rejected: 10, validRecovery: true });
 });
 
@@ -158,7 +188,7 @@ test('Stop cancels startup, remains idempotent, and prevents a delayed start', a
 });
 
 test('MAVLink helper releases its process when IPC stdin closes', { timeout: 10000 }, async t => {
-  const child = spawn(python, ['-u', resolve(projectDir, 'network/mavlink.py')], {
+  const child = spawn(python, ['-u', resolve(projectDir, 'network/mavlink.py'), '--roster', JSON.stringify(DEFAULT_FLEET)], {
     cwd: projectDir, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
   });
   t.after(() => { if (child.exitCode === null) child.kill(); });
