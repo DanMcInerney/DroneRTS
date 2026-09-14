@@ -62,6 +62,30 @@ test('local braking prevents a controllable impact, actual unarmored contact des
   assert.equal(game.state.simTime, simTime);
   game.stop();
 });
+test('recorded occupied approach reports a blocked job without contact or a false arrival', async t => {
+  for (const dt of [1 / 120, 0.0078]) {
+    const game = await ready(); t.after(() => game.stop());
+    const [drone, peer] = game.state.drones;
+    // Translate the recorded pair together into the current smaller bounds;
+    // separation, velocity and the oblique sensor geometry remain identical.
+    const target = { x: 25.20000076293945, y: 12, z: 21.5 };
+    Object.assign(drone, { x: 21.599998474121094, y: 8, z: 21.899999618530273 });
+    Object.assign(peer, target);
+    assert.equal((await game.tool(drone.id, 'act', { mission: 1, kind: 'fly_to', profile: 'precision', ...target })).isError, undefined);
+    await new Promise(resolve => setImmediate(resolve));
+    const jobId = drone.job!.id;
+    for (let i = 0; i < 2400; i++) game.tick(dt);
+    const bundle = json(await game.tool(drone.id, 'observe'));
+    assert.equal(bundle.job.id, jobId);
+    assert.equal(bundle.job.state, 'blocked');
+    assert.equal(bundle.job.reason, 'coverage-unavailable');
+    assert.ok(!bundle.events.some((event: any) => event.type === 'arrived'));
+    assert.ok(drone.alive && peer.alive && drone.equipment!.armor && peer.equipment!.armor);
+    assert.equal(drone.action, undefined);
+    assert.deepEqual(drone.velocity, { x: 0, y: 0, z: 0 });
+  }
+});
+
 test('camera result pairs requested pose with image and does not disclose target locations', async () => {
   const game = await ready();
   const observations = game.state.drones[0].observations;

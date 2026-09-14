@@ -34,7 +34,7 @@ test('finite anonymous sensors describe acquired coverage, downward surfaces and
   sensors.clear(); assert.equal(sensors.acquire(drone, [], [drone], 0).sequence, 1);
 });
 
-function fly(obstacles: Obstacle[], others: Drone[], drone = aircraft(), moving = false) {
+function fly(obstacles: Obstacle[], others: Drone[], drone = aircraft(), moving = false, expected: MotionBlockReason = 'obstruction') {
   const sensors = new LocalSensors(), motion = new DroneMotion();
   let blocked: MotionBlockReason | undefined, firstBlockedX = Infinity;
   for (let index = 0; index < 1400; index++) {
@@ -47,7 +47,7 @@ function fly(obstacles: Obstacle[], others: Drone[], drone = aircraft(), moving 
     Object.assign(drone, result.next);
     if (result.blocked) { blocked = result.blocked; firstBlockedX = Math.min(firstBlockedX, drone.x); }
   }
-  assert.equal(blocked, 'obstruction');
+  assert.equal(blocked, expected);
   assert.ok(Math.hypot(...Object.values(motion.velocity(drone))) < 0.001, 'stopped job does not restart itself');
   return { drone, firstBlockedX };
 }
@@ -56,6 +56,36 @@ test('occupied waypoints brake and remain stopped without choosing a route', () 
   const { drone } = fly([], [aircraft({ id: 'drone-2', x: 4, action: undefined })]);
   assert.ok(drone.x < 4 - RTS_CONFIG.droneRadius * 2);
   assert.equal(drone.y, 5); assert.equal(drone.z, 0);
+});
+
+test('recorded oblique precision approach stops before a stationary peer at both physics timesteps', () => {
+  for (const dt of [1 / 120, 0.0078]) {
+    const target = { x: 55.20000076293945, y: 12, z: 21.5 };
+    const drone = aircraft({ x: 51.599998474121094, y: 8, z: 21.899999618530273,
+      action: { id: 'recorded-approach', kind: 'fly_to', target } });
+    const peer = aircraft({ id: 'drone-2', ...target, action: undefined });
+    const sensors = new LocalSensors(), motion = new DroneMotion();
+    let blocked: MotionBlockReason | undefined;
+    for (let i = 0; i < 2400; i++) {
+      const from = { x: drone.x, y: drone.y, z: drone.z }, before = motion.velocity(drone);
+      const ranges = sensors.acquire(drone, [], [drone, peer], i * dt, i * dt * 1000);
+      const result = motion.step(drone, dt, { ranges, nowMs: i * dt * 1000, profile: 'precision' });
+      assert.equal(sphereContact(from, result.next, peer, peer, RTS_CONFIG.droneRadius * 2), undefined,
+        `no swept contact at dt=${dt}, step=${i}`);
+      assert.equal(result.arrived, false, 'an occupied destination is never reported as reached');
+      const after = motion.velocity(drone);
+      assert.ok(Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z)
+        <= FLIGHT_PROFILES.precision.acceleration * dt + 1e-10, 'braking respects actuator acceleration');
+      for (const axis of ['x', 'y', 'z'] as const) assert.ok(Math.abs(result.next[axis] - from[axis]
+        - (before[axis] + after[axis]) * dt / 2) < 1e-12, 'continuous integration without position correction');
+      if (blocked) assert.equal(result.blocked, blocked, 'the blocked action remains held');
+      blocked = result.blocked ?? blocked;
+      Object.assign(drone, result.next);
+    }
+    assert.equal(blocked, 'coverage-unavailable', 'a coverage edge is not an identified obstruction');
+    assert.deepEqual(motion.velocity(drone), { x: 0, y: 0, z: 0 });
+    assert.ok(Math.hypot(drone.x - peer.x, drone.y - peer.y, drone.z - peer.z) > RTS_CONFIG.droneRadius * 2 + 0.001);
+  }
 });
 
 test('corners, rotated geometry and roof edges use measured local clearances', () => {
@@ -104,7 +134,7 @@ test('the recorded peer guard-shell overlap permits vertical and arbitrary retre
       const from = { x: drone.x, y: drone.y, z: drone.z };
       const ranges = sensors.acquire(drone, [], [drone, peer], i / 120, i * 1000 / 120);
       const result = motion.step(drone, 1 / 120, { ranges, nowMs: i * 1000 / 120 });
-      assert.equal(result.blocked, undefined, 'a clear retreat must not become an all-direction deadlock');
+      assert.equal(result.blocked, undefined, `a clear retreat must not become an all-direction deadlock: ${JSON.stringify({ i, from, target, result })}`);
       assert.equal(sphereContact(from, result.next, peer, peer, RTS_CONFIG.droneRadius * 2), undefined);
       Object.assign(drone, result.next); arrived = result.arrived;
     }
@@ -114,7 +144,7 @@ test('the recorded peer guard-shell overlap permits vertical and arbitrary retre
   // Narrower sensing is not permission to accelerate toward the occupied pose.
   const approaching = aircraft({ ...blue3, action: { id: 'approach', kind: 'fly_to', target: blue1 } });
   const peer = aircraft({ id: 'drone-2', ...blue1, action: undefined });
-  const stopped = fly([], [peer], approaching).drone;
+  const stopped = fly([], [peer], approaching, false, 'coverage-unavailable').drone;
   assert.ok(Math.hypot(stopped.x - peer.x, stopped.y - peer.y, stopped.z - peer.z) > RTS_CONFIG.droneRadius * 2,
     'approach stops before physical contact despite the narrower guard');
 });
@@ -170,6 +200,51 @@ test('stale and absent required coverage physically brake and report distinct fa
       nowMs: reason === 'sensor-stale' ? 1000 + LOCAL_SENSOR_CONFIG.maxAgeMs + 1 : 1000 });
     assert.equal(result.blocked, reason); assert.ok(result.next.x > x, 'braking retains continuous inertia');
     assert.ok(motion.velocity(drone).x > 0 && motion.velocity(drone).x < before);
+  }
+});
+
+test('the final arrival correction also fits measured coverage beside a peer', () => {
+  for (const dt of [1 / 120, 0.0078]) {
+    const drone = aircraft({ action: { id: 'near-arrival', kind: 'fly_to', target: { x: .0002, y: 5, z: 0 } } });
+    const peer = aircraft({ id: 'drone-2', x: RTS_CONFIG.droneRadius * 2 + .0001, action: undefined });
+    const sensors = new LocalSensors(), motion = new DroneMotion();
+    let blocked: MotionBlockReason | undefined;
+    for (let i = 0; i < 1200; i++) {
+      const from = { x: drone.x, y: drone.y, z: drone.z };
+      const result = motion.step(drone, dt, { ranges: sensors.acquire(drone, [], [drone, peer], i * dt, i * dt * 1000), nowMs: i * dt * 1000 });
+      assert.equal(sphereContact(from, result.next, peer, peer, RTS_CONFIG.droneRadius * 2), undefined);
+      assert.equal(result.arrived, false);
+      blocked = result.blocked ?? blocked;
+      Object.assign(drone, result.next);
+    }
+    assert.ok(blocked); assert.deepEqual(motion.velocity(drone), { x: 0, y: 0, z: 0 });
+  }
+});
+
+test('a replacement turn preserves momentum and certifies its actual path', () => {
+  for (const occupied of [false, true]) for (const dt of [1 / 120, 0.0078]) {
+    const drone = aircraft(), peer = aircraft({ id: 'drone-2', x: 2.5, action: undefined });
+    const drones = occupied ? [drone, peer] : [drone];
+    const sensors = new LocalSensors(), motion = new DroneMotion();
+    let replaced = false, settled = false;
+    for (let i = 0; i < 2400 && !settled; i++) {
+      const before = motion.velocity(drone), from = { x: drone.x, y: drone.y, z: drone.z };
+      if (!replaced && drone.x > 0.5) {
+        assert.ok(before.x > 0.5);
+        drone.action = { id: 'replacement-turn', kind: 'fly_to', target: { x: -2, y: 6.3, z: 3 } };
+        replaced = true;
+      }
+      const ranges = sensors.acquire(drone, [], drones, i * dt, i * dt * 1000);
+      const result = motion.step(drone, dt, { ranges, nowMs: i * dt * 1000 });
+      const after = motion.velocity(drone);
+      assert.ok(Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z)
+        <= FLIGHT_PROFILES.travel.acceleration * dt + 1e-10);
+      if (occupied) assert.equal(sphereContact(from, result.next, peer, peer, RTS_CONFIG.droneRadius * 2), undefined);
+      else assert.equal(result.blocked, undefined, 'an open turn completes');
+      Object.assign(drone, result.next);
+      settled = result.arrived || Boolean(result.blocked && Math.hypot(after.x, after.y, after.z) === 0);
+    }
+    assert.ok(replaced && settled);
   }
 });
 

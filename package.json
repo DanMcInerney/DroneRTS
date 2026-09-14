@@ -7,7 +7,7 @@
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
     "start": "tsx server/index.ts --production",
-    "test": "node --import tsx --test --test-timeout=60000 tests/*.test.ts",
+    "test": "node --import tsx scripts/run-tests.ts",
     "network:setup": "node scripts/setup-network.mjs",
     "onboard:manifest": "node --import tsx scripts/onboard-manifest.ts"
   },

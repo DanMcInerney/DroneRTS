@@ -19,12 +19,13 @@ import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import type { ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
 import type { ToolResult } from '../shared/types.ts';
 import { CARGO_CONFIG, RTS_CONFIG } from '../shared/rts.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const port = Number(process.env.FLEET_QA_PORT ?? 4318);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Use an isolated QA port');
 const base = `http://127.0.0.1:${port}`;
 assert.equal((await (await fetch(`${base}/api/state`)).json()).running, false, 'Preserve active match');
-const output = resolve(process.env.FLEET_QA_OUTPUT ?? 'artifacts/replay-ui'), directory = resolve(output, `store-${randomUUID()}`);
+const { directory: output } = createArtifactRun('replay-ui', { output: process.env.FLEET_QA_OUTPUT }), directory = resolve(output, `store-${randomUUID()}`);
 await mkdir(directory, { recursive: true });
 const sessionId = 'session-replay-qa.jsonl', legacyId = 'session-legacy-qa.jsonl', historicalId = 'session-historical-qa.jsonl';
 await writeFile(resolve(directory, sessionId), JSON.stringify({ type: 'system', value: { message: 'Deterministic replay fixture; no inference.' } }) + '\n');

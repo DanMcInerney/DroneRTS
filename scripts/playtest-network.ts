@@ -2,11 +2,11 @@ import { chromium, type Page } from '@playwright/test';
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const url = 'http://127.0.0.1:4318';
-const runName = `run-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-const artifactsDir = join(projectDir, 'artifacts', 'playtest-network', runName);
+const artifacts = createArtifactRun('playtest-network'), artifactsDir = artifacts.directory;
 const startupTimeoutMs = 120_000;
 const trialTimeoutMs = 120_000;
 const firstInstruction = 'Each drone move 1 unit relative to its current position then report the observed change using the radio before hovering and waiting.';
@@ -63,7 +63,7 @@ async function captureNetwork(page: Page, filename: string) {
   const locator = page.locator('.network-lab');
   await locator.scrollIntoViewIfNeeded();
   await locator.screenshot({ path: join(artifactsDir, filename) });
-  result.screenshots.push(join('artifacts', 'playtest-network', runName, filename));
+  result.screenshots.push(join(artifactsDir, filename));
 }
 
 async function layoutCheck(page: Page, label: string) {
@@ -251,6 +251,10 @@ try {
   result.checks.browserErrors = result.console.filter((item: { type: string }) => item.type === 'error' || item.type === 'pageerror');
   if (result.checks.browserErrors.length) result.failures.push(`Browser reported ${result.checks.browserErrors.length} console/page errors.`);
   result.finishedAt = new Date().toISOString();
+  if (result.checks.stop?.running === false && result.checks.sessionFile) {
+    const name = result.checks.sessionFile.split(/[\\/]/).at(-1); artifacts.collectSession(name);
+    result.checks.sessionFile = join(artifactsDir, name);
+  }
   await writeFile(join(artifactsDir, 'playtest-result.json'), JSON.stringify(result, null, 2) + '\n');
   await browser.close();
 }

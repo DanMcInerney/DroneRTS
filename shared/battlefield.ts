@@ -5,11 +5,11 @@ import downtown from './downtown.json';
 // Simulator and player-renderer data. Never import this module into drone tools
 // or put battlefield coordinates or route information in actor prompts.
 const launchSites = [
-  { x: -44.7, z: 39.3 }, // West 3rd / Plum: covered access to downtown.
-  { x: 53.4, z: 20.7 }, // East 3rd / Broadway: beside the Lytle Park approach.
+  { x: -27, z: 39.2 }, // West Third Street forecourt, west of Race.
+  { x: 40, z: 30.2 }, // East Third Street forecourt, south of the tower cluster.
 ];
 // Broad Third Street verges leave the entire six-unit service volume clear.
-const serviceSites = [{ x: -44.2, z: 42 }, { x: 53.4, z: 23 }];
+const serviceSites = [{ x: -27, z: 41 }, { x: 40, z: 32 }];
 const offsets = [{ x: -1.8, z: 1.2 }, { x: 0, z: 2.1 }, { x: 1.8, z: 0.8 }];
 const ids: DroneId[] = ['drone-1', 'drone-2', 'drone-3', 'drone-4', 'drone-5', 'drone-6'];
 const spawns = Object.fromEntries(ids.map((id, index) => {
@@ -36,9 +36,9 @@ export const BATTLEFIELD = {
   resources: [
     // Mapped intersection centers, with edges sized to fill each crossing while
     // clearing the corner buildings. Keep stable IDs for recordings and fixtures.
-    deposit('salvage-race-fourth', -17.07, 33.978, 3, 60), // Race / Third.
-    deposit('salvage-main-fourth', 26.366, 34, 3, 60), // Main / Second.
-    deposit('salvage-elm-fifth', -36.307, 8.704, 2.5, 60), // Elm / Fifth.
+    deposit('salvage-race-third', -17.07, 33.978, 3, 60), // Race / Third.
+    deposit('salvage-vine-fourth', -5.854, 17.161, 2.5, 60), // Vine / Fourth.
+    deposit('salvage-main-second', 26.366, 34, 3, 60), // Main / Second.
     deposit('salvage-sycamore-fifth', 33.356, -4.393, 2.5, 60), // Sycamore / Fifth.
     // Broad open forecourt immediately south of Vine / Third. The stable ID
     // remains for recordings; this rules revision intentionally moves the depot.

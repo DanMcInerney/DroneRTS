@@ -43,6 +43,7 @@ test('game workspace and real routine tools save only own telemetry with one cam
 test('a routine owns movement until explicit direct replacement and cancelled code never resumes', async t => {
   const { game } = await ready(); t.after(() => game.stop());
   const drone = game.state.drones[0];
+  drone.x = 0; // This ownership fixture needs room for both opposing targets.
   await source(game, 'await drone.act({kind:"fly_to",...input.target}); await drone.files.write("started.md","yes"); await drone.sleep(700); await drone.files.write("late.md","invalid");');
   await game.tool(drone.id, 'routine', { mission: 1, op: 'start', path: 'entry.js', input: { target: { x: drone.x + 8, y: drone.y, z: drone.z } } });
   await until(() => game.onboardWorkspace(drone.id).list().some(file => file.path === 'started.md'));

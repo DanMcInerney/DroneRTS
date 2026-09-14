@@ -9,11 +9,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { FleetGame } from '../server/game.ts';
 import { DRONE_IDS, type Pose } from '../shared/types.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const base = 'http://127.0.0.1:4318';
 const state = await fetch(`${base}/api/state`).then(response => response.json());
 assert.equal(state.running, false, 'Isolated server must be idle; no player session may be used');
-const output = resolve('artifacts/ui-verification'); await mkdir(output, { recursive: true });
+const { directory: output } = createArtifactRun('ui-verification'); await mkdir(output, { recursive: true });
 const game = new FleetGame(); game.setConnected(true); game.start();
 game.state.drones.forEach(drone => { drone.y = 30; });
 for (const id of DRONE_IDS) await game.tool(id, 'observe');

@@ -63,6 +63,7 @@ test('a delayed setpoint from a replaced objective cannot overwrite the new obje
     command: async (_id, args) => { if (++commands === 1) await held.promise; return args; }, sample,
   };
   const drone = game.state.drones[0];
+  drone.x = 0; // Keep both replacement targets inside any downtown launch layout.
   await game.tool(drone.id, 'route', { mission: 1, op: 'start', waypoints: [{ x: drone.x + 8, y: drone.y, z: drone.z }] });
   await flush();
   game.queueMission('New objective supplied by the player.'); await game.forwardTeam('blue');

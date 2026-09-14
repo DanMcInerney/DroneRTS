@@ -18,7 +18,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Continuous motion | `server/drone-motion.ts` | Own velocity, acceleration, braking, flight profiles, camera aim and finite-range local hold. No route selection or world-geometry access. |
 | Camera transport | `server/camera-channel.ts`, `server/renderer-identity.ts` | Shared production/trial broker; current source fingerprint, socket-bound capture ownership and acquisition provenance. |
 | Launch readiness | `server/launch-gate.ts` | Actual opening-objective bundle receipt by all six pilots gates initial simulation, movement and spending. |
-| Model observation format | `server/observation-format.ts` | Lossless tabular range encoding at the model boundary; internal telemetry and routine SDK retain named fields. |
+| Model observation format | `server/observation-format.ts` | Lossless beam-direction codebook, shared scalar columns and within-bundle references at the model boundary; nonstandard directions/metadata remain explicit. Internal telemetry and routine SDK retain named fields. |
 | Optical calibration | `shared/camera-profile.ts` | Actual wide/zoom projection shared by capture/rendering and exposed as own vehicle calibration. |
 | Job lifecycle | `server/command-jobs.ts`, `shared/onboard.ts` | Ordered caller-supplied waypoints, one movement writer, explicit replacement, event/source provenance and locally renewed 500 ms monotonic controller leases. |
 | Game boundary | `server/game.ts` | Authoritative state, simulation ticks, per-drone received objectives, quick admissions, bounded batches, lifecycle cancellation, current own telemetry and fresh aggregate camera/inbox delivery. |
@@ -37,7 +37,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Audit/replay | `server/diagnostics.ts`, `shared/diagnostics.ts`, `shared/replay.ts`, `server/replay-recorder.ts` | Bounded player-only evidence, source hashes/versions, actual SDK/radio/cargo/jobs and acquired images. Never supplies archived knowledge to actors. |
 | Replay access/view | `server/replay-store.ts`, `server/replay-paths.ts`, `client/replay*.ts` | Validated byte cursors and image paths, recorded-version interpretation, stale/missing evidence labels and inert source display. Archived routines never execute. |
 | Application lifecycle | `server/index.ts` | HTTP/WebSocket capture delivery, startup/stop, disconnect timeout, protocol failures and bounded recording. |
-| Evaluation | `scripts/trial-scenarios.ts`, `scripts/playtest-focused.ts`, `scripts/trial-host.ts`, `scripts/measure-controls.ts`, `scripts/analyze-trial.ts`, `scripts/analyze-engagement.ts` | Explicit fixtures, isolated owned ports, source manifests, bounded inference and offline evidence; never imported into actor prompts. |
+| Evaluation | `scripts/trial-scenarios.ts`, `scripts/playtest-focused.ts`, `scripts/trial-host.ts`, `scripts/measure-controls.ts`, `scripts/analyze-trial.ts`, `scripts/analyze-haul.ts`, `scripts/analyze-engagement.ts`, `scripts/analyze-decision-latency.ts` | Explicit fixtures, isolated owned ports, source manifests, bounded inference and offline evidence; never imported into actor prompts. |
 
 ## Isolation and temporal meaning
 
@@ -63,4 +63,4 @@ Use focused cargo conservation, observation, local-control, job, workspace/runti
 
 Bounded live evaluation uses Luna/xhigh, an owned isolated server and actual camera browser. Preserve active port 4317 and use another free trial port if 4318 is occupied. Autonomous single-haul/repetition and useful team hauling precede another full battle. [RTS-PLAYTEST.md](RTS-PLAYTEST.md) contains measured evidence and limitations; historical reports do not validate later features.
 
-The downtown extent is centralized in `shared/downtown.json`; generation clips roads, parks and water and leaves all existing building dimensions unchanged. Replay headers retain their own scene bounds, so historical maps stay interpretable. New recordings sample routine poses at 0.5 seconds and force frames at commands/events, with a reserved final outcome summary independent of detailed coverage.
+The downtown extent is centralized in `shared/downtown.json`; generation clips roads, parks and water and culls wholly outside building boxes, leaving retained building dimensions unchanged. Replay headers retain their own scene bounds, so historical maps stay interpretable. New recordings sample routine poses at 0.5 seconds and force frames at commands/events, with a reserved final outcome summary independent of detailed coverage.

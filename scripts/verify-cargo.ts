@@ -11,8 +11,9 @@ import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import { CARGO_CONFIG, RTS_CONFIG, apronServicePositions, resourceZoneSize, type Point } from '../shared/rts.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 import type { ToolResult } from '../shared/types.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
-const output = resolve(process.env.FLEET_QA_OUTPUT ?? 'artifacts/cargo-mechanics');
+const { directory: output } = createArtifactRun('cargo-mechanics', { output: process.env.FLEET_QA_OUTPUT });
 await mkdir(output, { recursive: true });
 const parse = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);

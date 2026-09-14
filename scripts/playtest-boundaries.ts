@@ -2,10 +2,10 @@ import { chromium, type Page } from '@playwright/test';
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const runName = `run-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-const artifactsDir = join(projectDir, 'artifacts', 'playtest-boundaries', runName);
+const artifacts = createArtifactRun('playtest-boundaries'), artifactsDir = artifacts.directory;
 const url = 'http://127.0.0.1:4318';
 const firstInstruction = 'Each drone must report its own four sensors: local position XYZ, heading in degrees, timestamp with capturedAt and simTime, and the camera image, including one visible feature from that image. Make exactly one small controlled movement experiment based on your current readings, share the observed change with your peers using the radio, then hover and wait.';
 const secondInstruction = 'Hold position now. Each drone acknowledge this instruction and report your current position and timestamp.';
@@ -52,7 +52,7 @@ async function waitFor(page: Page, predicate: (current: WorldState) => boolean, 
 
 async function capture(page: Page, filename: string) {
   await page.screenshot({ path: join(artifactsDir, filename), fullPage: false });
-  result.screenshots.push(`artifacts/playtest-boundaries/${runName}/${filename}`);
+  result.screenshots.push(join(artifactsDir, filename));
 }
 
 async function record(page: Page, label: string) {
@@ -284,6 +284,10 @@ try {
   await inspectSession(beforeSessions);
   result.finishedAt = new Date().toISOString();
   await capture(page, 'final-browser-state.png').catch(() => {});
+  if (result.checks.stop?.running === false && result.checks.sessionFile) {
+    const name = result.checks.sessionFile.split(/[\\/]/).at(-1); artifacts.collectSession(name);
+    result.checks.sessionFile = join(artifactsDir, name);
+  }
   await writeFile(join(artifactsDir, 'playtest-result.json'), JSON.stringify(result, null, 2) + '\n');
   await browser.close();
 }
