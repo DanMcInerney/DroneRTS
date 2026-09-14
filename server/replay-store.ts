@@ -4,7 +4,7 @@ import type { ReplayPage, ReplayRecord } from '../shared/replay.ts';
 import { missing, REPLAY_IMAGE, replayDirectory, ReplayError, replayFile, ReplayFileReplacedError } from './replay-paths.ts';
 
 const PAGE_BYTES = 4 * 1024 * 1024, RECORD_BYTES = 2 * 1024 * 1024, PAGE_RECORDS = 256;
-const TYPES = new Set(['header', 'frame', 'command', 'observation', 'event', 'end']);
+const TYPES = new Set(['header', 'frame', 'command', 'observation', 'event', 'end', 'script-source', 'execution', 'cancellation', 'radio']);
 
 /** Byte cursors read only complete records, even while a match is recording. */
 export class ReplayStore {

@@ -12,7 +12,7 @@ import { MODEL, EFFORT } from '../server/runtime-tools.ts';
 
 const scenario = process.argv[2] as TrialScenario;
 assert.ok(SCENARIOS.includes(scenario), `Choose ${SCENARIOS.join(', ')}`);
-const seconds = Number(process.env.RTS_TRIAL_SECONDS ?? (scenario === 'match' ? 480 : 180));
+const seconds = Number(process.env.RTS_TRIAL_SECONDS ?? (scenario === 'match' ? 480 : scenario.startsWith('haul-') ? 300 : 180));
 assert.ok(Number.isFinite(seconds) && seconds >= 30 && seconds <= 600, 'Trial must be 30–600 wall seconds');
 const port = Number(process.env.RTS_TRIAL_PORT ?? 4318);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Trial port must be 1024–65535 and must preserve player port 4317');
@@ -41,7 +41,7 @@ const result: Record<string, any> = { scenario, seconds, port, model: MODEL, eff
   revision: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: projectDir, encoding: 'utf8' }).trim(),
   manifestSha256: createHash('sha256').update(JSON.stringify(manifest)).digest('hex'), startedAt: new Date().toISOString(), failures: [], samples: [] };
 const host = await createTrialHost(projectDir, directory, scenario, port);
-let cancelled = false;
+let cancelled = false, completedTrialObjective = false;
 const cancel = () => { cancelled = true; void host.stop(); };
 process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
 try {
@@ -57,12 +57,16 @@ try {
     console.log(JSON.stringify({ simTime: Math.round(state.simTime), status: state.runtime.status,
       observations: state.drones.map(d => d.observations), alive: state.drones.map(d => d.alive),
       earned: Object.values(state.match!.teams).map(team => Math.round(team.earned)), events: state.match!.events.slice(-2).map(event => event.message) }));
+    if (scenario === 'haul-single' && state.match!.teams.blue.earned >= 30) {
+      completedTrialObjective = true; break;
+    }
     if (!state.running) break;
-    await delay(Math.min(10_000, Math.max(0, deadline - Date.now())));
+    await delay(Math.min(scenario.startsWith('haul-') ? 5_000 : 10_000, Math.max(0, deadline - Date.now())));
   }
   result.naturalCompletion = host.game.state.completed; result.winner = host.game.state.match!.winner;
   result.finalState = structuredClone(host.game.state);
-  result.endReason = cancelled ? 'signal' : host.game.state.completed ? 'natural-completion' : host.failures.length ? 'failure' : host.game.state.running ? 'time-limit' : 'external-stop';
+  result.completedTrialObjective = completedTrialObjective;
+  result.endReason = cancelled ? 'signal' : completedTrialObjective ? 'trial-objective-complete' : host.game.state.completed ? 'natural-completion' : host.failures.length ? 'failure' : host.game.state.running ? 'time-limit' : 'external-stop';
 } catch (error) { result.failures.push(String(error)); }
 finally {
   // Preserve the actual final snapshot even if cleanup never settles.

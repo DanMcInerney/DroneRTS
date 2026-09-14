@@ -6,7 +6,9 @@ import { PythonRpc } from './python-rpc.ts';
 type WireEvent = Record<string, unknown>;
 export type MavlinkSample = {
   position: { x: number; y: number; z: number };
+  velocity: { x: number; y: number; z: number };
   heading: { degrees: number };
+  cameraOrientation: { heading: number; pitch: number };
   simTime: number;
 };
 
@@ -53,17 +55,23 @@ export class MavlinkAdapter {
     const decoded = await this.rpc.request('command', {
       droneId, args: wireArgs, currentHeading: ((-currentPose.yaw % 360) + 360) % 360, simTime,
     });
-    return { ...decoded, ...(mission === undefined ? {} : { mission }) };
+    return { ...decoded, ...(mission === undefined ? {} : { mission }),
+      ...(args.profile === undefined ? {} : { profile: args.profile }) };
   }
 
-  async sample(droneId: DroneId, pose: Pose, simTime: number): Promise<MavlinkSample> {
+  async sample(droneId: DroneId, pose: Pose, simTime: number,
+    velocity = { x: 0, y: 0, z: 0 }): Promise<MavlinkSample> {
     this.requireDrone(droneId);
-    // Camera pitch is an actuator state, not a sensor. It never enters telemetry.
+    // These own ideal estimates travel in LOCAL_POSITION_NED and the explicit
+    // gimbal status message. No body roll/pitch dynamics are invented.
     const decoded = await this.rpc.request('sample', {
-      droneId, pose: { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw }, simTime,
+      droneId, pose: { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, pitch: pose.pitch },
+      velocity: { x: velocity.x, y: velocity.y, z: velocity.z }, simTime,
     });
     return {
       position: { x: decoded.position.x, y: decoded.position.y, z: decoded.position.z },
+      velocity: { x: decoded.velocity.x, y: decoded.velocity.y, z: decoded.velocity.z },
+      cameraOrientation: { heading: decoded.cameraOrientation.heading, pitch: decoded.cameraOrientation.pitch },
       heading: { degrees: decoded.heading.degrees }, simTime: decoded.simTime,
     };
   }

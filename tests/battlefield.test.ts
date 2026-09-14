@@ -6,7 +6,7 @@ import { BATTLEFIELD } from '../shared/battlefield.ts';
 import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { CITY, type CityPoint } from '../shared/city.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
-import { insideZone, resourceZoneSize, RTS_CONFIG, serviceZoneSize, type Point } from '../shared/rts.ts';
+import { apronServicePositions, CARGO_CONFIG, insideZone, resourceZoneSize, RTS_CONFIG, serviceZoneSize, type Point } from '../shared/rts.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 
 const clear = (from: Point, to = from, margin: number = RTS_CONFIG.droneRadius) =>
@@ -52,7 +52,7 @@ test('six starting positions are distinct, dry and safely clear of terrain', () 
   }
 });
 
-test('each launch contains three complete drone bodies and its initial camera sees service space, not resource cubes', () => {
+test('each launch contains three complete drone bodies and its initial camera sees the base apron without resources', () => {
   assert.equal(BATTLEFIELD.servicePads.length, 2);
   assert.equal(new Set(BATTLEFIELD.servicePads.map(pad => pad.id)).size, 2);
   assert.deepEqual(BATTLEFIELD.servicePads.map(pad => pad.team).sort(), ['blue', 'red']);
@@ -88,16 +88,23 @@ test('each launch contains three complete drone bodies and its initial camera se
 test('the four finite outer deposits and rich downtown mega deposit preserve their supplies', () => {
   assert.equal(new Set(BATTLEFIELD.resources.map(node => node.id)).size, BATTLEFIELD.resources.length);
   assert.equal(BATTLEFIELD.resources.length, 5);
-  const outer = BATTLEFIELD.resources.filter(node => node.extractionMultiplier === 1);
-  const rich = BATTLEFIELD.resources.filter(node => node.extractionMultiplier === 1.5);
+  const outer = BATTLEFIELD.resources.filter(node => node.capacity === 60);
+  const rich = BATTLEFIELD.resources.filter(node => node.capacity === 600);
   assert.equal(outer.length, 4);
-  assert.ok(outer.every(node => node.capacity === 150));
+  assert.ok(outer.every(node => node.capacity === 60));
   assert.equal(rich.length, 1);
-  assert.equal(rich[0].capacity, 900);
+  assert.equal(rich[0].capacity, 600);
+  assert.equal(BATTLEFIELD.resources.reduce((total, node) => total + node.capacity, 0), 840);
   assert.ok(outer.reduce((total, node) => total + node.capacity, 0) < rich[0].capacity);
   for (const node of BATTLEFIELD.resources) {
     assert.ok(Number.isSafeInteger(node.capacity) && node.capacity > 0);
     assert.equal(node.remaining, node.capacity);
+    if (node.capacity === 600) {
+      const crossing = CITY.intersections.find(point => point.streets.includes('Vine Street') && point.streets.includes('East 3rd Street'))!;
+      assert.ok(Math.hypot(crossing.x - node.x, crossing.z - node.z) < 4, 'central forecourt must connect directly to its mapped crossing');
+      assert.ok(clear({ ...crossing, y: 1.5 }, { ...node, y: 1.5 }), 'central forecourt has an unobstructed intersection approach');
+      continue;
+    }
     const crossing = CITY.intersections.find(point => Math.hypot(point.x - node.x, point.z - node.z) < 0.002);
     assert.ok(crossing, `${node.id} must be centered on a mapped street intersection`);
     const roads = CITY.roads.filter(road => crossing.streets.includes(road.name)
@@ -108,7 +115,7 @@ test('the four finite outer deposits and rich downtown mega deposit preserve the
   }
 });
 
-test('all grounded interaction cubes have completely clear airspace and three spaced occupancy positions', () => {
+test('all grounded aprons have clear airspace and three shared, separated service marks', () => {
   const zones = [...BATTLEFIELD.resources.map(zone => ({ zone, size: resourceZoneSize(zone) })),
     ...BATTLEFIELD.servicePads.map(zone => ({ zone, size: serviceZoneSize(zone) }))];
   for (const { zone, size } of zones) {
@@ -124,17 +131,15 @@ test('all grounded interaction cubes have completely clear airspace and three sp
       );
       assert.equal(cube.intersectsOBB(obstacle), false, `${zone.id} overlaps ${building.id}`);
     }
-    const offset = Math.min(1.8, size / 2 - RTS_CONFIG.droneRadius - 0.02);
-    const positions = [[-1, -1], [1, -1], [0, 1]].map(([x, z]) => ({
-      x: zone.x + x * offset, y: zone.y + 1.8, z: zone.z + z * offset,
-    }));
+    const positions = apronServicePositions(zone, size);
     for (const [index, position] of positions.entries()) {
       assert.ok(containsBody(zone, size, position), `${zone.id} needs space for a whole drone`);
       assert.ok(insideZone(position, zone, size));
+      assert.ok(position.y >= zone.y + CARGO_CONFIG.hoverMin && position.y <= zone.y + CARGO_CONFIG.hoverMax);
       assert.ok(clear(position), `${zone.id} occupancy ${index + 1} must be collision-free`);
       assert.ok(clear({ ...position, y: zone.y + size + 2 }, position), `${zone.id} needs a clear entry for each occupant`);
       for (const other of positions.slice(index + 1)) {
-        assert.ok(Math.hypot(other.x - position.x, other.z - position.z) > RTS_CONFIG.droneRadius * 2 + 0.8);
+        assert.ok(Math.hypot(other.x - position.x, other.z - position.z) > RTS_CONFIG.droneRadius * 2 + 0.7);
       }
     }
   }
@@ -169,20 +174,30 @@ test('both teams have paired opening routes and clear low-altitude access to the
     return distances.slice(2, 2 + BATTLEFIELD.resources.length);
   };
   const westRoutes = shortestRoutes(0), eastRoutes = shortestRoutes(1);
-  const outerRoutes = (routes: number[]) => routes.filter((_, i) => BATTLEFIELD.resources[i].extractionMultiplier === 1).sort((a, b) => a - b);
+  const outerRoutes = (routes: number[]) => routes.filter((_, i) => BATTLEFIELD.resources[i].capacity === 60).sort((a, b) => a - b);
   const westOpenings = outerRoutes(westRoutes), eastOpenings = outerRoutes(eastRoutes);
   for (let index = 0; index < 2; index++) {
     assert.ok(Math.max(westOpenings[index], eastOpenings[index]) < 50, 'each team needs two reasonably close opening routes');
     assert.ok(Math.abs(westOpenings[index] - eastOpenings[index]) < 8, 'paired opening route lengths should be comparable');
   }
   assert.ok([...westRoutes, ...eastRoutes].every(distance => distance < 125), 'all deposits must have clear routes from both bases');
-  const megaIndex = BATTLEFIELD.resources.findIndex(node => node.extractionMultiplier === 1.5);
-  // The Vine/Fourth crossing offers room for the cube and central access from
-  // both teams, while retaining the actual geographic street detours.
+  const megaIndex = BATTLEFIELD.resources.findIndex(node => node.capacity === 600);
+  // The forecourt connected to Vine/Third retains actual geographic detours.
   assert.ok(Math.abs(westRoutes[megaIndex] - eastRoutes[megaIndex]) < 20, 'central street detours must remain bounded');
   assert.ok(Math.max(westRoutes[megaIndex], eastRoutes[megaIndex]) < 100);
   const mega = BATTLEFIELD.resources[megaIndex];
-  assert.ok(Math.abs(mega.x) < 20 && Math.abs(mega.z) < 20, 'mega deposit should occupy the downtown core');
+  assert.ok(Math.abs(mega.x) < 10 && mega.z > 25 && mega.z < 40, 'mega depot should remain in the central downtown approach between bases');
+});
+
+test('central loading apron has more exposed low-altitude approach directions than every outer cache', () => {
+  const visibleDirections = (node: Point) => Array.from({ length: 72 }, (_, index) => index * Math.PI / 36)
+    .filter(angle => clear({ x: node.x + Math.cos(angle) * 8, y: 1.8, z: node.z + Math.sin(angle) * 8 }, { ...node, y: node.y + 0.2 }, 0)).length;
+  const central = BATTLEFIELD.resources.find(node => node.capacity === 600)!;
+  const exposed = visibleDirections(central);
+  assert.ok(exposed > 54, 'central stock should be visible from at least three quarters of sampled nearby azimuths');
+  for (const node of BATTLEFIELD.resources.filter(node => node.capacity === 60)) {
+    assert.ok(exposed > visibleDirections(node), `${node.id} should retain more cover than the central loading apron`);
+  }
 });
 
 test('the wider city has no forced square dimensions and permits terrain contact', () => {

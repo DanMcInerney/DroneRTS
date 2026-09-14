@@ -3,12 +3,50 @@ import assert from 'node:assert/strict';
 import { CodexFleetRuntime } from '../server/runtime.js';
 import { BOOTSTRAP_MESSAGE, MODEL, EFFORT, createParentInstructions, createDroneTools, droneInstructions } from '../server/runtime-tools.js';
 import { validateRoster, type FleetRoster } from '../shared/fleet.ts';
+import { DEFAULT_AGENT_BACKEND, validateAgentBackend, type AgentBackendConfiguration } from '../server/agent-backend.ts';
+import { CARGO_CONFIG } from '../shared/rts.ts';
+import { RTS_BRIEFING } from '../shared/mission.ts';
 
 function fixture(roster?: FleetRoster) {
   const events: any[] = [];
   const runtime = new CodexFleetRuntime({ projectDir: process.cwd(), roster, onStatus: event => events.push(event), onEvent: event => events.push(event), toolHandler: async () => ({ content: [] }) });
   return { runtime, internal: runtime as any, events };
 }
+
+test('backend configuration is explicit and fails closed before inference for unsupported providers or models', () => {
+  assert.deepEqual(fixture().runtime.configuration, DEFAULT_AGENT_BACKEND);
+  assert.ok(Object.isFrozen(validateAgentBackend()));
+  for (const configuration of [
+    { ...DEFAULT_AGENT_BACKEND, provider: 'other' },
+    { ...DEFAULT_AGENT_BACKEND, model: 'other' },
+    { ...DEFAULT_AGENT_BACKEND, effort: 'high' },
+  ]) assert.throws(() => validateAgentBackend(configuration as AgentBackendConfiguration), /fallback/);
+});
+
+test('onboard catalog bounds batches and exposes blue commander chat without red access', () => {
+  const blue = createDroneTools(undefined, undefined, 'blue');
+  const red = createDroneTools(undefined, undefined, 'red');
+  const to = (tools: typeof blue) => (tools.find(tool => tool.name === 'send')!.inputSchema.properties!.to as any).enum;
+  assert.ok(to(blue).includes('player')); assert.ok(!to(red).includes('player'));
+  const batch = blue.find(tool => tool.name === 'exchange')!.inputSchema.properties!.operations as any;
+  assert.equal(batch.maxItems, 8);
+  for (const forbidden of ['wait', 'workspace', 'routine', 'transfer', 'exchange', 'fire', 'camera']) {
+    assert.ok(!batch.items.properties.tool.enum.includes(forbidden), forbidden);
+  }
+  const armed = createDroneTools(undefined, { shop: true, gun: true, optics: true, alive: true });
+  const allowed = (armed.find(tool => tool.name === 'exchange')!.inputSchema.properties!.operations as any).items.properties.tool.enum;
+  assert.ok(allowed.includes('fire')); assert.ok(allowed.includes('camera'));
+  const surface = JSON.stringify(blue);
+  assert.doesNotMatch(surface, /owner_token|resourceId|padId|enemyId/);
+});
+
+test('cargo briefing follows authoritative service calibration without injecting routes or resource locations', () => {
+  assert.ok(RTS_BRIEFING.includes(`between ${CARGO_CONFIG.hoverMin} and ${CARGO_CONFIG.hoverMax} local units`));
+  assert.ok(RTS_BRIEFING.includes(`${CARGO_CONFIG.pickupDuration} simulation seconds`));
+  assert.match(RTS_BRIEFING, /credit your shared team account only on completion/);
+  assert.match(RTS_BRIEFING, /Confirm agreement through actual teammate replies/);
+  assert.doesNotMatch(RTS_BRIEFING, /translucent yellow|automatically mines|miner_upgrade|central depot|scout first|travel north/);
+});
 
 test('runtime records only provided reasoning summaries, never hidden reasoning contents', () => {
   const { internal, events } = fixture();
@@ -93,27 +131,26 @@ test('overlapping failure and UI shutdown share one cleanup and retain the error
 
 test('catalog exposes purchases with team credit access and equipment tools only after attachment', () => {
   const base = createDroneTools().map(tool => tool.name);
-  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'mine', 'recharge']);
+  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'recharge', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
   const shop = createDroneTools(undefined, { shop: true, gun: false, alive: true }).map(tool => tool.name);
-  assert.deepEqual(shop, [...base, 'buy']);
+  assert.deepEqual(shop, [...base.slice(0, -1), 'buy', 'exchange']);
   const armed = createDroneTools(undefined, { shop: true, gun: true, alive: true }).map(tool => tool.name);
-  assert.deepEqual(armed, [...shop, 'fire', 'rearm']);
+  assert.deepEqual(armed, [...shop.slice(0, -1), 'fire', 'rearm', 'exchange']);
   const optics = createDroneTools(undefined, { shop: true, gun: false, optics: true, alive: true }).map(tool => tool.name);
-  assert.deepEqual(optics, [...shop, 'camera']);
+  assert.deepEqual(optics, [...shop.slice(0, -1), 'camera', 'exchange']);
   const equipped = createDroneTools(undefined, { shop: true, gun: true, optics: true, alive: true });
-  assert.deepEqual(equipped.map(tool => tool.name), [...armed, 'camera']);
+  assert.deepEqual(equipped.map(tool => tool.name), [...armed.slice(0, -1), 'camera', 'exchange']);
   assert.deepEqual(equipped.find(tool => tool.name === 'camera')!.inputSchema.required, ['mission', 'mode']);
   assert.deepEqual(equipped.find(tool => tool.name === 'rearm')!.inputSchema.required, ['mission']);
-  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'miner', 'optics', 'battery', 'jammer']);
+  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'cargo', 'optics', 'battery']);
   const jammer = createDroneTools(undefined, { shop: true, gun: false, jammer: true, alive: true });
-  assert.deepEqual(jammer.map(tool => tool.name), [...shop, 'jam']);
-  assert.deepEqual(jammer.find(tool => tool.name === 'jam')!.inputSchema.required, ['mission', 'enabled']);
-  assert.deepEqual(jammer.find(tool => tool.name === 'jam')!.inputSchema.properties!.enabled, { type: 'boolean' });
+  assert.deepEqual(jammer.map(tool => tool.name), shop, 'historical equipment must not reactivate deferred tools');
   assert.deepEqual(createDroneTools(undefined, { shop: true, gun: true, alive: false }), []);
   const instructions = droneInstructions('drone-1', undefined, 'blue');
   assert.match(instructions, /blue team/);
   assert.match(instructions, /tool_catalog_changed[\s\S]*finish this turn immediately/);
-  assert.doesNotMatch(instructions, /Cincinnati|gun|miner|metres|meters|north|south|treasure/);
+  assert.doesNotMatch(instructions, /Cincinnati|Smale|Fountain Square|chest-1|Vine Street/);
+  assert.match(instructions, /ten meters/);
 });
 
 test('destroying one native child interrupts only that child and revokes all its tools', async () => {
@@ -153,7 +190,8 @@ test('policy binds known native session identity to its own capabilities', () =>
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_2__observe' }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_parent__forward_next_instruction' }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__buy' }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__mine' }), {});
+  assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__workspace' }), {});
+  assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__mine' }).hookSpecificOutput.permissionDecision, 'deny');
 });
 
 test('catalog changes yield only at a completed tool boundary and preserve every sensor and event', async () => {

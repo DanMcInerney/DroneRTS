@@ -96,6 +96,18 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended']) game.on(event, value => audit(event, value));
   game.on('tool', ({ drone, name, args }) => { recorder?.recordFrame(game.state, true); recorder?.recordCommand(drone, name, args, game.state.simTime); });
   game.on('recorded-observation', value => recorder?.recordObservation(value));
+  game.on('script-source', source => recorder?.recordScriptSource(source));
+  game.on('sdk-execution', execution => recorder?.recordExecution(execution));
+  game.on('routine-state', status => {
+    audit('routine', status);
+    if (status.state === 'cancelled' || status.state === 'failed') recorder?.recordCancellation({
+      drone: status.drone, simTime: status.simTime, jobId: status.id, sourceHash: status.sourceHash,
+      reason: status.reason ?? status.error ?? status.state });
+  });
+  game.on('job', ({ drone, job, simTime }) => {
+    if (['cancelled', 'failed', 'blocked'].includes(job.state)) recorder?.recordCancellation({ drone, simTime, jobId: job.id, reason: job.reason ?? job.state });
+  });
+  for (const event of ['radio', 'radio-delivery', 'player-radio']) game.on(event, message => recorder?.recordRadio(message, game.state.simTime));
   game.on('match-event', event => { audit('combat', event); recorder?.recordFrame(game.state, true); recorder?.recordEvent(event); });
   game.on('drone-destroyed', ({ droneId }) => { void runtime?.retireDrone(droneId); });
   game.on('capabilities-changed', () => { void runtime?.refreshTools(); });
@@ -118,6 +130,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
       const fixture = arrangeTrial(game, scenario); audit('trial-fixture', fixture);
       recorder = await ReplayRecorder.create({ directory, sessionId, header: {
         type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
+        rulesVersion: game.state.match?.rulesVersion,
         roster: MATCH_FLEET, scene: { name: `${CITY.name} · ${scenario} trial`, bounds: CITY.bounds,
           focus: BATTLEFIELD.focus, obstacles: game.state.obstacles, roads: CITY.roads, river: CITY.river }, camera: DRONE_CAMERA,
       }, onWarning: message => { warnings.push(message); audit('replay-warning', { message }); } });

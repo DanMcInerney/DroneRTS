@@ -95,7 +95,7 @@ export class FleetScene {
     const poses = JSON.stringify(state.drones.map(({ id, x, y, z, yaw, pitch, action }) => [id, x, y, z, yaw, pitch, action]));
     if (poses !== this.poseSignature) { this.poseSignature = poses; this.frameDirty = true; }
     this.drones.reconcile(state.drones);
-    const combatSignature = JSON.stringify([state.match?.resources, state.match?.servicePads, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
+    const combatSignature = JSON.stringify([state.match?.rulesVersion, state.match?.resources, state.match?.servicePads, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.cargo, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
     if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match); this.frameDirty = true; }
   }
 

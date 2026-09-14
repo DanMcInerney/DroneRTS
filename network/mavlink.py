@@ -122,7 +122,7 @@ class Pair:
         now = time.monotonic()
         if int(now) != self.audit_window:
             self.audit_window, self.audit_count = int(now), 0
-        telemetry = message.get_msgId() in (30, 32)
+        telemetry = message.get_msgId() in (30, 32, 285)
         due = not telemetry or now - self.last_telemetry_audit.get(message.get_msgId(), -10) >= 1
         if due and self.audit_count < 20:
             self.audit_count += 1
@@ -253,13 +253,26 @@ class FleetBridge:
         north, east, down = -number(pose["z"], "z"), number(pose["x"], "x"), -number(pose["y"], "y")
         hdg = heading(-number(pose["yaw"], "yaw"))
         yaw = math.radians((hdg + 180) % 360 - 180)
-        position = pair.transfer(pair.vehicle_codec.local_position_ned_encode(timestamp, north, east, down, 0, 0, 0), False)
+        velocity = params.get("velocity", {"x": 0, "y": 0, "z": 0})
+        vn, ve, vd = -number(velocity["z"], "velocity.z"), number(velocity["x"], "velocity.x"), -number(velocity["y"], "velocity.y")
+        position = pair.transfer(pair.vehicle_codec.local_position_ned_encode(timestamp, north, east, down, vn, ve, vd), False)
         attitude = pair.transfer(pair.vehicle_codec.attitude_encode(timestamp, 0, 0, yaw, 0, 0, 0), False)
-        if position.time_boot_ms != attitude.time_boot_ms or position.time_boot_ms != timestamp:
+        pitch = math.radians(number(pose.get("pitch", 0), "camera pitch"))
+        # Relative-to-vehicle camera orientation, with measured pitch and zero
+        # relative yaw. Vehicle ATTITUDE supplies heading separately.
+        gimbal = pair.transfer(pair.vehicle_codec.gimbal_device_attitude_status_encode(
+            BRIDGE_SYSTEM, BRIDGE_COMPONENT, timestamp, mav.GIMBAL_DEVICE_FLAGS_PITCH_LOCK,
+            [math.cos(pitch / 2), 0, math.sin(pitch / 2), 0], 0, 0, 0, 0), False)
+        if position.time_boot_ms != attitude.time_boot_ms or position.time_boot_ms != gimbal.time_boot_ms or position.time_boot_ms != timestamp:
             raise ValueError("MAVLink telemetry timestamps do not match")
+        camera_pitch = math.degrees(2 * math.atan2(number(gimbal.q[2], "camera quaternion y"), number(gimbal.q[0], "camera quaternion w")))
+        measured_heading = heading(math.degrees(number(attitude.yaw, "yaw")))
         return {"position": {"x": number(position.y, "east"), "y": -number(position.z, "down"),
                              "z": -number(position.x, "north")},
-                "heading": {"degrees": heading(math.degrees(number(attitude.yaw, "yaw")))},
+                "velocity": {"x": number(position.vy, "east velocity"), "y": -number(position.vz, "down velocity"),
+                             "z": -number(position.vx, "north velocity")},
+                "heading": {"degrees": measured_heading},
+                "cameraOrientation": {"heading": measured_heading, "pitch": camera_pitch},
                 "simTime": position.time_boot_ms / 1000}
 
 

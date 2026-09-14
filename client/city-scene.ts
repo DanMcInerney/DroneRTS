@@ -59,8 +59,9 @@ export function createCity(buildings: Obstacle[]) {
   for (const park of CITY.parks) {
     if (park.points.length > 2) group.add(polygon(park.points, park.color ?? '#82ac70', 0.05));
   }
-  const asphalt = material('#657479');
-  const paving = material('#dedac7');
+  // Broad value separation survives the finite-resolution acquired cameras.
+  const asphalt = material('#3c464b');
+  const paving = material('#cfc9b8');
   const roadMatrices: THREE.Matrix4[][] = [[], []];
   const roadDummy = new THREE.Object3D();
   const markings: THREE.Vector3[] = [];
@@ -89,7 +90,7 @@ export function createCity(buildings: Obstacle[]) {
     roadMatrices[index].forEach((matrix, offset) => strips.setMatrixAt(offset, matrix));
     strips.instanceMatrix.needsUpdate = true; strips.receiveShadow = true; group.add(strips);
   });
-  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(markings), new THREE.LineBasicMaterial({ color: '#e6dcb3', transparent: true, opacity: 0.55 })));
+  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(markings), new THREE.LineBasicMaterial({ color: '#c7bf96', transparent: true, opacity: 0.48 })));
 
   const windowMatrices: THREE.Matrix4[] = [];
   const windowDummy = new THREE.Object3D();
@@ -98,7 +99,8 @@ export function createCity(buildings: Obstacle[]) {
   const up = new THREE.Vector3(0, 1, 0);
   const palettes = ['#bcb7a7', '#b6c5c6', '#c5b18f', '#a3b3bb', '#b9a7a0', '#d0c9b5'];
   const bodies = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material('#ffffff'), buildings.length);
-  const roofs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material('#7d898a'), buildings.length);
+  const roofs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material('#626b6e'), buildings.length);
+  bodies.name = 'collision-building-walls'; roofs.name = 'collision-building-roofs';
   const buildingDummy = new THREE.Object3D();
   buildings.forEach((building, index) => {
     const block = new THREE.Group();
@@ -115,18 +117,18 @@ export function createCity(buildings: Obstacle[]) {
     quaternion.setFromAxisAngle(up, block.rotation.y);
     transform.compose(block.position, quaternion, new THREE.Vector3(1, 1, 1));
     if (building.height > 1.2 && building.width > 0.8 && building.depth > 0.8) {
-      const rows = Math.min(14, Math.max(1, Math.floor((building.height - 0.5) / 0.9)));
+      const rows = Math.min(6, Math.max(1, Math.floor((building.height - 0.5) / 1.8)));
       for (let row = 0; row < rows; row++) {
         const y = 0.55 + row * ((building.height - 0.8) / Math.max(rows, 1));
         for (let face = 0; face < 4; face++) {
           const across = face % 2 ? building.depth : building.width;
-          const count = Math.min(6, Math.max(1, Math.floor(across / 1.1)));
+          const count = Math.min(3, Math.max(1, Math.floor(across / 2)));
           for (let column = 0; column < count; column++) {
             const offset = (column + 0.5) / count * across - across / 2;
             const front = face === 0 || face === 1 ? 1 : -1;
             windowDummy.position.set(face % 2 ? front * (building.width / 2 + 0.002) : offset, y, face % 2 ? offset : front * (building.depth / 2 + 0.002));
             windowDummy.rotation.set(0, face % 2 ? front * Math.PI / 2 : face === 2 ? Math.PI : 0, 0);
-            windowDummy.scale.set(Math.min(0.39, across / count * 0.64), Math.min(0.3, building.height / rows * 0.5), 1);
+            windowDummy.scale.set(Math.min(1.1, across / count * 0.55), Math.min(0.22, building.height / rows * 0.3), 1);
             windowDummy.updateMatrix();
             windowMatrices.push(new THREE.Matrix4().multiplyMatrices(transform, windowDummy.matrix));
           }
@@ -137,7 +139,8 @@ export function createCity(buildings: Obstacle[]) {
   bodies.instanceMatrix.needsUpdate = true; roofs.instanceMatrix.needsUpdate = true;
   bodies.castShadow = true; bodies.receiveShadow = true; roofs.receiveShadow = true;
   group.add(bodies, roofs);
-  const windows = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: '#41616f' }), windowMatrices.length);
+  const windows = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material('#718088'), windowMatrices.length);
+  windows.name = 'sparse-facade-detail';
   windowMatrices.forEach((matrix, index) => windows.setMatrixAt(index, matrix));
   windows.instanceMatrix.needsUpdate = true;
   group.add(windows);

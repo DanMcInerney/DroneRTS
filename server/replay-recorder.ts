@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { open, rename, unlink, writeFile, type FileHandle } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import type { DroneId, GameState } from '../shared/types.ts';
+import type { DroneId, GameState, RadioMessage } from '../shared/types.ts';
 import type { MatchEvent } from '../shared/rts.ts';
-import type { RecordedObservation, ReplayEnd, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
+import type { RecordedObservation, ReplayCancellation, ReplayExecution, ReplayEnd, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
 import { redactDiagnostic } from './diagnostics.ts';
 import { replayDirectory } from './replay-paths.ts';
 
@@ -17,6 +17,8 @@ export const REPLAY_LIMITS: Readonly<ReplayLimits> = Object.freeze({
   queueBytes: 4 * 1024 * 1024, queueRecords: 256, queuedImages: 6,
 });
 const MAX_HEADER = 2 * 1024 * 1024, MAX_RECORD = 1024 * 1024, END_RESERVE = 1024;
+/** Source archives share the bounded replay writer, not actor workspace capacity. */
+export const REPLAY_SOURCE_BYTES = 256 * 1024;
 interface Job { line: Buffer; image?: { id: string; data: Buffer } }
 interface RecorderOptions {
   directory: string; sessionId: string; header: ReplayHeader;
@@ -116,6 +118,19 @@ export class ReplayRecorder {
     this.enqueue({ type: 'command', simTime, drone, name, args: redactDiagnostic(args) as Record<string, unknown> });
   }
   recordEvent(event: MatchEvent) { this.enqueue({ type: 'event', simTime: event.simTime, event }); }
+
+  recordScriptSource(value: { drone: DroneId; path: string; version: string | number; source: string; simTime: number }): string {
+    const sourceBytes = Buffer.byteLength(value.source, 'utf8');
+    const sourceHash = createHash('sha256').update(value.source, 'utf8').digest('hex');
+    this.enqueue({ type: 'script-source', drone: value.drone, path: value.path, version: value.version, simTime: value.simTime, sourceHash, sourceBytes,
+      ...(sourceBytes <= REPLAY_SOURCE_BYTES ? { source: value.source } : { omission: `Source exceeds the ${REPLAY_SOURCE_BYTES}-byte replay source limit.` }) });
+    return sourceHash;
+  }
+  recordExecution(value: Omit<ReplayExecution, 'type'>) {
+    this.enqueue({ ...value, type: 'execution', args: redactDiagnostic(value.args) as Record<string, unknown>, outcome: redactDiagnostic(value.outcome) });
+  }
+  recordCancellation(value: Omit<ReplayCancellation, 'type'>) { this.enqueue({ ...value, type: 'cancellation' }); }
+  recordRadio(message: RadioMessage, simTime: number) { this.enqueue({ type: 'radio', simTime, message: redactDiagnostic(message) as RadioMessage }); }
 
   recordObservation(value: RecordedObservation) {
     if (!this.accepting) return;

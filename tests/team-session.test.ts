@@ -17,6 +17,7 @@ function fixture(linkHook?: (id: DroneId, online: boolean) => Promise<void>, sta
     forwardTeam: async (team: string) => { relays.push(team); return { content: [] }; },
     tool: async (role: string) => { droneCalls.push(role); return { content: [] }; },
     toolCapabilities: () => ({ shop: false, gun: false, alive: true }),
+    receivedMission: () => 1,
     receiveRadio: () => {},
   } as unknown as FleetGame;
   const session = new TeamSession({ projectDir: process.cwd(), game, onStatus: state => statuses.push(state), onNetwork: state => networks.push(state), onEvent: () => {}, onFailure: error => failures.push(error) }, {
@@ -26,7 +27,7 @@ function fixture(linkHook?: (id: DroneId, online: boolean) => Promise<void>, sta
       const state = { status: 'starting' as const, transport: 'zenoh-tcp' as const, vehicle: 'mavlink2-udp' as const, message: '', peers: options.roster!.map(member => ({ id: member.id, online: false, peers: 0, pending: 0, inbox: 0 })) };
       return { state, start: async () => { started.push(`${team}-network`); await startHook?.(); options.onState({ ...state, status: 'online' }); }, stop: async () => { stopped.push(`${team}-network`); }, send: async message => { sent.push({ team, message }); }, consume: () => {}, link: async (id, online) => { links.push({ id, online }); await linkHook?.(id, online); } };
     },
-    vehicle: options => { vehicleRoster = options.roster; return { start: async () => {}, stop: async () => { stopped.push('vehicle'); }, command: async () => ({}), sample: async () => ({ position: { x: 0, y: 0, z: 0 }, heading: { degrees: 0 }, simTime: 0 }) }; },
+    vehicle: options => { vehicleRoster = options.roster; return { start: async () => {}, stop: async () => { stopped.push('vehicle'); }, command: async () => ({}), sample: async () => ({ position: { x: 0, y: 0, z: 0 }, velocity: { x: 0, y: 0, z: 0 }, cameraOrientation: { heading: 0, pitch: 0 }, heading: { degrees: 0 }, simTime: 0 }) }; },
   });
   return { session, game, relays, droneCalls, statuses, networks, runtimeOptions, networkOptions, sent, links, retired, stopped, vehicleRoster, failures, started };
 }
@@ -57,7 +58,7 @@ test('radio reconciliation serializes native calls, coalesces rapidly changing i
   drone.radioJammed = true; f.game.radioInterferenceChanged!();
   assert.deepEqual(f.links, [{ id: drone.id, online: false }]);
   for (const jammed of [false, true, false]) { drone.radioJammed = jammed; f.game.radioInterferenceChanged!(); }
-  const send = f.session.radio.send({ from: 'drone-2', to: 'all' } as RadioMessage);
+  const send = f.session.radio.send({ from: 'drone-2', to: 'all', sessionId: f.game.sessionIdentity, mission: 1 } as RadioMessage);
   const relay = f.session.radio.sendTeam('red', { from: 'player', to: 'all' } as RadioMessage);
   assert.equal(f.sent.length, 0);
   release(); await Promise.all([send, relay, f.session.reconcileRadio()]);
@@ -152,7 +153,7 @@ test('team radio routes player and peer messages correctly; destruction disconne
   const f = fixture(); await f.session.start();
   const message = { from: 'player', to: 'all' } as RadioMessage;
   await f.session.radio.sendTeam('red', message);
-  await f.session.radio.send({ ...message, from: 'drone-2' });
+  await f.session.radio.send({ ...message, from: 'drone-2', sessionId: f.game.sessionIdentity, mission: 1 });
   assert.deepEqual(f.sent.map(item => item.team), ['red', 'blue']);
   await assert.rejects(f.session.radio.send(message), /select a team/);
   await f.session.retireDrone('drone-5');

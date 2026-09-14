@@ -7,7 +7,7 @@ import type { Drone, DroneId, GameState } from '../shared/types.ts';
 
 const pose = (x = 0, y = 5, z = 0) => ({ x, y, z, yaw: 0, pitch: 0 });
 const arm = (drone: Drone) => { drone.equipment!.gun = true; drone.ammo = RTS_CONFIG.magazineSize; };
-function fixture() {
+function fixture(historical = false) {
   const rules = new RtsRules();
   const drones: Drone[] = Array.from({ length: 6 }, (_, i) => ({
     id: `drone-${i + 1}`, ...pose(i * 15), team: i < 3 ? 'blue' : 'red', alive: true,
@@ -20,14 +20,15 @@ function fixture() {
       drones.map(drone => ({ id: `pad-${drone.id}`, x: drone.x, y: drone.y, z: drone.z, team: drone.team! }))),
   };
   rules.begin(state);
+  if (historical) state.match!.rulesVersion = 'cube-v1';
   // These damage and purchase fixtures explicitly start without protection.
   for (const drone of drones) drone.equipment = emptyEquipment();
   const tick = (dt = 0.05, previous?: Map<DroneId, Point>) => { state.simTime += dt; return rules.step(state, dt, previous); };
   return { rules, state, drones, tick, match: state.match! };
 }
 
-test('teams receive exactly one opening item and mining grows the shared wallet separately from the allowance', () => {
-  const { state, rules, drones, tick, match } = fixture();
+test('historical cube-v1: mining grows the shared wallet separately from the opening allowance', () => {
+  const { state, rules, drones, tick, match } = fixture(true);
   assert.deepEqual(match.teams.blue, { credits: 30, earned: 0, shopUnlocked: true });
   assert.deepEqual(match.teams.red, { credits: 30, earned: 0, shopUnlocked: true });
   rules.buy(state, drones[1], 'armor');
@@ -58,8 +59,8 @@ test('shared spending is atomic, self-equipped, and rejects duplicate or unknown
   assert.equal(match.teams.blue.credits, 30);
 });
 
-test('a drill doubles extraction and a contested last deposit tick is split proportionally', () => {
-  const { state, rules, drones, tick, match } = fixture();
+test('historical cube-v1: drill extraction splits a contested last deposit tick proportionally', () => {
+  const { state, rules, drones, tick, match } = fixture(true);
   const a = drones[0], b = drones[3];
   Object.assign(a, pose(-1, 1.2)); Object.assign(b, pose(1, 1.2));
   a.equipment!.miner = true; match.resources[0].remaining = 1.5;
@@ -73,8 +74,8 @@ test('a drill doubles extraction and a contested last deposit tick is split prop
   assert.throws(() => rules.mine(state, a, 'salvage-1'), /No accessible/);
 });
 
-test('mining needs cube occupancy, ignores sight and stops when displaced without revealing locations', () => {
-  const { state, rules, drones, tick, match } = fixture();
+test('historical cube-v1: mining needs cube occupancy without revealing locations', () => {
+  const { state, rules, drones, tick, match } = fixture(true);
   assert.throws(() => rules.mine(state, drones[0], 'salvage-1'), /No accessible/);
   Object.assign(drones[0], pose(0, 1.2, 1.4));
   state.obstacles.push({ x: 0, z: 0.7, width: 1, depth: 0.2, height: 3 });

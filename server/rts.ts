@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
-import { batteryCapacityFor, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
+import { batteryCapacityFor, cargoCapacityFor, CARGO_CONFIG, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, insideApron, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type CargoInactiveReason, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
+import { CITY, type CityPoint } from '../shared/city.ts';
 import { at, distance, offset, sphereContact, subtract, terrainContact, unit } from './rts-geometry.ts';
 
 const position = ({ x, y, z }: Point): Point => ({ x, y, z });
@@ -15,6 +16,8 @@ const matchOf = (state: GameState) => {
 };
 const equipment = (drone: Drone) => drone.equipment ??= emptyEquipment();
 const chargeOf = (drone: Drone) => drone.battery ?? RTS_CONFIG.batteryCapacity;
+const cargoOf = (drone: Drone) => drone.cargo ??= { amount: 0 };
+const usesCargo = (state: GameState) => matchOf(state).rulesVersion === 'cargo-v1';
 
 /** All durable match state belongs to GameState. No second economy or damage authority exists. */
 export class RtsRules {
@@ -23,20 +26,21 @@ export class RtsRules {
   newMatch(resources: readonly ResourceNode[], servicePads: readonly ServicePad[] = []): MatchState {
     const economy = () => ({ credits: RTS_CONFIG.startingCredits, earned: 0, shopUnlocked: true });
     return {
-      phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
-      resources: resources.map(node => ({ ...node, remaining: node.capacity, zoneSize: resourceZoneSize(node) })),
+      rulesVersion: 'cargo-v1', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
+      resources: resources.filter(node => node.kind !== 'dropped').map(node => ({ ...node, kind: 'cache', reserved: 0, remaining: node.capacity, zoneSize: resourceZoneSize(node) })),
       servicePads: servicePads.map(pad => ({ ...pad, zoneSize: serviceZoneSize(pad) })), projectiles: [], events: [],
     };
   }
 
   begin(state: GameState) {
     // Refund old reservations before replacing their wallet; never credit the next match.
-    for (const drone of state.drones) this.cancelService(state, drone);
+    for (const drone of state.drones) { this.cancelService(state, drone); this.cancelLogistics(state, drone); }
     const previous = matchOf(state);
     state.match = this.newMatch(previous.resources, previous.servicePads); state.match.phase = 'active'; state.completed = false;
     for (const drone of state.drones) {
       drone.alive = true; drone.equipment = startingEquipment(); drone.mining = undefined; drone.lastFiredAt = undefined;
       drone.ammo = 0; drone.cameraMode = 'wide'; drone.servicing = undefined;
+      drone.gunPurchased = false; drone.cargo = { amount: 0 }; drone.logistics = undefined;
       drone.battery = RTS_CONFIG.batteryCapacity; drone.jamming = false; drone.charging = false;
     }
     this.syncInterference(state);
@@ -50,9 +54,15 @@ export class RtsRules {
     team(drone);
   }
 
-  /** Compatibility acknowledgement. Occupancy alone controls automatic extraction. */
+  /** Compatibility acknowledgement; physical pickup is automatic under cargo rules. */
   mine(state: GameState, drone: Drone, _legacyResourceId?: string) {
     this.assertActive(state, drone);
+    if (usesCargo(state)) {
+      // Compatibility calls cannot probe for hidden stock from arbitrary height.
+      // The acknowledgement is identical everywhere; automatic service supplies
+      // bounded local interaction feedback on the next simulation sample.
+      return { accepted: true, action: 'mine' };
+    }
     const node = this.resourceAt(state, drone);
     drone.mining = node?.id;
     if (!node) throw new Error('No accessible salvage in reach; enter a resource zone');
@@ -61,21 +71,43 @@ export class RtsRules {
 
   cancelMining(drone: Drone) { drone.mining = undefined; }
 
+  /** Idempotently release an unfinished pickup; carried salvage is never banked by cancellation. */
+  cancelLogistics(state: GameState, drone: Drone, reason: CargoInactiveReason = 'cancelled') {
+    const service = drone.logistics;
+    if (service?.state === 'loading' && service.sourceId && service.reserved) {
+      const node = matchOf(state).resources.find(node => node.id === service.sourceId);
+      if (node) node.reserved = Math.max(0, (node.reserved ?? 0) - service.reserved);
+    }
+    const active = service?.state === 'loading' || service?.state === 'unloading';
+    drone.logistics = { state: cargoOf(drone).amount > 0 ? 'carrying' : 'idle', progress: 0, remaining: 0, duration: 0, reason };
+    if (active) this.event(state, { type: 'cargo_cancelled', drone: drone.id, team: team(drone), message: `${drone.id} cargo service cancelled.` });
+  }
+
+  stop(state: GameState) {
+    for (const drone of state.drones) {
+      this.cancelService(state, drone); this.cancelLogistics(state, drone, 'stopped');
+      this.cancelMining(drone); drone.charging = false;
+    }
+  }
+
   buy(state: GameState, drone: Drone, item: EquipmentItem, replace?: EquipmentModule) {
     this.assertActive(state, drone);
     if (!Object.hasOwn(RTS_CONFIG.prices, item)) throw new Error('Unknown attachment');
+    if (usesCargo(state) && (item === 'miner' || item === 'miner_upgrade' || item === 'jammer')) throw new Error('This attachment is unavailable under cargo rules');
     const wallet = matchOf(state).teams[team(drone)], price = RTS_CONFIG.prices[item];
     if (!wallet.shopUnlocked) throw new Error('The team shop is unavailable');
     if (!this.friendlyPad(state, drone)) throw new Error('A friendly service pad must be within reach');
-    const gear = equipment(drone), isModule = EQUIPMENT_MODULES.includes(item as EquipmentModule);
-    if (replace !== undefined && (!isModule || !EQUIPMENT_MODULES.includes(replace) || !gear[replace] || replace === item)) {
+    const modules: readonly EquipmentModule[] = usesCargo(state) ? EQUIPMENT_MODULES : LEGACY_EQUIPMENT_MODULES;
+    const gear = equipment(drone), isModule = modules.includes(item as EquipmentModule);
+    if (replace !== undefined && (!isModule || !modules.includes(replace) || !gear[replace] || replace === item)) {
       throw new Error('Replacement must name a different equipped module');
     }
     if (item === 'miner_upgrade') {
       if (!gear.miner) throw new Error('A mining drill is required');
       if (gear.minerUpgrade) throw new Error('This attachment is already equipped');
     } else if (gear[item]) throw new Error('This attachment is already equipped');
-    if (isModule && EQUIPMENT_MODULES.filter(module => gear[module]).length - Number(replace !== undefined) >= RTS_CONFIG.moduleSlots) {
+    if (replace === 'cargo' && cargoOf(drone).amount > CARGO_CONFIG.gripCapacity) throw new Error('Deliver excess cargo before removing the cargo module');
+    if (isModule && modules.filter(module => gear[module]).length - Number(replace !== undefined) >= RTS_CONFIG.moduleSlots) {
       throw new Error('Both module slots are occupied; choose a module to replace');
     }
     // A successful refit can use its own refunded reservation. Failed validation changes nothing.
@@ -83,6 +115,7 @@ export class RtsRules {
     if (wallet.credits + refund + 1e-9 < price) throw new Error('Insufficient shared team credits');
     // Synchronous validation and debit are one transaction even when peer calls arrive together.
     this.cancelService(state, drone);
+    this.cancelLogistics(state, drone, 'refitted');
     wallet.credits = Math.max(0, wallet.credits - price);
     if (replace) {
       gear[replace] = false;
@@ -92,7 +125,10 @@ export class RtsRules {
     }
     if (item === 'miner_upgrade') gear.minerUpgrade = true;
     else gear[item] = true;
-    if (item === 'gun') drone.ammo = RTS_CONFIG.magazineSize;
+    if (item === 'gun') {
+      drone.ammo = !usesCargo(state) || !drone.gunPurchased ? RTS_CONFIG.magazineSize : 0;
+      drone.gunPurchased = true;
+    }
     drone.battery = Math.min(chargeOf(drone), batteryCapacityFor(drone));
     drone.jamming = false; this.syncInterference(state);
     this.event(state, { type: 'purchased', team: team(drone), drone: drone.id, message: `${drone.id} attached ${item}.` });
@@ -126,6 +162,7 @@ export class RtsRules {
 
   jam(state: GameState, drone: Drone, enabled: boolean) {
     this.assertActive(state, drone);
+    if (usesCargo(state)) throw new Error('Jamming is unavailable under cargo rules');
     if (!equipment(drone).jammer) throw new Error('No jammer is attached');
     if (typeof enabled !== 'boolean') throw new Error('Jammer state must be enabled or disabled');
     if (enabled && drone.servicing) throw new Error('The jammer cannot operate during servicing');
@@ -135,7 +172,7 @@ export class RtsRules {
 
   /** Only local radio availability is reported; emitter identities and distances stay private. */
   syncInterference(state: GameState) {
-    const active = matchOf(state).phase === 'active';
+    const active = matchOf(state).phase === 'active' && !usesCargo(state);
     for (const drone of state.drones) {
       if (!active || !alive(drone) || !drone.equipment?.jammer || chargeOf(drone) <= 0 || drone.servicing) drone.jamming = false;
     }
@@ -196,17 +233,18 @@ export class RtsRules {
   /** Returns vehicles whose controllers must clear residual motion after an impact. */
   step(state: GameState, dt: number, previousPositions: ReadonlyMap<DroneId, Point> = new Map()): DroneId[] {
     if (!state.running || matchOf(state).phase !== 'active') {
-      for (const drone of state.drones) { drone.mining = undefined; drone.charging = false; }
+      this.stop(state);
       return [];
     }
     if (!Number.isFinite(dt) || dt <= 0) return [];
     const changed = new Set<DroneId>();
     this.stepDroneContacts(state, previousPositions, changed);
     this.stepBullets(state, dt, previousPositions, changed);
-    for (const drone of state.drones) drone.mining = alive(drone) ? this.resourceAt(state, drone)?.id : undefined;
+    for (const drone of state.drones) drone.mining = !usesCargo(state) && alive(drone) ? this.resourceAt(state, drone)?.id : undefined;
     this.stepServices(state, dt, previousPositions);
     this.stepEnergy(state, dt, previousPositions, changed);
-    this.stepMining(state, dt);
+    if (usesCargo(state)) this.stepLogistics(state, dt, previousPositions);
+    else this.stepMining(state, dt);
     this.resolveVictory(state);
     this.syncInterference(state);
     return [...changed];
@@ -278,6 +316,136 @@ export class RtsRules {
         this.event(state, { type: 'battery_low', team: team(drone), drone: drone.id, message: 'Battery charge is low.' });
       }
     }
+  }
+
+  private logisticsReason(drone: Drone, apron: Point, size: number, speed: number, previous?: Point): CargoInactiveReason | undefined {
+    if (!insideApron(drone, apron, size) || previous && !insideApron(previous, apron, size)) return 'outside_apron';
+    if (drone.y < apron.y + CARGO_CONFIG.hoverMin || previous && previous.y < apron.y + CARGO_CONFIG.hoverMin) return 'below_hover_band';
+    if (drone.y > apron.y + CARGO_CONFIG.hoverMax || previous && previous.y > apron.y + CARGO_CONFIG.hoverMax) return 'above_hover_band';
+    if (!Number.isFinite(speed) || speed > CARGO_CONFIG.maxServiceSpeed + 1e-9) return 'moving_too_fast';
+    return undefined;
+  }
+
+  private stepLogistics(state: GameState, dt: number, previous: ReadonlyMap<DroneId, Point>) {
+    const match = matchOf(state);
+    const speeds = new Map(state.drones.map(drone => {
+      const measured = drone.velocity ? Math.hypot(drone.velocity.x, drone.velocity.y, drone.velocity.z) : 0;
+      const swept = previous.has(drone.id) ? distance(previous.get(drone.id)!, drone) / dt : 0;
+      return [drone.id, Math.max(measured, swept)];
+    }));
+    // Release all invalid reservations before admitting new contenders this tick.
+    for (const drone of state.drones) {
+      if (!alive(drone)) { this.cancelLogistics(state, drone, 'destroyed'); continue; }
+      const service = drone.logistics;
+      if (!service || service.state !== 'loading' && service.state !== 'unloading') continue;
+      const source = service.state === 'loading'
+        ? match.resources.find(node => node.id === service.sourceId)
+        : match.servicePads?.find(pad => pad.id === service.sourceId && pad.team === team(drone));
+      const size = source ? ('team' in source ? serviceZoneSize(source) : resourceZoneSize(source)) : 0;
+      const reason = !source ? 'outside_apron' : this.logisticsReason(drone, source, size, speeds.get(drone.id)!, previous.get(drone.id));
+      if (reason) this.cancelLogistics(state, drone, reason);
+      else if (service.state === 'loading' && cargoOf(drone).amount + (service.reserved ?? 0) > cargoCapacityFor(drone) + 1e-9) {
+        this.cancelLogistics(state, drone, 'cargo_full');
+      }
+    }
+    for (const drone of state.drones) {
+      if (!alive(drone) || chargeOf(drone) <= 0) continue;
+      const cargo = cargoOf(drone), speed = speeds.get(drone.id)!;
+      let service = drone.logistics;
+      if (!service || service.state !== 'loading' && service.state !== 'unloading') {
+        const pad = match.servicePads?.find(pad => pad.team === team(drone) && insideApron(drone, pad, serviceZoneSize(pad)));
+        const localContact = (node: ResourceNode) => insideApron(drone, node, resourceZoneSize(node))
+          && drone.y >= node.y && drone.y <= node.y + CARGO_CONFIG.hoverMax + RTS_CONFIG.droneRadius;
+        const node = match.resources.find(node => localContact(node) && node.remaining - (node.reserved ?? 0) > 1e-9)
+          ?? match.resources.find(localContact);
+        const source = cargo.amount > 0 && pad ? pad : node;
+        let reason: CargoInactiveReason | undefined = source
+          ? this.logisticsReason(drone, source, 'team' in source ? serviceZoneSize(source) : resourceZoneSize(source), speed, previous.get(drone.id))
+          : pad ? 'no_cargo' : 'outside_apron';
+        if (!reason && source && !('team' in source)) {
+          if (cargo.amount >= cargoCapacityFor(drone) - 1e-9) reason = 'cargo_full';
+          else if (source.remaining <= 1e-9) reason = 'stock_empty';
+          else if (source.remaining - (source.reserved ?? 0) <= 1e-9) reason = 'stock_reserved';
+        }
+        if (reason || !source) {
+          drone.logistics = { state: cargo.amount > 0 ? 'carrying' : 'idle', progress: 0, remaining: 0, duration: 0, reason };
+          continue;
+        }
+        const unloading = 'team' in source;
+        const duration = unloading ? CARGO_CONFIG.deliveryDuration : CARGO_CONFIG.pickupDuration;
+        const reserved = unloading ? undefined : Math.min(cargoCapacityFor(drone) - cargo.amount, source.remaining - (source.reserved ?? 0));
+        if (!unloading) source.reserved = (source.reserved ?? 0) + reserved!;
+        service = drone.logistics = { state: unloading ? 'unloading' : 'loading', sourceId: source.id,
+          progress: 0, remaining: duration, duration, ...(reserved === undefined ? {} : { reserved }) };
+        this.event(state, { type: unloading ? 'cargo_unloading' : 'cargo_loading', team: team(drone), drone: drone.id,
+          message: `${drone.id} began ${unloading ? 'unloading' : 'loading'} cargo.` });
+      }
+      service.remaining = Math.max(0, service.remaining - dt);
+      service.progress = 1 - service.remaining / service.duration;
+      if (service.remaining > 1e-9) continue;
+      if (service.state === 'loading') {
+        const node = match.resources.find(node => node.id === service.sourceId)!;
+        const amount = service.reserved ?? 0;
+        node.reserved = Math.max(0, (node.reserved ?? 0) - amount);
+        node.remaining = Math.max(0, node.remaining - amount);
+        cargo.amount += amount;
+        this.event(state, { type: 'cargo_loaded', drone: drone.id, team: team(drone), message: `${drone.id} picked up ${amount} salvage.` });
+        if (node.remaining <= 1e-9) this.event(state, { type: 'resource_depleted', target: node.id, ...position(node), message: 'A salvage depot was exhausted.' });
+      } else {
+        const amount = cargo.amount, wallet = match.teams[team(drone)];
+        cargo.amount = 0; wallet.credits += amount; wallet.earned += amount;
+        this.event(state, { type: 'cargo_delivered', drone: drone.id, team: team(drone), message: `${drone.id} delivered ${amount} salvage.` });
+      }
+      drone.logistics = { state: cargo.amount > 0 ? 'carrying' : 'idle', progress: 1, remaining: 0, duration: service.duration };
+    }
+  }
+
+  private dropCargo(state: GameState, drone: Drone, crash: Point) {
+    const amount = cargoOf(drone).amount;
+    if (amount <= 0) return;
+    cargoOf(drone).amount = 0;
+    const match = matchOf(state), size = CARGO_CONFIG.droppedApronSize;
+    // A payload falls vertically from its actual crash position. A wall impact,
+    // water, narrow roof or blocked landing footprint loses it; never relocate it.
+    const fall = terrainContact({ ...crash, y: Math.max(crash.y, RTS_CONFIG.droneRadius + 0.001) },
+      { ...crash, y: -1 }, state.obstacles, RTS_CONFIG.droneRadius);
+    const surface = fall && fall.normal.y > 0.99 ? { x: crash.x, y: fall.contact.y - RTS_CONFIG.droneRadius, z: crash.z } : undefined;
+    const inPolygon = (point: CityPoint, ring: CityPoint[]) => {
+      let inside = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const a = ring[i], b = ring[j];
+        if ((a.z > point.z) !== (b.z > point.z) && point.x < (b.x - a.x) * (point.z - a.z) / (b.z - a.z) + a.x) inside = !inside;
+      }
+      return inside;
+    };
+    const samples = surface && [-0.5, 0, 0.5].flatMap(x => [-0.5, 0, 0.5].map(z => ({ ...surface, x: surface.x + x * size, z: surface.z + z * size })));
+    const obstructed = surface && state.obstacles.some(building => {
+      const bottom = building.baseY ?? 0, top = bottom + building.height;
+      if (top < surface.y + CARGO_CONFIG.hoverMin - RTS_CONFIG.droneRadius
+        || bottom > surface.y + CARGO_CONFIG.hoverMax + RTS_CONFIG.droneRadius) return false;
+      const angle = (building.rotation ?? 0) * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
+      const x = building.x - surface.x, z = building.z - surface.z;
+      const half = size / 2 + RTS_CONFIG.droneRadius, width = building.width / 2, depth = building.depth / 2;
+      // Four separating axes cover the complete marked footprint, including thin
+      // rotated obstacles between the support samples below.
+      return Math.abs(x) <= half + width * Math.abs(c) + depth * Math.abs(s)
+        && Math.abs(z) <= half + width * Math.abs(s) + depth * Math.abs(c)
+        && Math.abs(x * c - z * s) <= width + half * (Math.abs(c) + Math.abs(s))
+        && Math.abs(x * s + z * c) <= depth + half * (Math.abs(c) + Math.abs(s));
+    });
+    const valid = !obstructed && samples && samples.every(point => point.x >= CITY.bounds.x[0] && point.x <= CITY.bounds.x[1]
+      && point.z >= CITY.bounds.z[0] && point.z <= CITY.bounds.z[1]
+      && !(point.y <= 0 && inPolygon(point, CITY.river) && !CITY.riverHoles.some(ring => inPolygon(point, ring)))
+      && !terrainContact({ ...point, y: point.y + CARGO_CONFIG.hoverMin }, { ...point, y: point.y + CARGO_CONFIG.hoverMax }, state.obstacles, RTS_CONFIG.droneRadius)
+      && Math.abs((terrainContact({ ...point, y: point.y + 0.01 }, { ...point, y: -1 }, state.obstacles, 0)?.contact.y ?? -Infinity) - point.y) < 0.02);
+    if (valid && surface) {
+      match.resources.push({ ...surface, id: `dropped-${randomUUID()}`, kind: 'dropped', zoneSize: size, capacity: amount, remaining: amount, reserved: 0 });
+      this.event(state, { type: 'cargo_dropped', drone: drone.id, team: team(drone), ...surface, message: `${drone.id} dropped ${amount} salvage.` });
+    } else {
+      match.salvageLost = (match.salvageLost ?? 0) + amount;
+      this.event(state, { type: 'cargo_lost', drone: drone.id, team: team(drone), message: `${drone.id} lost ${amount} unbanked salvage.` });
+    }
+    drone.logistics = { state: 'idle', progress: 0, remaining: 0, duration: 0, reason: 'destroyed' };
   }
 
   private stepMining(state: GameState, dt: number) {
@@ -397,7 +565,7 @@ export class RtsRules {
 
   private damage(state: GameState, drone: Drone, cause: 'terrain' | 'ram' | 'bullet' | 'power', source?: DroneId, impact?: Point, projectileId?: string) {
     if (!alive(drone)) return;
-    this.cancelService(state, drone); this.cancelMining(drone); drone.action = undefined;
+    this.cancelService(state, drone); this.cancelLogistics(state, drone); this.cancelMining(drone); drone.action = undefined;
     drone.jamming = false; drone.charging = false;
     if (cause !== 'power' && equipment(drone).armor) {
       equipment(drone).armor = false; drone.status = cause === 'bullet' ? 'Hit detected. Armor lost.' : 'Collision detected. Armor lost.';
@@ -405,6 +573,7 @@ export class RtsRules {
       this.event(state, { type: 'armor_consumed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id}: ${drone.status}` });
     } else {
       drone.alive = false; drone.online = false; drone.status = 'Destroyed'; drone.ammo = 0;
+      if (usesCargo(state)) this.dropCargo(state, drone, cause === 'terrain' && impact ? impact : drone);
       this.syncInterference(state);
       this.event(state, { type: 'destroyed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id} was destroyed by ${cause}.` });
     }
@@ -415,7 +584,7 @@ export class RtsRules {
     if (survivors.size > 1) return;
     const match = matchOf(state);
     match.phase = 'finished'; match.winner = survivors.size ? [...survivors][0] : 'draw'; state.completed = true;
-    for (const drone of state.drones) { this.cancelService(state, drone); drone.mining = undefined; drone.action = undefined; drone.jamming = false; drone.charging = false; }
+    for (const drone of state.drones) { this.cancelService(state, drone); this.cancelLogistics(state, drone, 'stopped'); drone.mining = undefined; drone.action = undefined; drone.jamming = false; drone.charging = false; }
     this.syncInterference(state);
     match.projectiles = [];
     this.event(state, { type: 'match_finished', message: match.winner === 'draw' ? 'Draw. Both teams were eliminated.' : `${match.winner} wins. Last team flying.` });

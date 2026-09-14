@@ -93,6 +93,7 @@ app.post('/api/start', async (_req, res) => {
     const logId = activeSessionLog;
     const header: ReplayHeader = {
       type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
+      rulesVersion: game.state.match?.rulesVersion,
       roster: MATCH_FLEET, scene: { name: CITY.name, bounds: { x: CITY.bounds.x, z: CITY.bounds.z },
         focus: BATTLEFIELD.focus, obstacles: game.state.obstacles, roads: CITY.roads, river: CITY.river },
       camera: { width: DRONE_CAMERA.width, height: DRONE_CAMERA.height },
@@ -139,6 +140,10 @@ app.post('/api/reset', (_req, res) => {
 });
 app.post('/api/mission', (req, res) => {
   try { const result = game.queueMission(req.body.text); audit('player-queued', req.body); broadcast(); res.json(result); }
+  catch (error) { res.status(400).json({ error: String(error) }); }
+});
+app.post('/api/chat', async (req, res) => {
+  try { const result = await game.sendPlayerChat(req.body.text, req.body.to); audit('player-chat-queued', req.body); broadcast(); res.json(result); }
   catch (error) { res.status(400).json({ error: String(error) }); }
 });
 app.post('/api/speed', (req, res) => {
@@ -197,6 +202,18 @@ for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-er
 game.on('tool', ({ drone, name, args }) => replay?.recordCommand(drone, name, args, game.state.simTime));
 game.on('recorded-observation', (sample: RecordedObservation) => replay?.recordObservation(sample));
 game.on('match-event', (event: MatchEvent) => { audit('combat', event); replay?.recordEvent(event); });
+game.on('script-source', source => replay?.recordScriptSource(source));
+game.on('sdk-execution', execution => replay?.recordExecution(execution));
+game.on('routine-state', status => {
+  audit('routine', status);
+  if (status.state === 'cancelled' || status.state === 'failed') replay?.recordCancellation({
+    drone: status.drone, simTime: status.simTime, jobId: status.id, sourceHash: status.sourceHash,
+    reason: status.reason ?? status.error ?? status.state });
+});
+game.on('job', ({ drone, job, simTime }) => {
+  if (['cancelled', 'failed', 'blocked'].includes(job.state)) replay?.recordCancellation({ drone, simTime, jobId: job.id, reason: job.reason ?? job.state });
+});
+for (const event of ['radio', 'radio-delivery', 'player-radio']) game.on(event, message => replay?.recordRadio(message, game.state.simTime));
 game.on('transport-error', error => {
   if (!stopping) void stopFleet(error.message).then(() => { if (!runtime) setRuntime({ status: 'error', message: error.message }); });
 });

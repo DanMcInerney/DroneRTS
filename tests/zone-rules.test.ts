@@ -16,7 +16,7 @@ function fixture() {
     match: rules.newMatch([{ id: 'salvage', x: 0, y: 0, z: 0, capacity: 100, remaining: 100 }],
       [{ id: 'pad', team: 'blue', x: 0, y: 0, z: 0 }]),
   };
-  rules.begin(state);
+  rules.begin(state); state.match!.rulesVersion = 'cube-v1';
   const drone = drones[0], wallet = state.match!.teams.blue;
   const tick = (dt: number, previous?: Map<DroneId, Point>) => { state.simTime += dt; rules.step(state, dt, previous); };
   return { rules, state, drones, drone, wallet, tick };

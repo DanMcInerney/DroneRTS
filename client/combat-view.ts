@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { resourceZoneSize, serviceZoneSize, type MatchState, type ResourceNode, type ServicePad } from '../shared/rts';
 import { disposeGroup } from './city-scene';
+import { cargoResourceProp, cargoServiceProp, updateCargoStock } from './cargo-scenery';
 
 /** Visible interaction volume, grounded at the bottom-face center. */
 function zoneCube(id: string, x: number, y: number, z: number, size: number, color: string) {
@@ -74,18 +75,20 @@ export class CombatView {
 
   update(match?: MatchState) {
     this.current = match;
-    const signature = JSON.stringify(match?.resources.map(({ id, x, y, z, extractionMultiplier, zoneSize }) => [id, x, y, z, extractionMultiplier, zoneSize]) ?? []);
+    const hauling = match?.rulesVersion === 'cargo-v1';
+    const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, kind]) ?? []]);
     if (signature !== this.signature) {
       this.signature = signature; disposeGroup(this.resources); this.resourceMeshes.clear();
-      for (const node of match?.resources ?? []) { const mesh = resourceProp(node); this.resourceMeshes.set(node.id, mesh); this.resources.add(mesh); }
+      for (const node of match?.resources ?? []) { const mesh = hauling ? cargoResourceProp(node) : resourceProp(node); this.resourceMeshes.set(node.id, mesh); this.resources.add(mesh); }
     }
-    const padSignature = JSON.stringify(match?.servicePads ?? []);
+    const padSignature = JSON.stringify([match?.rulesVersion, match?.servicePads ?? []]);
     if (padSignature !== this.padSignature) {
       this.padSignature = padSignature; disposeGroup(this.servicePads);
-      for (const pad of match?.servicePads ?? []) this.servicePads.add(servicePadProp(pad));
+      for (const pad of match?.servicePads ?? []) this.servicePads.add(hauling ? cargoServiceProp(pad) : servicePadProp(pad));
     }
     for (const node of match?.resources ?? []) {
       const mesh = this.resourceMeshes.get(node.id);
+      if (hauling && mesh) { mesh.visible = true; updateCargoStock(mesh, node); continue; }
       if (mesh) mesh.visible = node.zoneSize === undefined || node.remaining > 0;
       const stock = mesh?.getObjectByName('stock');
       if (stock) { stock.visible = node.remaining > 0; stock.scale.y = 0.3 + 0.7 * node.remaining / Math.max(1, node.capacity); }

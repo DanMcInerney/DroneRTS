@@ -9,6 +9,8 @@ import { RTS_MISSION } from '../shared/mission.ts';
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
 async function ready() {
   const game = new FleetGame(); game.setConnected(true); game.start();
+  // Historical cube interaction fixtures retain their original economy explicitly.
+  game.state.match!.rulesVersion = 'cube-v1';
   game.state.obstacles = [];
   game.capture = async () => 'data:image/jpeg;base64,AQID';
   game.state.drones.forEach((drone, i) => Object.assign(drone, { x: i * 10, y: 2, z: 20, yaw: 0, pitch: 0 }));
@@ -48,9 +50,9 @@ test('physical cube entry mines automatically; income and purchases reveal no re
   const game = await ready(), drone = game.state.drones[0];
   Object.assign(drone, { x: 0, y: 1.4, z: 2, yaw: 0, pitch: 0 });
   game.state.match!.resources = [{ id: 'private-node', x: 0, y: 0.45, z: 0, remaining: 80, capacity: 80 }];
-  assert.deepEqual(game.toolCapabilities('drone-1'), { shop: true, gun: false, optics: false, jammer: false, alive: true });
+  assert.equal(game.toolCapabilities('drone-1').shop, true); assert.equal(game.toolCapabilities('drone-1').gun, false);
   for (let i = 0; i < 88; i++) game.tick(0.25);
-  assert.equal(body(await game.tool('drone-1', 'mine', { mission: 1, resourceId: 'not-a-resource' })).accepted, true);
+  assert.ok(drone.mining);
   assert.ok(Math.abs(game.state.match!.teams.blue.earned - 22 * RTS_CONFIG.miningRate) < 1e-7);
   assert.ok(Math.abs(game.state.match!.teams.blue.credits - RTS_CONFIG.startingCredits - game.state.match!.teams.blue.earned) < 1e-7);
   assert.equal(game.toolCapabilities('drone-2').shop, true);
@@ -59,7 +61,7 @@ test('physical cube entry mines automatically; income and purchases reveal no re
   assert.equal(result.equipped, 'gun'); assert.equal(game.toolCapabilities('drone-2').gun, true);
   assert.equal(game.toolCapabilities('drone-1').gun, false);
   assert.equal(game.state.match!.teams.red.credits, RTS_CONFIG.startingCredits);
-  assert.deepEqual(Object.keys(result.sensors).sort(), ['camera', 'heading', 'position', 'timestamp']);
+  assert.equal(result.protocol, 'fleet-observation/2'); assert.ok(result.sensors.ranges); assert.ok(result.currentTelemetry);
   for (const secret of ['private-node', 'resources', 'projectiles', 'winner', 'miningRange', 'bulletSpeed', 'enemyPositions']) {
     assert.equal(JSON.stringify(result).includes(secret), false, secret);
   }
@@ -75,10 +77,10 @@ test('camera loss leaves automatic cube mining intact and own death revokes all 
   await game.tool('drone-1', 'observe');
   game.tick(0.1);
   assert.ok(game.state.match!.teams.blue.earned > 0);
-  assert.equal(body(await game.tool('drone-1', 'mine', { mission: 1 })).accepted, true);
+  assert.ok(drone.mining);
   const deaths: string[] = []; game.on('drone-destroyed', event => deaths.push(event.droneId));
-  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0, y: -1, z: 2 });
-  for (let i = 0; i < 20; i++) game.tick(0.25);
+  drone.y = -1; // Raw contact, independent of the new protective local controller.
+  game.tick(1 / 120);
   assert.deepEqual(deaths, ['drone-1']);
   const stopped = body(await game.tool('drone-1', 'fire', { mission: 1 }));
   assert.equal(stopped.stopped, true); assert.equal(stopped.destroyed, true); assert.equal(stopped.sensors, undefined);
@@ -110,8 +112,8 @@ test('ongoing mining is own controller state and exhaustion wakes wait without r
   const game = await ready(), drone = game.state.drones[0];
   Object.assign(drone, { x: 0, y: 1.4, z: 2 });
   game.state.match!.resources = [{ id: 'secret-node', x: 0, y: 0.45, z: 0, remaining: 0.5, capacity: 0.5 }];
-  await game.tool('drone-1', 'observe');
-  const mining = body(await game.tool('drone-1', 'mine', { mission: 1 }));
+  game.tick(0.01);
+  const mining = body(await game.tool('drone-1', 'observe'));
   assert.deepEqual(mining.currentAction, { id: 'mining', kind: 'mine' });
   assert.equal(JSON.stringify(mining).includes('secret-node'), false);
   game.tick(0.1); await game.tool('drone-1', 'observe');
@@ -129,7 +131,7 @@ test('an opponent shop unlock cannot produce a duplicate notification in an alre
   game.state.match!.teams.red.shopUnlocked = false;
   const drone = game.state.drones[3]; Object.assign(drone, { x: 50, y: 1.4, z: 2 });
   game.state.match!.resources = [{ id: 'red-node', x: 50, y: 0.45, z: 0, remaining: 10, capacity: 10 }];
-  await game.tool('drone-4', 'observe'); await game.tool('drone-4', 'mine', { mission: 1 });
+  await game.tool('drone-4', 'observe');
   game.tick(0.1);
   assert.equal(body(await game.tool('drone-1', 'observe')).events.some((event: any) => event.type === 'equipment_available'), false);
   assert.ok(body(await game.tool('drone-5', 'observe')).events.some((event: any) => event.type === 'equipment_available'));
@@ -140,14 +142,15 @@ test('automatic mining entry and exit wake local events while status calls and n
   const game = await ready(), drone = game.state.drones[0];
   game.state.match!.resources = [{ id: 'private-auto-node', x: 0, y: 0, z: 13, zoneSize: 6, capacity: 50, remaining: 50 }];
   const moving = body(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0.125, y: 2.25, z: 13.25 }));
+  await new Promise(resolve => setImmediate(resolve));
   for (let i = 0; i < 8; i++) game.tick(0.25);
   const entered = body(await game.tool('drone-1', 'observe'));
-  assert.equal(entered.mining, true); assert.equal(entered.currentAction.id, moving.actionId);
+  assert.equal(entered.mining, true); assert.equal(entered.job.id, moving.job.id);
   assert.ok(entered.events.some((event: any) => event.type === 'mining_started'));
-  const receipt = body(await game.tool('drone-1', 'mine', { mission: 1 }));
-  assert.equal(receipt.accepted, true); assert.equal(drone.action?.id, moving.actionId);
+  const actionId = drone.action?.id;
+  assert.ok(actionId);
   await game.tool('drone-1', 'recharge', { mission: 1 });
-  assert.equal(drone.action?.id, moving.actionId, 'an outside-zone status check must not replace flight');
+  assert.equal(drone.action?.id, actionId, 'an outside-zone status check must not replace flight');
   await game.tool('drone-1', 'act', { mission: 1, kind: 'hover' });
   assert.ok(drone.mining, 'hover keeps automatic mining while physically inside');
   game.queueMission('Continue the experiment'); await game.forwardTeam('blue');
@@ -159,5 +162,5 @@ test('automatic mining entry and exit wake local events while status calls and n
   const exited = body(await game.tool('drone-1', 'observe'));
   assert.equal(exited.mining, false); assert.ok(exited.events.some((event: any) => event.type === 'mining_stopped'));
   assert.equal(JSON.stringify(exited).includes('private-auto-node'), false);
-  assert.deepEqual(Object.keys(exited.sensors).sort(), ['camera', 'heading', 'position', 'timestamp']); game.stop();
+  assert.equal(exited.protocol, 'fleet-observation/2'); assert.ok(exited.currentTelemetry); game.stop();
 });

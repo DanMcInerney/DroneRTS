@@ -1,4 +1,4 @@
-/** Renderer/simulator calibration. Never include this profile in agent tools or prompts. */
+/** Own vehicle calibration; the onboard interface may expose this profile. */
 export const DRONE_CAMERA = Object.freeze({
   fov: 76,
   width: 512,
@@ -7,7 +7,7 @@ export const DRONE_CAMERA = Object.freeze({
   far: 500,
 });
 
-/** Shared by rendered views and private evidence; never return this calibration to actors. */
+/** Shared by rendered views, captured evidence and the onboard calibration. */
 export function cameraFovFor(drone: { cameraMode?: 'wide' | 'zoom'; equipment?: { optics?: boolean } }): number {
   return drone.equipment?.optics && drone.cameraMode === 'zoom' ? 32 : DRONE_CAMERA.fov;
 }

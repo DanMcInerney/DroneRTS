@@ -45,13 +45,17 @@ test('a new instruction hovers drones and rejects delayed commands carrying the 
   assert.equal((await game.tool('drone-1', 'send', { mission: 1, to: 'all', kind: 'claim', text: 'Old task' })).isError, true);
   game.stop();
 });
-test('movement is continuous, unarmored building contact destroys, and browser loss pauses simulation', async () => {
+test('local braking prevents a controllable impact, actual unarmored contact destroys, and browser loss pauses simulation', async () => {
   const game = await ready(), drone = game.state.drones[0];
   drone.equipment!.armor = false;
   game.state.obstacles = [{ x: -7, z: 3, width: 4, depth: 5, height: 3 }];
   Object.assign(drone, { x: -7, y: 2, z: 9 });
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -7, y: 2, z: -5 });
+  await new Promise(resolve => setImmediate(resolve));
   for (let i = 0; i < 30; i++) game.tick(0.2);
+  assert.equal(drone.alive, true); assert.equal(drone.job?.state, 'blocked');
+  Object.assign(drone, { x: -7, y: 2, z: 3 }); // Actual overlap still reaches collision authority.
+  game.tick(1 / 120);
   assert.equal(drone.alive, false);
   assert.equal(game.inboxes['drone-1'].events.at(-1)?.type, 'destroyed');
   const simTime = game.state.simTime; game.setConnected(false); game.tick(0.2);
@@ -165,7 +169,8 @@ test('retarget and hover preserve motion continuity, then settle without an old 
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 15, y: 7, z: 23 });
   for (let i = 0; i < 20; i++) game.tick(0.05);
   const before = { x: drone.x, yaw: drone.yaw };
-  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -15, y: 7, z: 23 });
+  const replacement = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -15, y: 7, z: 23, replace: true });
+  assert.equal(json(replacement).accepted, true);
   assert.equal(drone.x, before.x); assert.equal(drone.yaw, before.yaw);
   game.tick(0.05);
   assert.ok(drone.x > before.x, 'An opposite waypoint must brake existing velocity before reversing');
