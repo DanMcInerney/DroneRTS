@@ -17,6 +17,7 @@ function fixture(onEvent?: (event: MatchEvent) => void) {
       drones.map(drone => ({ id: `pad-${drone.id}`, x: drone.x, y: drone.y, z: drone.z, team: drone.team! }))),
   };
   rules.begin(state); state.match!.rulesVersion = 'cube-v1';
+  drones.forEach(drone => { drone.battery = RTS_CONFIG.batteryCapacity; });
   const drone = drones[0], wallet = state.match!.teams.blue;
   const tick = (dt: number, previous?: Map<DroneId, Point>) => { state.simTime += dt; return rules.step(state, dt, previous); };
   const buy = (...items: EquipmentItem[]) => {
@@ -208,10 +209,10 @@ test('damage, source death and stale removed modules stop interference immediate
   assert.equal(drone.jamming, false); assert.equal(drone.radioJammed, false);
 });
 
-test('begin resets charge and interference while victory shuts off all surviving emitters', () => {
+test('begin removes historical charge and interference while victory shuts off historical emitters', () => {
   const { rules, state, drone, drones, buy, tick } = fixture(); buy('jammer', 'battery');
   drone.battery = 25; rules.jam(state, drone, true); rules.begin(state); state.match!.rulesVersion = 'cube-v1';
-  assert.equal(drone.battery, 300); assert.equal(batteryCapacityFor(drone), 300);
+  assert.equal(drone.battery, undefined); assert.equal(batteryCapacityFor(drone), 300);
   assert.ok(drones.every(unit => unit.jamming === false && unit.radioJammed === false));
   buy('jammer'); rules.jam(state, drone, true);
   for (const enemy of drones.filter(unit => unit.team === 'red')) enemy.alive = false;

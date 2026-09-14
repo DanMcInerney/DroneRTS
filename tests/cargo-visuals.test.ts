@@ -7,7 +7,7 @@ import { apronServicePositions, CARGO_CONFIG, RTS_CONFIG, type MatchState } from
 import type { Drone } from '../shared/types.ts';
 
 const match = (): MatchState => ({
-  rulesVersion: 'cargo-v1', phase: 'active', winner: null,
+  rulesVersion: 'cargo-v2', phase: 'active', winner: null,
   teams: { blue: { credits: 30, earned: 0, shopUnlocked: true }, red: { credits: 30, earned: 0, shopUnlocked: true } },
   resources: [{ id: 'depot', x: 1, y: 0, z: 2, zoneSize: 2.4, capacity: 600, remaining: 600 }],
   servicePads: [{ id: 'blue', team: 'blue', x: 10, y: 0, z: 20, zoneSize: 6 }, { id: 'red', team: 'red', x: -10, y: 0, z: 20, zoneSize: 6 }],
@@ -55,7 +55,7 @@ test('marked apron bounds and three service marks agree with shared usable footp
     });
   }
   for (const pad of state.servicePads!) {
-    const cabinet = scene.getObjectByName(pad.id)!.getObjectByName('charging-cabinet')!;
+    const cabinet = scene.getObjectByName(pad.id)!.getObjectByName('service-cabinet')!;
     assert.ok(new THREE.Box3().setFromObject(cabinet).max.y < CARGO_CONFIG.hoverMin - RTS_CONFIG.droneRadius);
   }
   const stock = scene.getObjectByName('depot')!.getObjectByName('stock')!;
@@ -65,6 +65,8 @@ test('marked apron bounds and three service marks agree with shared usable footp
 
 test('captured rules and stock restore correctly across historical and cargo rules', () => {
   const scene = new THREE.Scene(), view = new CombatView(scene), state = match(); view.update(state);
+  const batteryEra = structuredClone(state); batteryEra.rulesVersion = 'cargo-v1';
+  view.withSnapshot(batteryEra, () => assert.ok(scene.getObjectByName('depot')!.getObjectByName('stock')));
   const legacy = structuredClone(state); legacy.rulesVersion = 'cube-v1'; legacy.resources[0].remaining = 0;
   assert.throws(() => view.withSnapshot(legacy, () => {
     assert.ok(scene.getObjectByName('depot')!.getObjectByName('zone-volume'));

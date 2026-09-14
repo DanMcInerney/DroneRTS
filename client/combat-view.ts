@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { resourceZoneSize, serviceZoneSize, type MatchState, type ResourceNode, type ServicePad } from '../shared/rts';
+import { isCargoRules, resourceZoneSize, serviceZoneSize, type MatchState, type ResourceNode, type ServicePad } from '../shared/rts';
 import { disposeGroup } from './city-scene';
 import { cargoResourceProp, cargoServiceProp, updateCargoStock } from './cargo-scenery';
 
@@ -75,7 +75,7 @@ export class CombatView {
 
   update(match?: MatchState) {
     this.current = match;
-    const hauling = match?.rulesVersion === 'cargo-v1';
+    const hauling = isCargoRules(match?.rulesVersion);
     const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, kind]) ?? []]);
     if (signature !== this.signature) {
       this.signature = signature; disposeGroup(this.resources); this.resourceMeshes.clear();

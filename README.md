@@ -14,7 +14,7 @@ npm run network:setup
 npm run dev
 ```
 
-Open [the local game](http://127.0.0.1:4317) and click **Launch match**. Both teams receive the same elimination-and-resource objective and common briefing: visible crates and hauling, team-painted bases and charging, drone recognition and vehicle calibration. The commander is an ordinary **blue-only chat** participant who can send messages and receive drone replies. Chat preserves the active objective; red continues independently.
+Open [the local game](http://127.0.0.1:4317) and click **Launch match**. Both teams receive the same elimination-and-resource objective and common briefing: visible crates and hauling, team-painted bases and service, drone recognition and vehicle calibration. The commander is an ordinary **blue-only chat** participant who can send messages and receive drone replies. Chat preserves the active objective; red continues independently.
 
 Keep the browser open: it supplies the actual drone camera images. Simulation pauses when the last browser disconnects, and the runtime stops after ten seconds without a browser. **Stop match** halts simulation and shuts down both native sessions and protocol helpers. **Reset match** restores all six drones and every deposit while stopped. Launching again also starts a fresh match with no equipment or credits carried forward. A completed match stops its agents automatically.
 
@@ -22,17 +22,19 @@ The six FPV feeds show each drone's physical view. Each feed has its own outgoin
 
 **Admin** opens live fleet health and bounded current/historical session audits. Filter by category or actor, search, inspect JSON or export records. Available runtime reasoning summaries are logged; hidden model reasoning is unavailable. Credentials and camera image payloads are redacted. Camera capture continues while Admin or God view is open.
 
+New audit records identify each actor's native turn, reasoning/tool/compaction start and completion boundaries, input/context token counts and retry errors. These timestamps describe observed runtime activity, not private reasoning or guaranteed inference progress. Older logs without these records cannot distinguish a silent model interval from context compaction or backend delay.
+
 New sessions also have **Match replay** inside Admin. Select a session, scrub simulation time or play at different speeds, and select a drone to inspect its recorded flight, attachments and actual acquired camera images. The tactical plot includes sampled projectile paths, exact fire/contact endpoints and the last eight seconds of flight trails. Event buttons seek to their timestamps; totals count only evidence up to the selected time. Cameras show acquisition time and age. Missing images and recording gaps are explicit; an old audit file cannot reconstruct a replay.
 
 Replay records stay separate from audit exports under `artifacts/replays/<session>/`: `frames.jsonl`, a status marker and individual camera image files. Each recording is bounded to 32 MiB of data and 64 MiB of images, at most 512 KiB per image, with a bounded asynchronous write queue. Limits preserve the recorded prefix and show omitted evidence; storage failures leave gameplay running and appear in diagnostics. Limits apply per session, so remove old local session/replay folders when no longer needed. Replay never changes live drone sensors or exposes player information to agents.
 
 ## Economy and combat
 
-New matches use **cargo-v1**. Each team begins with 30 shared salvage and each drone with one free armor charge, empty module slots and a free cargo grip. Four outer caches hold 60 salvage each; the central depot holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible.
+New matches use **cargo-v2**. Each team begins with 30 shared salvage and each drone with one free armor charge, empty module slots and a free cargo grip. Four outer caches hold 60 salvage each; the central depot holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible.
 
 Pickup requires the drone center over the marked apron, 0.6–2.4 local units above its surface, moving at most 0.3 local units per simulation second for three simulation seconds. One interval fills available capacity from available stock, with atomic reservations and partial final loads. The free grip carries 30 salvage; the cargo module carries 60. Loaded maximum speed is 20% lower. Cargo becomes shared credits only after two simulation seconds of the same low/slow service at a friendly base. Cancelling loading releases stock; cancelling unloading keeps cargo. Accessible crash-site drops can be collected by either team; inaccessible cargo is recorded lost.
 
-Bases use team-painted aprons, three pad marks, a charging cabinet and the cargo symbol. Friendly service occupancy means the drone center is horizontally inside the painted footprint and 0–6 local units above its surface. It automatically charges for free, even while moving; leaving retains gained charge. Cargo unloading retains its narrower low/slow conditions. Charging can overlap unloading and timed rearming. Resource/base props do not add solid collision geometry.
+Bases use team-painted aprons, three pad marks, a service cabinet and the cargo symbol. Friendly service occupancy means the drone center is horizontally inside the painted footprint and 0–6 local units above its surface. Fitting equipment and paid rearming use this volume. Cargo unloading retains its narrower low/slow conditions and can overlap timed rearming. Resource/base props do not add solid collision geometry.
 
 | Item or service | Cost | Behavior |
 | --- | ---: | --- |
@@ -40,15 +42,14 @@ Bases use team-painted aprons, three pad marks, a charging cabinet and the cargo
 | Cargo module | 30 | Carries 60 salvage total, one slot. |
 | Gun | 30 | Initially contains 12 rounds; physical camera-aimed shots, cover and friendly fire. |
 | Optics | 30 | Wide/zoom projection, no object identification or extra world knowledge. |
-| Battery pack | 30 | Doubles capacity from 300 to 600 without adding charge. |
 | Armor | 20 | One replacement armor charge, outside module slots. |
 | Rearm | 10 | Refills to 12 rounds after eight uninterrupted simulation seconds at friendly service. |
 
-Two module slots accept gun, cargo, optics and battery. Fitting/replacement requires friendly service occupancy and explicit replacement without resale refunds. Refitting creates no free ammunition or battery charge. Mining drills, upgrades and jamming are deferred in cargo-v1; historical recordings keep their original equipment meaning.
+Two module slots accept gun, cargo and optics. Fitting/replacement requires friendly service occupancy and explicit replacement without resale refunds. Refitting creates no free ammunition. Batteries, mining drills, upgrades and jamming are unavailable in new matches; historical recordings keep their original equipment meaning.
 
-Rearming reserves payment and grants no ammunition before completion. Movement commands, translation, firing, refitting, damage, a received replacement objective, destruction and Stop cancel it with exactly one refund. Looking, camera mode, radio, waiting, charging and unloading may continue. Ordinary chat does not cancel service or flight.
+Rearming reserves payment and grants no ammunition before completion. Movement commands, translation, firing, refitting, damage, a received replacement objective, destruction and Stop cancel it with exactly one refund. Looking, camera mode, radio, waiting and unloading may continue. Ordinary chat does not cancel service or flight.
 
-Normal continuous flight consumes one charge per simulation second: about five minutes from a base battery, ten with a full pack. Hovering costs 0.9 per second. Cargo introduces no additional payload power rule. Friendly charging restores 25 charge per simulation second, and low charge generates a local alert. Empty power is fatal despite armor.
+Flight has no endurance limit. New matches have no battery charge, drain, recharge service, battery attachment or power-loss death. Historical cargo-v1 and cube recordings retain their original battery state and death causes.
 
 One armor charge absorbs one collision or bullet, then is lost. A protected collision stops movement and generates generic local collision/armor-loss feedback; bullet absorption gives generic hit/armor-loss feedback. Alerts reveal no attacker, obstacle identity or impact coordinates. Unprotected contacts with terrain, buildings, drones or bullets are lethal. Cargo may remain recoverable at a valid crash site. Eliminated drones lose all tool access and cannot respawn; last-team-standing victory and simultaneous-elimination draws remain unchanged.
 
@@ -56,7 +57,7 @@ These are initial simulator balance values. Historical cube-economy playtests do
 
 ## Actor tools and sensors
 
-Each living drone has `observe`, `act`, `send`, `wait`, `recharge`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`; optics unlocks `camera`. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
+Each living drone has `observe`, `act`, `send`, `wait`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`; optics unlocks `camera`. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
 
 | Tool | Effect |
 | --- | --- |
@@ -72,14 +73,13 @@ Each living drone has `observe`, `act`, `send`, `wait`, `recharge`, `route`, `wo
 | `buy({mission,item,replace?})` | Atomically fit an allowed item to the caller inside friendly service. |
 | `fire({mission})` | Spend a round along actual camera aim; no target ID or hidden hit answer. |
 | `rearm({mission})` | Begin timed magazine replenishment. |
-| `recharge({mission})` | Check own charging/cargo/service state without changing it. |
 | `camera({mission,mode})` | Select wide/zoom with equipped optics. |
 
 The versioned onboard observation adds own velocity, measured camera orientation, calibrated finite range sensing and explicit sequence/freshness to own position, heading, timestamp and camera. Frame-associated pose remains the acquired pose; newer current telemetry is separately labeled. One local unit represents ten meters, X is east, Y up, Z south, and heading is clockwise from north. Camera output is 512×288 with 76° vertical field of view (32° zoom), and pitch reaches a true downward -90°. No body roll/pitch dynamics are invented.
 
 Directional proximity uses 26 fixed finite beams with declared swept-sphere coverage; an independent downward sensor supplies range. Readings are anonymous distances with validity/coverage, never object IDs or world contact coordinates. Where extra sensing padding overlaps a nearby obstruction but the airframe is clear, the sensor reports a narrower footprint that still protects the full physical radius; this lets drones retreat from overlapping guard shells. Local assistance brakes/holds on obstruction or stale/unsupported coverage; it chooses no alternative route and does not provide collision immunity. The travel profile limits speed to 3 local units/s and acceleration to 6; precision uses 0.8 and 3. Loaded speed applies the cargo multiplier. This calibration describes simulated controls, not measured aircraft performance.
 
-Own cargo/loading/unloading/charging progress, service inactivity reasons, equipment/ammo/charge, jobs, storage and shared balance are allowed feedback. Resource/base locations, enemy state, map geometry, arbitrary raycasts and future observations remain private. Pixel visibility and actual received messages are the only ways to learn battlefield facts.
+Own cargo/loading/unloading progress, service inactivity reasons, equipment/ammo, jobs, storage and shared balance are allowed feedback. Resource/base locations, enemy state, map geometry, arbitrary raycasts and future observations remain private. Pixel visibility and actual received messages are the only ways to learn battlefield facts.
 
 Command admission and physical completion are different. One movement writer owns each drone; replacements are explicit. Ordered routes stop when blocked; routines fail or cancel on their enforced limits. Optional `observation_sequence` and `event_cursor` associate commands with actually delivered input. Mission versions are checked at admission and execution. Objective changes cancel only when that drone receives them; ordinary player/peer chat does not. Stop/death/capability loss invalidate affected work. Radio partitions leave valid local work running.
 
@@ -124,7 +124,7 @@ node --import tsx scripts/analyze-haul.ts artifacts/focused-trials/<run-director
 node --import tsx scripts/analyze-engagement.ts artifacts/focused-trials/<run-directory>
 ```
 
-`measure-controls.ts` runs 34 prescribed cargo-v1 flight, finite-sensor braking and ballistic fixtures with synthetic camera placeholders and no inference; actual contact damage is checked separately in the automated tests. All `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually; each command owns its test server and requires a camera browser within 60 seconds. The default is [port 4318](http://127.0.0.1:4318). Set `RTS_TRIAL_PORT` to another free port when a different checkout owns 4318; player port 4317 is forbidden. The runner checks 4317, 4318 and the selected port, and refuses any existing server at its selected port. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Other servers are preserved.
+`measure-controls.ts` runs 34 prescribed cargo-v2 flight, finite-sensor braking and ballistic fixtures with synthetic camera placeholders and no inference; actual contact damage is checked separately in the automated tests. All `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually; each command owns its test server and requires a camera browser within 60 seconds. The default is [port 4318](http://127.0.0.1:4318). Set `RTS_TRIAL_PORT` to another free port when a different checkout owns 4318; player port 4317 is forbidden. The runner checks 4317, 4318 and the selected port, and refuses any existing server at its selected port. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Other servers are preserved.
 
 Flight uses the normal opening with a flight-only operator objective. Aiming fixtures position three visible pairs above the city and grant blue guns; red receives either a holding or a repeated-flight objective. Fixture objectives supply no battlefield coordinates or enemy telemetry; all actors retain the common vehicle calibration. Moving targets choose their own waypoints and can pause between commands, so a hit during that trial does not necessarily mean a hit on a moving target. `match` uses the production opening, equipment and missions. The test host disables other UI mutations except Stop.
 

@@ -30,6 +30,9 @@ await writeFile(resolve(directory, sessionId), JSON.stringify({ type: 'system', 
 await writeFile(resolve(directory, legacyId), '{}\n');
 await writeFile(resolve(directory, historicalId), '{}\n');
 const game = new FleetGame(); game.setConnected(true); game.start();
+// Preserve an explicit cargo-v1 recording fixture, including its historical energy rules.
+game.state.match!.rulesVersion = 'cargo-v1';
+for (const drone of game.state.drones) drone.battery = RTS_CONFIG.batteryCapacity;
 game.capture = async () => 'data:image/jpeg;base64,AQID';
 for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
 await game.forwardTeam('blue'); await game.forwardTeam('red');

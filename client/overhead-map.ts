@@ -1,3 +1,4 @@
+import { isCargoRules, hasBatteries } from '../shared/rts';
 import * as THREE from 'three';
 import { CITY } from '../shared/city';
 import type { Drone } from './types';
@@ -63,7 +64,7 @@ export class OverheadMap {
   }
 
   renderMarkers(displayed: readonly Drone[], current: readonly Drone[], match?: MatchState) {
-    const cargoRules = match?.rulesVersion === 'cargo-v1';
+    const cargoRules = isCargoRules(match?.rulesVersion);
     const box = this.view.getBoundingClientRect();
     const project = (x: number, z: number) => {
       const p = new THREE.Vector3(x, 0, z).project(this.camera); return [(p.x + 1) / 2 * box.width, (1 - p.y) / 2 * box.height];
@@ -106,7 +107,7 @@ export class OverheadMap {
         marker.innerHTML = '<span>H</span><b>SERVICE</b>'; this.servicePads.set(pad.id, marker); this.markerLayer.prepend(marker);
       }
       marker.dataset.team = pad.team; marker.classList.toggle('cube', pad.zoneSize !== undefined);
-      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} ${cargoRules ? 'base apron · delivery' : `service ${pad.zoneSize === undefined ? 'pad' : 'cube'}`} · refit, rearm and automatic charging`;
+      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} ${cargoRules ? 'base apron · delivery' : `service ${pad.zoneSize === undefined ? 'pad' : 'cube'}`} · refit and rearm${hasBatteries(match?.rulesVersion) ? ' · automatic charging' : ''}`;
       const [x, y] = project(pad.x, pad.z); marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
     }

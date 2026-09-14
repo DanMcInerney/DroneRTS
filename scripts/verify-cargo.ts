@@ -52,7 +52,7 @@ async function fresh() {
   game.capture = async () => 'data:image/jpeg;base64,AQID';
   for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
   await game.forwardTeam('blue'); await game.forwardTeam('red');
-  assert.equal(game.state.match!.rulesVersion, 'cargo-v1');
+  assert.equal(game.state.match!.rulesVersion, 'cargo-v2');
   return game;
 }
 const events: unknown[] = [], samples: unknown[] = [];

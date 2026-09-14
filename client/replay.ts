@@ -1,3 +1,4 @@
+import { isCargoRules } from '../shared/rts';
 import './replay.css';
 import './onboard.css';
 import type { DroneId } from '../shared/types';
@@ -157,7 +158,7 @@ export class ReplayViewer {
     select.value = this.actor ?? '';
     const sample = this.model.sample(this.time, this.actor), { metrics, frame, observation } = sample;
     const metric = (label: string, value: string, detail: string) => { const item = document.createElement('div'), title = document.createElement('span'), number = document.createElement('strong'), note = document.createElement('small'); title.textContent = label; number.textContent = value; note.textContent = detail; item.append(title, number, note); return item; };
-    const cargoRules = (this.model.header?.rulesVersion ?? frame?.match?.rulesVersion) === 'cargo-v1';
+    const cargoRules = isCargoRules(this.model.header?.rulesVersion ?? frame?.match?.rulesVersion);
     this.el('replay-metrics').replaceChildren(metric('SHOTS / DRONE HITS', `${metrics.shots} / ${metrics.hits}`, 'Recorded fire and contact events'), metric('DRONES LOST', String(metrics.deaths), `${metrics.terrain} terrain · ${metrics.ram} ram · ${metrics.bullet} bullet${metrics.power ? ` · ${metrics.power} power loss` : ''}${metrics.unknown ? ` · ${metrics.unknown} other` : ''}`), metric(cargoRules ? 'SALVAGE DELIVERED' : 'SALVAGE RECOVERED', metrics.salvage.toFixed(1), cargoRules ? `${frame?.drones.reduce((sum, drone) => sum + (drone.cargo?.amount ?? 0), 0) ?? 0} aboard · ${frame?.match?.salvageLost ?? 0} lost` : 'Both teams · recorded earned balance'));
     this.el('replay-time').textContent = `${clock(this.time)} / ${clock(this.model.finish)}`;
     const scrub = this.el<HTMLInputElement>('replay-scrub'); scrub.min = String(this.model.start); scrub.max = String(Math.max(this.model.start + 0.01, this.model.finish)); scrub.value = String(this.time); scrub.setAttribute('aria-valuetext', `${this.time.toFixed(2)} simulation seconds`);

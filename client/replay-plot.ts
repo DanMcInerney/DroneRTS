@@ -1,5 +1,5 @@
 import type { DroneId } from '../shared/types';
-import { resourceZoneSize, serviceZoneSize } from '../shared/rts';
+import { isCargoRules, resourceZoneSize, serviceZoneSize } from '../shared/rts';
 import { ReplayTimeline, type ReplaySample } from './replay-model';
 
 type Extent = { x: [number, number]; z: [number, number] };
@@ -30,7 +30,7 @@ export class ReplayPlot {
       ctx.fillStyle = '#8199a6'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Recorded flight paths will appear here', w / 2, h / 2); return;
     }
     const frames = model.window(sample.time), drones = sample.frame.drones;
-    const cargoRules = (header.rulesVersion ?? sample.frame.match?.rulesVersion) === 'cargo-v1';
+    const cargoRules = isCargoRules(header.rulesVersion ?? sample.frame.match?.rulesVersion);
     const bounds = extent === 'city' ? header.scene.bounds : extent === 'activity' ? this.activity(frames.flatMap(frame => frame.drones), header.scene.focus) : header.scene.focus;
     const scale = Math.min((w - 65) / Math.max(1, bounds.x[1] - bounds.x[0]), (h - 60) / Math.max(1, bounds.z[1] - bounds.z[0]));
     const middleX = (bounds.x[0] + bounds.x[1]) / 2, middleZ = (bounds.z[0] + bounds.z[1]) / 2;

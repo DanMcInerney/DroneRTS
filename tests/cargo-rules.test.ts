@@ -30,11 +30,11 @@ function fixture(stock = 60) {
     match: state.match!, stock: state.match!.resources[0], wallet: state.match!.teams.blue };
 }
 
-test('cargo-v1 opens with 30 shared credits, armor, free grips and only four module choices', () => {
+test('cargo-v2 opens with 30 shared credits, armor, free grips and only three module choices', () => {
   const { state, drones, wallet } = fixture();
-  assert.equal(state.match!.rulesVersion, 'cargo-v1');
+  assert.equal(state.match!.rulesVersion, 'cargo-v2');
   assert.deepEqual(wallet, { credits: 30, earned: 0, shopUnlocked: true });
-  assert.deepEqual(EQUIPMENT_MODULES, ['gun', 'cargo', 'optics', 'battery']);
+  assert.deepEqual(EQUIPMENT_MODULES, ['gun', 'cargo', 'optics']);
   for (const drone of drones) {
     assert.equal(drone.equipment!.armor, true);
     assert.ok(EQUIPMENT_MODULES.every(item => !drone.equipment![item]));
@@ -102,10 +102,10 @@ for (const interruption of ['leave', 'high', 'low', 'speed', 'swept_speed', 'can
   });
 }
 
-test('stationary high occupancy charges continuously while cargo service explains the hover-band requirement', () => {
+test('high base occupancy still requires the low hover band for cargo delivery', () => {
   const { drone, tick, at, load, wallet } = fixture(); load();
-  at(drone, 0, 4); drone.battery = 100; tick(1);
-  assert.equal(drone.charging, true); assert.equal(drone.battery, 125);
+  at(drone, 0, 4); tick(1);
+  assert.equal(drone.charging, undefined); assert.equal(drone.battery, undefined);
   assert.equal(drone.logistics!.state, 'carrying'); assert.equal(drone.logistics!.reason, 'above_hover_band');
   assert.equal(wallet.credits, 30); assert.equal(drone.cargo!.amount, 30);
   at(drone, 0, 1.5); tick(1); assert.equal(drone.logistics!.state, 'unloading');
@@ -133,13 +133,13 @@ test('only an uninterrupted friendly delivery banks cargo, and repeated occupanc
   assert.equal(match.events.filter(event => event.type === 'cargo_delivered').length, 1); assert.equal(conserved(), 60);
 });
 
-test('charging, cargo unloading and paid rearming can overlap without giving ammunition early', () => {
+test('cargo unloading and paid rearming can overlap without giving ammunition early', () => {
   const { rules, state, drone, load, at, tick, wallet } = fixture();
   rules.buy(state, drone, 'gun'); drone.ammo = 0; wallet.credits = 10;
-  load(); at(drone, 0); drone.battery = 100; rules.rearm(state, drone);
+  load(); at(drone, 0); rules.rearm(state, drone);
   tick(2);
   assert.equal(wallet.credits, 30); assert.equal(wallet.earned, 30); assert.equal(drone.ammo, 0);
-  assert.equal(drone.servicing!.remaining, 6); assert.equal(drone.battery, 150);
+  assert.equal(drone.servicing!.remaining, 6); assert.equal(drone.battery, undefined);
   tick(6); assert.equal(drone.ammo, 12); assert.equal(drone.servicing, undefined); assert.equal(wallet.credits, 30);
 });
 
@@ -190,19 +190,29 @@ test('cargo refits preserve two-slot ownership, reject legacy shop items and can
   const { rules, state, drone, wallet, load, at } = fixture(); wallet.credits = 200;
   rules.buy(state, drone, 'cargo'); rules.buy(state, drone, 'optics');
   assert.throws(() => rules.buy(state, drone, 'gun'), /Both module slots/);
-  for (const item of ['miner', 'miner_upgrade', 'jammer'] as const) assert.throws(() => rules.buy(state, drone, item), /unavailable/);
+  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery'] as const) assert.throws(() => rules.buy(state, drone, item), /unavailable/);
   load(); at(drone, 0); const before = wallet.credits;
   assert.throws(() => rules.buy(state, drone, 'gun', 'cargo'), /Deliver excess cargo/);
   assert.equal(drone.cargo!.amount, 60); assert.equal(wallet.credits, before); assert.equal(drone.equipment!.cargo, true);
 });
 
-test('gun and battery refitting cannot manufacture ammunition or charge', () => {
+test('gun refitting cannot manufacture ammunition or introduce battery state', () => {
   const { rules, state, drone, wallet } = fixture(); wallet.credits = 300;
   rules.buy(state, drone, 'gun'); rules.fire(state, drone); assert.equal(drone.ammo, 11);
   rules.buy(state, drone, 'optics', 'gun'); assert.equal(drone.ammo, 0);
   rules.buy(state, drone, 'gun', 'optics'); assert.equal(drone.ammo, 0);
-  drone.battery = 40; rules.buy(state, drone, 'battery'); assert.equal(drone.battery, 40);
-  rules.buy(state, drone, 'cargo', 'battery'); assert.equal(drone.battery, 40);
-  rules.buy(state, drone, 'battery', 'cargo'); assert.equal(drone.battery, 40);
+  rules.buy(state, drone, 'cargo'); assert.equal(drone.battery, undefined);
+  rules.buy(state, drone, 'optics', 'cargo'); assert.equal(drone.battery, undefined);
   const before = wallet.credits; rules.rearm(state, drone); assert.equal(wallet.credits, before - RTS_CONFIG.rearmCost);
+});
+
+test('current pickup, delivery, refitting and rearming ignore obsolete empty battery state', () => {
+  const { rules, state, drone, wallet, load, at, tick, conserved } = fixture();
+  drone.battery = 0;
+  rules.buy(state, drone, 'gun'); rules.fire(state, drone);
+  load(); assert.equal(drone.cargo!.amount, 30);
+  at(drone, 0); tick(2); assert.equal(wallet.earned, 30);
+  rules.rearm(state, drone); tick(8); assert.equal(drone.ammo, 12);
+  assert.equal(drone.alive, true); assert.equal(conserved(), 60);
+  assert.ok(!state.match!.events.some(event => event.cause === 'power' || event.type.startsWith('battery_')));
 });

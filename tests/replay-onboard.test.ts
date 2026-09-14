@@ -69,6 +69,9 @@ test('cargo, controller and storage presentation retain actual feedback without 
   assert.equal(onboardPresentation(actor).cargo, undefined); assert.equal(onboardPresentation(actor).job, undefined);
   const modern = recordedOperations({ ...actor, battery: 300 }, { rulesVersion: 'cargo-v1', resources: [], servicePads: [] });
   assert.ok(modern.includes('Battery 100%'));
+  const current = recordedOperations({ ...actor, cargo: { amount: 30 } }, { rulesVersion: 'cargo-v2', resources: [], servicePads: [] });
+  assert.ok(current.includes('CARGO 30 / 30'));
+  assert.ok(!current.some(line => /battery|charg/i.test(line)));
   const legacy = recordedOperations({ ...actor, battery: 50, jamming: true }, { resources: [] });
   assert.ok(legacy.includes('Battery 50%')); assert.ok(legacy.includes('Jammer on')); assert.ok(!legacy.some(line => line.includes('CARGO')));
 });

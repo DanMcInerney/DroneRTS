@@ -11,7 +11,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Layout | `shared/battlefield.ts` | Spawns, base aprons, four outer caches, central depot and spectator focus. |
 | Rules/contracts | `shared/rts.ts` | Current cargo contracts and historical cube interpretation, equipment, finite economy, shared service bands and physical tuning. |
 | Common briefing | `shared/mission.ts` | Objective, recognition, rules, vehicle calibration and general cooperation. Actual replies must establish opening agreement. No assigned strategy or battlefield locations. |
-| Economy/combat | `server/rts.ts` | Cargo stock reservations, pickup/deposit/drop/loss, atomic team purchases, slots/ammunition/battery/armor, charging/rearming and last-team-standing resolution. |
+| Economy/combat | `server/rts.ts` | Cargo stock reservations, pickup/deposit/drop/loss, atomic team purchases, slots/ammunition/armor, rearming and last-team-standing resolution. |
 | Collision geometry | `server/rts-geometry.ts`, `server/world-geometry.ts` | Swept contacts and shared oriented/tiered buildings; consumed by the simulator and modeled sensors, not guest code. |
 | Cargo presentation | `client/combat-view.ts`, `client/drone-model.ts`, `client/drone-visuals.ts` | Authoritative stock, empty pallets, attached cargo and equipment. No fixture-only live state or invisible resource marker. |
 | Vehicle sensing | `server/local-sensors.ts` | Fixed finite proximity/downward coverage, sample identity/time/validity and anonymous distances. No requested-target raycast or classification. |

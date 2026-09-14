@@ -29,7 +29,7 @@ function assertPrivate(value: any) {
 }
 
 // Historical interference can still be replayed/tested as state without exposing
-// the deferred jammer equipment or tool in the cargo-v1 actor interface.
+// the deferred jammer equipment or tool in the current actor interface.
 function legacyInterference(game: FleetGame, enabled: boolean) {
   game.state.match!.rulesVersion = 'cube-v1';
   game.state.drones[0].equipment!.jammer = true;
@@ -37,77 +37,51 @@ function legacyInterference(game: FleetGame, enabled: boolean) {
   game.tick(1 / 120);
 }
 
-test('every live drone receives own power and calibrated telemetry; legacy tools stay unavailable', async t => {
+test('current drones expose calibrated telemetry without battery fields, equipment or recharge tools', async t => {
   const game = await ready(); t.after(() => game.stop());
+  assert.equal(game.state.match!.rulesVersion, 'cargo-v2');
   for (const id of MATCH_DRONE_IDS) {
     const observed = body(await game.tool(id, 'observe'));
-    assert.deepEqual(observed.battery, { charge: RTS_CONFIG.batteryCapacity, capacity: RTS_CONFIG.batteryCapacity, low: false });
-    assert.deepEqual(observed.currentTelemetry.battery, { charge: RTS_CONFIG.batteryCapacity, capacity: RTS_CONFIG.batteryCapacity });
-    assert.equal(observed.jamming, false); assert.equal(observed.radioJammed, false);
-    assert.ok(observed.availableTools.includes('recharge'));
-    for (const name of ['jam', 'mine']) assert.equal(observed.availableTools.includes(name), false);
+    assert.equal(observed.battery, undefined); assert.equal(observed.charging, undefined);
+    assert.equal(observed.currentTelemetry.battery, undefined); assert.equal(observed.currentTelemetry.charging, undefined);
+    assert.equal(observed.equipment.battery, undefined);
+    for (const name of ['jam', 'mine', 'recharge']) assert.equal(observed.availableTools.includes(name), false);
     assertPrivate(observed);
   }
-  for (const name of ['jam', 'mine']) assert.equal((await game.tool('drone-1', name, { mission: 1, enabled: true })).isError, true);
-  for (const item of ['miner', 'miner_upgrade', 'jammer']) {
+  for (const name of ['jam', 'mine', 'recharge']) assert.equal((await game.tool('drone-1', name, { mission: 1, enabled: true })).isError, true);
+  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery']) {
     const rejected = body(await game.tool('drone-1', 'buy', { mission: 1, item }));
     assert.equal(rejected.accepted, false); assertPrivate(rejected);
   }
+  const exchange = body(await game.tool('drone-1', 'exchange', { mission: 1, operations: [{ id: 'removed', tool: 'recharge', args: {} }] }));
+  assert.equal(exchange.accepted, false);
   assert.equal(game.state.match!.teams.blue.credits, RTS_CONFIG.startingCredits);
 });
 
-test('battery attachments expand capacity without charge and cargo replacement clamps stored energy', async t => {
-  const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
-  const bought = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'battery' }));
-  assert.deepEqual(bought.battery, { charge: RTS_CONFIG.batteryCapacity, capacity: RTS_CONFIG.extendedBatteryCapacity, low: false });
-  assert.equal(bought.account.credits, 0);
-  assert.equal(body(await game.tool('drone-2', 'buy', { mission: 1, item: 'optics' })).accepted, false);
-  game.state.match!.teams.blue.credits = 200; drone.battery = RTS_CONFIG.extendedBatteryCapacity - 10;
-  const replaced = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'battery' }));
-  assert.deepEqual(replaced.battery, { charge: RTS_CONFIG.batteryCapacity, capacity: RTS_CONFIG.batteryCapacity, low: false });
-  assert.equal(replaced.equipment.cargo, true); assert.equal(replaced.equipment.battery, false);
-  assertPrivate(replaced);
-});
-
-test('friendly service volumes charge during flight and looking without changing the job or salvage', async t => {
-  const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
-  await game.tool('drone-1', 'buy', { mission: 1, item: 'battery' }); drone.battery = 60;
-  const moving = body(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0, y: 2, z: 18 }));
-  await new Promise(resolve => setImmediate(resolve)); game.tick(0.1);
-  const balance = game.state.match!.teams.blue.credits;
-  const charging = body(await game.tool('drone-1', 'recharge', { mission: 1 }));
-  assert.equal(charging.job.id, moving.job.id); assert.equal(charging.service, null); assert.equal(charging.charging, true);
-  const charge = drone.battery!, z = drone.z;
-  await game.tool('drone-1', 'act', { mission: 1, kind: 'look', heading: 45 });
-  advance(game, RTS_CONFIG.rechargeDuration / 2);
-  assert.ok(drone.battery! > charge); assert.ok(drone.z < z);
-  await game.tool('drone-1', 'observe');
-  const waiting = game.tool('drone-1', 'wait', { timeout_ms: 1000 });
-  advance(game, 2 * RTS_CONFIG.rechargeDuration);
-  const complete = body(await waiting);
-  assert.equal(complete.battery.charge, RTS_CONFIG.extendedBatteryCapacity); assert.equal(complete.charging, true);
-  assert.equal(complete.service, null); assert.equal(complete.currentAction, null); assert.equal(complete.account.credits, balance);
-  assert.equal(complete.job.state, 'completed');
-  assert.ok(complete.events.some((event: any) => event.type === 'battery_full')); assertPrivate(complete);
-});
-
-test('hover preserves automatic charging and leaving retains accumulated charge', async t => {
-  const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop()); drone.battery = 25;
-  advance(game, 2);
-  const hovering = body(await game.tool('drone-1', 'act', { mission: 1, kind: 'hover' }));
-  assert.equal(hovering.service, null); assert.ok(hovering.battery.charge > 25); assert.equal(hovering.charging, true);
-  assert.equal(hovering.account.credits, 30);
-  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0, y: 2, z: 15.5 });
-  await new Promise(resolve => setImmediate(resolve)); advance(game, 4);
-  const outside = body(await game.tool('drone-1', 'observe'));
-  assert.equal(outside.charging, false); assert.ok(outside.battery.charge > hovering.battery.charge);
-  assert.ok(outside.events.some((event: any) => event.type === 'charging_stopped'));
-  const retained = drone.battery!; advance(game, 1); assert.ok(drone.battery! < retained);
-});
-
-test('low battery wakes wait; power loss retires an armored drone and revokes tools', async t => {
+test('drones survive beyond historical endurance and keep moving without battery management', async t => {
   const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
   game.state.match!.servicePads = [];
+  drone.equipment!.armor = false;
+  advance(game, 1200);
+  assert.ok(game.state.drones.every(unit => unit.alive && unit.battery === undefined && unit.charging === undefined));
+  assert.equal(game.state.completed, false);
+  assert.ok(!game.state.match!.events.some(event => event.type.startsWith('battery_') || event.cause === 'power'));
+  // A stale legacy field cannot restore energy gating in the current rules.
+  drone.battery = 0;
+  const moved = body(await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 0, y: 2, z: 15 }));
+  assert.equal(moved.accepted, true);
+  await new Promise(resolve => setImmediate(resolve)); advance(game, 4);
+  assert.equal(drone.job?.state, 'completed'); assert.equal(drone.z, 15); assert.equal(drone.alive, true);
+  const current = body(await game.tool('drone-1', 'observe'));
+  assert.equal(current.battery, undefined); assert.equal(current.currentTelemetry.battery, undefined);
+  game.stop(); game.start();
+  assert.ok(game.state.drones.every(unit => unit.battery === undefined && unit.charging === undefined && unit.equipment?.battery === undefined));
+});
+
+test('historical low battery wakes wait; power loss retires an armored drone and revokes tools', async t => {
+  const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
+  game.state.match!.servicePads = [];
+  game.state.match!.rulesVersion = 'cargo-v1';
   drone.battery = RTS_CONFIG.batteryCapacity * RTS_CONFIG.lowBatteryFraction + 0.01;
   const waiting = game.tool('drone-1', 'wait', { timeout_ms: 1000 }); game.tick(0.1);
   const low = body(await waiting);
@@ -152,7 +126,7 @@ test('objective delivery and Stop disable historical interference, and browser p
   const charge = drone.battery; game.setConnected(false); advance(game, 1); assert.equal(drone.battery, charge);
   game.setConnected(true); game.stop(); advance(game, 1); assert.equal(drone.battery, charge);
   assert.ok(game.state.drones.every(peer => !peer.jamming && !peer.radioJammed));
-  game.start(); assert.ok(game.state.drones.every(peer => peer.battery === RTS_CONFIG.batteryCapacity && !peer.jamming && !peer.radioJammed));
+  game.start(); assert.ok(game.state.drones.every(peer => peer.battery === undefined && !peer.jamming && !peer.radioJammed));
 });
 
 test('historical interference keeps queued objectives pending until its actual radio state clears', async t => {

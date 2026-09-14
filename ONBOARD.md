@@ -14,7 +14,7 @@ Local proximity uses 26 fixed axial/diagonal directions. Each has finite four-un
 
 Travel uses maximum speed 3 units/s and acceleration 6 units/s²; precision uses 0.8 and 3. Cargo reduces the speed limit by 20%. One movement writer owns a drone. A route contains 1–32 caller-chosen absolute waypoints and returns acceptance immediately. A waypoint finishes before the next starts. Healthy local execution renews a 500 ms monotonic-host-time controller lease; the model does not emit high-rate keep-alives. Failed execution, stale sensing, lost owner or lease expiry stop further motion requests.
 
-Tool/job state distinguishes accepted, running, blocked, completed, cancelled and failed. Replacement is explicit. Stop/reset, destruction/power loss, received objective changes and invalid capabilities cancel affected work and revalidate after awaited adapter calls. Ordinary chat and radio partitions do not change objectives or invalidate otherwise healthy local jobs.
+Tool/job state distinguishes accepted, running, blocked, completed, cancelled and failed. Replacement is explicit. Stop/reset, destruction, received objective changes and invalid capabilities cancel affected work and revalidate after awaited adapter calls. Ordinary chat and radio partitions do not change objectives or invalidate otherwise healthy local jobs.
 
 ## Model batches and inbox ownership
 

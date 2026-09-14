@@ -252,22 +252,35 @@ export class CodexFleetRuntime implements AgentBackend {
     if (message.method === 'turn/started') {
       this.activeTurns.set(p.threadId, p.turn.id);
       const role = this.roles.get(p.threadId);
+      this.options.onEvent({ type: 'actor-turn-started', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now() });
       if (role && this.retired.has(role)) void this.retireDrone(role);
     }
     if (message.method === 'turn/completed') {
       this.activeTurns.delete(p.threadId);
       if (!this.stopped) {
         const role = this.roles.get(p.threadId) ?? 'unknown actor';
-        this.options.onEvent({ type: 'actor-ended', role, status: p.turn.status, error: p.turn.error?.message });
+        this.options.onEvent({ type: 'actor-ended', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now(), status: p.turn.status, error: p.turn.error?.message });
         if (this.retired.has(role as FleetRole)) return;
         void this.resumeActor(p.threadId, role, this.catalogYields.has(role as FleetRole));
       }
     }
     if (message.method === 'thread/tokenUsage/updated') {
       this.usage.set(p.threadId, p.tokenUsage?.total?.totalTokens ?? 0);
+      this.options.onEvent({ type: 'actor-usage', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+        observedAtMs: performance.now(), totalTokens: p.tokenUsage?.total?.totalTokens,
+        lastInputTokens: p.tokenUsage?.last?.inputTokens, lastOutputTokens: p.tokenUsage?.last?.outputTokens,
+        lastReasoningOutputTokens: p.tokenUsage?.last?.reasoningOutputTokens, modelContextWindow: p.tokenUsage?.modelContextWindow });
       this.options.onStatus({ usage: [...this.usage.values()].reduce((a, b) => a + b, 0) });
       if (!this.toolCalls && [...this.usage.values()].reduce((a, b) => a + b, 0) > 40000) this.failRuntime('Bootstrap produced no game-tool calls after the token limit. Stopped to prevent wasted inference.');
     }
+    // Activity metadata distinguishes pending tools and observed compaction from
+    // silent native-turn intervals. Never log reasoning bodies or token deltas.
+    if (['item/started', 'item/completed'].includes(message.method)
+      && ['reasoning', 'contextCompaction', 'mcpToolCall'].includes(p.item?.type)) {
+      this.options.onEvent({ type: 'actor-activity', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+        itemId: p.item.id, activity: p.item.type, phase: message.method === 'item/started' ? 'started' : 'completed', observedAtMs: performance.now() });
+    }
+    if (message.method === 'thread/compacted') this.options.onEvent({ type: 'actor-context-compacted', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId, observedAtMs: performance.now() });
     if (message.method === 'item/completed' && p.item?.type === 'collabAgentToolCall') this.options.onEvent({ type: 'native-agent-call', tool: p.item.tool, status: p.item.status, model: p.item.model, effort: p.item.reasoningEffort, children: p.item.receiverThreadIds });
     if (message.method === 'item/completed' && p.item?.type === 'agentMessage') this.options.onEvent({ type: 'actor-message', role: this.roles.get(p.threadId), text: p.item.text?.slice(0, 24_000) });
     if (message.method === 'item/completed' && p.item?.type === 'reasoning') {
@@ -293,7 +306,8 @@ export class CodexFleetRuntime implements AgentBackend {
       this.options.onEvent({ type: 'runtime-warning', message: p.message ?? p });
       if (/malformed agent role/i.test(JSON.stringify(p))) this.startupError = 'Installed Codex rejected a drone role configuration. No gameplay may start.';
     }
-    if (message.method === 'error') this.options.onEvent({ type: 'runtime-error', message: p.error?.message ?? 'Codex error' });
+    if (message.method === 'error') this.options.onEvent({ type: 'runtime-error', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+      observedAtMs: performance.now(), willRetry: p.willRetry, message: p.error?.message ?? 'Codex error' });
   }
 
   private failRuntime(message: string) {

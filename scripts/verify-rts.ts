@@ -103,15 +103,15 @@ try {
   await imageFile('carrying-camera.jpg', await game.tool('drone-1', 'observe'));
   await firstCard.locator('.cargo-label').getByText('CARGO 30 / 30', { exact: true }).waitFor();
   await page.screenshot({ path: resolve(directory, 'three-carrying.png'), fullPage: true });
-  game.state.drones.slice(0, 3).forEach((drone, i) => Object.assign(drone, apronServicePositions(pad, 6)[i], { battery: 60 }));
+  game.state.drones.slice(0, 3).forEach((drone, i) => Object.assign(drone, apronServicePositions(pad, 6)[i]));
   tick(.5); broadcast();
   await firstCard.locator('.logistics-label').getByText(/UNLOADING/).waitFor();
-  await firstCard.locator('.charging-status').waitFor({ state: 'visible' });
-  await page.screenshot({ path: resolve(directory, 'unloading-and-charging.png'), fullPage: true });
+  assert.equal(await page.locator('.battery-status, .battery-meter, .charging-status, [data-item="battery"]').count(), 0);
+  await page.screenshot({ path: resolve(directory, 'unloading.png'), fullPage: true });
   tick(CARGO_CONFIG.deliveryDuration + .1); broadcast();
   assert.equal(game.state.match!.teams.blue.earned, 90);
   assert.equal(game.state.match!.teams.blue.credits, 90, 'Opening optics spent the original allowance');
-  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.cargo?.amount === 0 && drone.battery! > 60));
+  assert.ok(game.state.drones.slice(0, 3).every(drone => drone.cargo?.amount === 0 && drone.battery === undefined));
   await firstCard.locator('.cargo-label').getByText('CARGO 0 / 30', { exact: true }).waitFor();
   assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' })).equipped, 'gun');
   assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'optics' })).equipped, 'cargo');
@@ -147,11 +147,11 @@ try {
   await page.screenshot({ path: resolve(directory, 'mobile.png'), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   game.stop(); broadcast(); await page.locator('#reset').click();
-  assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && drone.equipment?.armor && drone.battery === RTS_CONFIG.batteryCapacity));
+  assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && drone.equipment?.armor && drone.battery === undefined));
   assert.deepEqual(errors, []);
   const result = { passed: true, inference: false, fixture: true, directory, port, preflight,
     checks: ['six actual cameras', 'optics wide/zoom', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
-      'simultaneous delivery and automatic charging', 'delivered income funds modules', 'explicit cargo refit', 'legacy miner rejected',
+      'simultaneous delivery without battery UI', 'delivered income funds modules', 'explicit cargo refit', 'legacy miner rejected',
       'finite gun ammunition', 'cancelled/refunded and completed rearm', 'cargo map and player reply', 'responsive layout', 'fresh reset'] };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally { game.stop(); await browser.close(); }
