@@ -20,11 +20,17 @@ export class MatchPanel {
     }
     const resources = document.createDocumentFragment();
     for (const [index, resource] of (match?.resources ?? []).entries()) {
-      const row = document.createElement('div'); row.className = `resource-row ${resource.remaining <= 0 ? 'depleted' : ''}`;
-      const name = document.createElement('span'); name.textContent = `◆  Deposit ${String(index + 1).padStart(2, '0')}`;
+      const rich = (resource.extractionMultiplier ?? 1) > 1;
+      const row = document.createElement('div'); row.className = `resource-row ${resource.remaining <= 0 ? 'depleted' : ''} ${rich ? 'rich' : ''}`;
+      const name = document.createElement('span'); name.textContent = rich ? '◆  CENTRAL MEGA' : `◆  Deposit ${String(index + 1).padStart(2, '0')}`;
       const remaining = document.createElement('strong'); remaining.textContent = `${Math.ceil(resource.remaining)} / ${resource.capacity}`;
       const progress = document.createElement('progress'); progress.max = resource.capacity; progress.value = resource.remaining; progress.setAttribute('aria-label', `${resource.id} salvage remaining`);
-      row.append(name, remaining, progress); resources.append(row);
+      row.append(name, remaining, progress);
+      const miners = state.drones.filter(drone => drone.alive !== false && drone.mining === resource.id);
+      const teams = new Set(miners.map(drone => drone.team ?? dronePresentation(drone.id).team));
+      const detail = document.createElement('small'); detail.className = 'resource-detail';
+      detail.textContent = `${rich ? `${resource.extractionMultiplier}× extraction · ` : ''}${teams.size > 1 ? 'CONTESTED · ' : ''}${miners.length ? `${miners.length} mining` : resource.remaining <= 0 ? 'Depleted' : 'No active miners'}`;
+      row.classList.toggle('contested', teams.size > 1); row.append(detail); resources.append(row);
     }
     element('resource-list').replaceChildren(resources);
     const finished = match?.phase === 'finished';

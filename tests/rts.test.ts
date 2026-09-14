@@ -2,10 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RtsRules } from '../server/rts.ts';
 import { boxContact, sphereContact } from '../server/rts-geometry.ts';
-import { emptyEquipment, RTS_CONFIG, type Point } from '../shared/rts.ts';
+import { emptyEquipment, startingEquipment, RTS_CONFIG, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
 
 const pose = (x = 0, y = 5, z = 0) => ({ x, y, z, yaw: 0, pitch: 0 });
+const arm = (drone: Drone) => { drone.equipment!.gun = true; drone.ammo = RTS_CONFIG.magazineSize; };
 function fixture() {
   const rules = new RtsRules();
   const drones: Drone[] = Array.from({ length: 6 }, (_, i) => ({
@@ -15,31 +16,38 @@ function fixture() {
   const state: GameState = {
     simTime: 0, mission: 1, running: true, speed: 1, completed: false,
     drones, obstacles: [], radio: [], treasures: [], runtime: { status: 'idle', message: '', model: '', effort: '' },
-    match: rules.newMatch([{ id: 'salvage-1', x: 0, y: 0, z: 0, capacity: 100, remaining: 100 }]),
+    match: rules.newMatch([{ id: 'salvage-1', x: 0, y: 0, z: 0, capacity: 100, remaining: 100, zoneSize: 3 }],
+      drones.map(drone => ({ id: `pad-${drone.id}`, x: drone.x, y: drone.y, z: drone.z, team: drone.team! }))),
   };
   rules.begin(state);
+  // These damage and purchase fixtures explicitly start without protection.
+  for (const drone of drones) drone.equipment = emptyEquipment();
   const tick = (dt = 0.05, previous?: Map<DroneId, Point>) => { state.simTime += dt; return rules.step(state, dt, previous); };
   return { rules, state, drones, tick, match: state.match! };
 }
 
-test('teams start with no income and a locked shop; first recovery unlocks the whole team', () => {
+test('teams receive exactly one opening item and mining grows the shared wallet separately from the allowance', () => {
   const { state, rules, drones, tick, match } = fixture();
-  assert.equal(match.teams.blue.credits, 0);
-  assert.throws(() => rules.buy(state, drones[1], 'armor'), /not recovered/);
+  assert.deepEqual(match.teams.blue, { credits: 30, earned: 0, shopUnlocked: true });
+  assert.deepEqual(match.teams.red, { credits: 30, earned: 0, shopUnlocked: true });
+  rules.buy(state, drones[1], 'armor');
+  assert.equal(match.teams.blue.credits, 10);
+  for (const item of ['armor', 'gun', 'miner', 'optics'] as const) {
+    assert.throws(() => rules.buy(state, drones[2], item), /Insufficient/);
+  }
   Object.assign(drones[0], pose(0, 1.5, 0));
   assert.deepEqual(rules.mine(state, drones[0], 'salvage-1'), { accepted: true, action: 'mine' });
-  tick(12);
-  assert.equal(match.teams.blue.credits, 12);
-  assert.equal(match.teams.blue.shopUnlocked, true);
-  assert.equal(match.teams.red.shopUnlocked, false);
-  rules.buy(state, drones[1], 'armor');
-  assert.equal(drones[1].equipment?.armor, true);
+  tick(20);
+  assert.equal(match.teams.blue.credits, 20);
+  assert.equal(match.teams.blue.earned, 10);
+  assert.equal(match.teams.red.earned, 0);
+  rules.buy(state, drones[2], 'armor');
+  assert.equal(drones[2].equipment?.armor, true);
   assert.equal(match.teams.blue.credits, 0);
 });
 
 test('shared spending is atomic, self-equipped, and rejects duplicate or unknown attachments', async () => {
   const { state, rules, drones, match } = fixture();
-  Object.assign(match.teams.blue, { credits: 20, earned: 20, shopUnlocked: true });
   const results = await Promise.allSettled([0, 1].map(i => Promise.resolve().then(() => rules.buy(state, drones[i], 'gun'))));
   assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
   assert.equal(match.teams.blue.credits, 0);
@@ -50,28 +58,26 @@ test('shared spending is atomic, self-equipped, and rejects duplicate or unknown
   assert.equal(match.teams.blue.credits, 30);
 });
 
-test('mining tool triples income and a contested last deposit tick is split proportionally', () => {
+test('a drill doubles extraction and a contested last deposit tick is split proportionally', () => {
   const { state, rules, drones, tick, match } = fixture();
   const a = drones[0], b = drones[3];
   Object.assign(a, pose(-1, 1.2)); Object.assign(b, pose(1, 1.2));
-  a.equipment!.miner = true; match.resources[0].remaining = 2;
+  a.equipment!.miner = true; match.resources[0].remaining = 1.5;
   rules.mine(state, a, 'salvage-1'); rules.mine(state, b, 'salvage-1'); tick(1);
-  assert.equal(match.teams.blue.credits, 1.5);
-  assert.equal(match.teams.red.credits, 0.5);
+  assert.equal(match.teams.blue.credits, 31);
+  assert.equal(match.teams.red.credits, 30.5);
   assert.equal(match.resources[0].remaining, 0);
   assert.equal(a.mining, undefined); assert.equal(b.mining, undefined);
   tick(10);
-  assert.equal(match.teams.blue.credits + match.teams.red.credits, 2);
+  assert.equal(match.teams.blue.earned + match.teams.red.earned, 1.5);
   assert.throws(() => rules.mine(state, a, 'salvage-1'), /No accessible/);
 });
 
-test('mining requires reach and clear sight, stops when displaced, and reveals no location', () => {
+test('mining needs cube occupancy, ignores sight and stops when displaced without revealing locations', () => {
   const { state, rules, drones, tick, match } = fixture();
   assert.throws(() => rules.mine(state, drones[0], 'salvage-1'), /No accessible/);
-  Object.assign(drones[0], pose(0, 1.2, 2));
-  state.obstacles.push({ x: 0, z: 1, width: 1, depth: 0.2, height: 3 });
-  assert.throws(() => rules.mine(state, drones[0], 'salvage-1'), /No accessible/);
-  state.obstacles = [];
+  Object.assign(drones[0], pose(0, 1.2, 1.4));
+  state.obstacles.push({ x: 0, z: 0.7, width: 1, depth: 0.2, height: 3 });
   const receipt = rules.mine(state, drones[0], 'salvage-1');
   assert.ok(!JSON.stringify(receipt).includes('salvage-1'));
   drones[0].z = 20; tick(1);
@@ -167,7 +173,7 @@ test('armor ejects a restored overlapping pose through its nearest building face
 
 test('gun uses actual heading and pitch, gravity, a cooldown, and a finite flight lifetime', () => {
   const { state, rules, drones, tick, match } = fixture();
-  const drone = drones[0]; drone.equipment!.gun = true; drone.y = 50;
+  const drone = drones[0]; arm(drone); drone.y = 50;
   assert.deepEqual(rules.fire(state, drone), { fired: true });
   assert.throws(() => rules.fire(state, drone), /cycling/);
   tick(1);
@@ -183,7 +189,7 @@ test('a direct physical hit kills, while a shot aimed away misses', () => {
   for (const heading of [0, 90]) {
     const { state, rules, drones, tick } = fixture();
     const shooter = drones[0], target = drones[3];
-    Object.assign(target, pose(0, 5, -6)); shooter.equipment!.gun = true; shooter.yaw = heading;
+    Object.assign(target, pose(0, 5, -6)); arm(shooter); shooter.yaw = heading;
     rules.fire(state, shooter); tick(0.3);
     assert.equal(target.alive, heading !== 0);
   }
@@ -192,7 +198,7 @@ test('a direct physical hit kills, while a shot aimed away misses', () => {
 test('one armor charge blocks one bullet, the next bullet destroys the drone', () => {
   const { state, rules, drones, tick } = fixture();
   const shooter = drones[0], target = drones[3];
-  Object.assign(target, pose(0, 5, -6)); shooter.equipment!.gun = true; target.equipment!.armor = true;
+  Object.assign(target, pose(0, 5, -6)); arm(shooter); target.equipment!.armor = true;
   rules.fire(state, shooter); tick(0.2);
   assert.equal(target.alive, true); assert.equal(target.equipment!.armor, false);
   tick(0.6); rules.fire(state, shooter); tick(0.2);
@@ -201,7 +207,7 @@ test('one armor charge blocks one bullet, the next bullet destroys the drone', (
 
 test('the nearest drone blocks bullets, including friendly fire', () => {
   const { state, rules, drones, tick } = fixture();
-  drones[0].equipment!.gun = true;
+  arm(drones[0]);
   Object.assign(drones[1], pose(0, 5, -3)); Object.assign(drones[3], pose(0, 5, -6));
   rules.fire(state, drones[0]); tick(0.3);
   assert.equal(drones[1].alive, false); assert.equal(drones[3].alive, true);
@@ -209,7 +215,7 @@ test('the nearest drone blocks bullets, including friendly fire', () => {
 
 test('a thin rotated building obstructs a bullet even across a large timestep', () => {
   const { state, rules, drones, tick, match } = fixture();
-  drones[0].equipment!.gun = true; Object.assign(drones[3], pose(0, 5, -7));
+  arm(drones[0]); Object.assign(drones[3], pose(0, 5, -7));
   state.obstacles = [{ x: 0, z: -3, width: 4, depth: 0.02, height: 10, rotation: 35 }];
   rules.fire(state, drones[0]); tick(1);
   assert.equal(drones[3].alive, true); assert.equal(match.projectiles.length, 0);
@@ -218,7 +224,7 @@ test('a thin rotated building obstructs a bullet even across a large timestep', 
 
 test('a moving drone is hit where its path crosses the projectile, with no endpoint overlap', () => {
   const { state, rules, drones, tick } = fixture();
-  const shooter = drones[0], target = drones[3]; shooter.equipment!.gun = true;
+  const shooter = drones[0], target = drones[3]; arm(shooter);
   Object.assign(target, pose(4, 5, -3.2));
   const previous = new Map<DroneId, Point>([[target.id, pose(-4, 5, -3.2)]]);
   rules.fire(state, shooter); tick(0.2, previous);
@@ -237,7 +243,7 @@ test('the last survivor wins; simultaneous mutual projectile kills produce a dra
     for (const drone of drones) drone.alive = false;
     const a = drones[0], b = drones[3]; a.alive = true; b.alive = true;
     Object.assign(a, pose(0, 5, 3)); Object.assign(b, pose(0, 5, -3)); b.yaw = 180;
-    a.equipment!.gun = true; b.equipment!.gun = true;
+    arm(a); arm(b);
     rules.fire(state, a); if (mutual) rules.fire(state, b);
     tick(0.3);
     assert.equal(match.phase, 'finished'); assert.equal(match.winner, mutual ? 'draw' : 'blue');
@@ -258,15 +264,18 @@ test('a new match clears equipment, resource depletion, cooldown and victory', (
   const drone = drones[0]; drone.alive = false; drone.equipment!.gun = true; drone.lastFiredAt = 99; drone.mining = 'salvage-1';
   match.resources[0].remaining = 0; match.teams.blue.credits = 100; match.phase = 'finished'; match.winner = 'blue';
   rules.begin(state);
-  assert.equal(drone.alive, true); assert.deepEqual(drone.equipment, emptyEquipment());
+  assert.equal(drone.alive, true); assert.deepEqual(drone.equipment, startingEquipment());
   assert.equal(drone.lastFiredAt, undefined); assert.equal(drone.mining, undefined);
-  assert.equal(state.match?.resources[0].remaining, 100); assert.equal(state.match?.teams.blue.credits, 0);
+  assert.equal(state.match?.resources[0].remaining, 100); assert.equal(state.match?.teams.blue.credits, 30);
   assert.equal(state.match?.phase, 'active'); assert.equal(state.match?.winner, null);
 });
 
 test('player match events remain bounded through long sessions', () => {
-  const { state, rules, drones, tick, match } = fixture(); drones[0].equipment!.gun = true;
-  for (let i = 0; i < 180; i++) { rules.fire(state, drones[0]); tick(0.8); }
+  const { state, rules, drones, tick, match } = fixture(); arm(drones[0]); match.teams.blue.credits = 200;
+  for (let i = 0; i < 180; i++) {
+    if (!drones[0].ammo) { rules.rearm(state, drones[0]); tick(RTS_CONFIG.serviceDuration); }
+    rules.fire(state, drones[0]); tick(0.8);
+  }
   assert.equal(match.events.length, 160);
   assert.ok(match.events.every(event => event.id && Number.isFinite(event.simTime)));
 });

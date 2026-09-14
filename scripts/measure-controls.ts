@@ -31,6 +31,8 @@ class Fixture {
   get target() { return this.game.state.drones[3]; }
   async ready() {
     this.game.setConnected(true); this.game.start(); this.game.state.obstacles = [];
+    // Prescribed impact fixtures set their own armor independently of match defaults.
+    for (const drone of this.game.state.drones) drone.equipment!.armor = false;
     this.game.state.match!.resources = [];
     this.game.capture = async () => SYNTHETIC_CAMERA;
     this.game.state.drones.forEach((d, i) => Object.assign(d, { x: 100 + 10 * i, y: 20, z: 100, yaw: 0, pitch: 0 }));
@@ -180,6 +182,7 @@ async function shot(tick: number, range: number, moving: boolean, compensated: b
   const f = await new Fixture(`shot_${range}_${moving ? 'moving' : 'stationary'}_${compensated ? 'compensated' : 'direct'}${occluded ? '_wall' : ''}`, tick).ready();
   Object.assign(f.target, { x: 0, y: 10, z: -range });
   f.drone.equipment!.gun = true;
+  f.drone.ammo = RTS_CONFIG.magazineSize;
   // The target starts from rest and accelerates for 0.5 s before firing: displacement 0.75, terminal velocity 3.
   const targetAtFire = { x: moving ? 0.75 : 0, y: 0, z: -range }, velocity = { x: moving ? 3 : 0, y: 0, z: 0 };
   const aim = compensated ? ballisticAim(targetAtFire, velocity) : { vector: targetAtFire, interceptSeconds: null };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { FleetGame } from '../server/game.ts';
 import { Mailbox } from '../server/mailbox.ts';
 import { DRONE_IDS, type ToolResult } from '../shared/types.ts';
-import { droneInstructions, droneTools } from '../server/runtime-tools.ts';
+import { droneInstructions, droneTools, RTS_MISSION } from '../server/runtime-tools.ts';
 
 const json = (result: ToolResult) => JSON.parse((result.content.find(c => c.type === 'text') as { text: string }).text);
 async function ready() {
@@ -116,7 +116,7 @@ test('heading sensor reports the sampled turn, then reaches the command without 
 });
 
 test('agent-facing instructions contain no world calibration or task solution', () => {
-  const surface = droneInstructions('drone-1') + JSON.stringify(droneTools);
+  const surface = RTS_MISSION + droneInstructions('drone-1') + JSON.stringify(droneTools);
   for (const hint of ['Y is up', 'faces -Z', '3.25', 'y=2', '-30..30', 'groundPlaneY', 'white H', '3 world units', 'Cincinnati', 'Smale', '5.5', 'chest-1']) {
     assert.equal(surface.includes(hint), false, hint);
   }

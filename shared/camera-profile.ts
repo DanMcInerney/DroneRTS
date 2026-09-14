@@ -6,3 +6,8 @@ export const DRONE_CAMERA = Object.freeze({
   near: 0.08,
   far: 500,
 });
+
+/** Shared by rendered views and private evidence; never return this calibration to actors. */
+export function cameraFovFor(drone: { cameraMode?: 'wide' | 'zoom'; equipment?: { optics?: boolean } }): number {
+  return drone.equipment?.optics && drone.cameraMode === 'zoom' ? 32 : DRONE_CAMERA.fov;
+}

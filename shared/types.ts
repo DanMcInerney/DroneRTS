@@ -1,5 +1,5 @@
 import type { DroneId } from './fleet.ts';
-import type { Equipment, MatchState, TeamId } from './rts.ts';
+import type { CameraMode, Equipment, MatchState, ServiceAction, TeamId } from './rts.ts';
 export { DRONE_IDS, type DroneId } from './fleet.ts';
 export type Role = 'parent' | DroneId;
 export interface Pose { x: number; y: number; z: number; yaw: number; pitch: number }
@@ -7,6 +7,8 @@ export interface Action { id: string; kind: string; target?: { x: number; y: num
 export interface Drone extends Pose {
   id: DroneId; status: string; action?: Action; online: boolean; observations: number;
   team?: TeamId; alive?: boolean; equipment?: Equipment; mining?: string; lastFiredAt?: number;
+  ammo?: number; cameraMode?: CameraMode; servicing?: ServiceAction;
+  battery?: number; charging?: boolean; jamming?: boolean; radioJammed?: boolean;
 }
 export interface Obstacle { id?: string; name?: string; color?: string; x: number; z: number; width: number; depth: number; height: number; rotation?: number; baseY?: number }
 export interface Treasure { id: string; x: number; y: number; z: number; found: boolean; foundBy?: DroneId; foundAt?: number }

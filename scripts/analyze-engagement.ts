@@ -60,7 +60,10 @@ const viewing = observations.filter(observation => observation.imageId).flatMap(
   const forward = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
   const right = { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) };
   const up = { x: Math.sin(yaw) * Math.sin(pitch), y: Math.cos(pitch), z: Math.cos(yaw) * Math.sin(pitch) };
-  const tanVertical = Math.tan(camera.fov! * Math.PI / 360), tanHorizontal = tanVertical * camera.width / camera.height;
+  // Current recordings preserve the actual capture projection; old recordings use their header.
+  const fov = observation.cameraFov ?? camera.fov!;
+  if (!Number.isFinite(fov) || fov <= 0 || fov >= 180) throw new Error('Recorded observation has invalid camera calibration.');
+  const tanVertical = Math.tan(fov * Math.PI / 360), tanHorizontal = tanVertical * camera.width / camera.height;
   return frame.drones.filter(target => target.team !== self.team && target.alive !== false).map(target => {
     const focus = bodyCenter(target), delta = { x: focus.x - observation.pose.x, y: focus.y - observation.pose.y, z: focus.z - observation.pose.z };
     const dot = (vector: typeof delta) => vector.x * delta.x + vector.y * delta.y + vector.z * delta.z;

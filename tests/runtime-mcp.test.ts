@@ -7,10 +7,10 @@ import { FleetMcpServer } from '../server/runtime-mcp.ts';
 import { createDroneTools } from '../server/runtime-tools.ts';
 
 test('real MCP connections discover unlocked tools, notify peers and reject guessed or retired capabilities', async () => {
-  let shop = false, alive = true;
+  let shop = false, alive = true, gun = false, optics = false, jammer = false;
   const calls: Array<{ role: string; name: string }> = [];
   const server = new FleetMcpServer({ roles: ['drone-1', 'drone-2'], active: () => true,
-    tools: role => createDroneTools(undefined, { shop, gun: false, alive: role === 'drone-1' ? alive : true }),
+    tools: role => createDroneTools(undefined, { shop, gun, optics, jammer, alive: role === 'drone-1' ? alive : true }),
     call: async (role, name) => { calls.push({ role, name }); return { content: [{ type: 'text', text: JSON.stringify({ ownObservation: role }) }] }; },
     policy: () => ({}), onEvent: () => {},
   });
@@ -20,7 +20,7 @@ test('real MCP connections discover unlocked tools, notify peers and reject gues
   try {
     await first.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
     await peer.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-2']}`)));
-    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'mine']);
+    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'mine', 'recharge']);
     const rejected = await first.callTool({ name: 'buy', arguments: { mission: 1, item: 'gun' } });
     assert.equal(rejected.isError, true);
     assert.deepEqual(calls, [{ role: 'drone-1', name: 'observe' }]);
@@ -34,6 +34,20 @@ test('real MCP connections discover unlocked tools, notify peers and reject gues
     assert.ok((await peer.listTools()).tools.some(tool => tool.name === 'buy'));
     await first.callTool({ name: 'buy', arguments: { mission: 1, item: 'gun' } });
     assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'buy' });
+    gun = true; optics = true; jammer = true; await server.refreshTools();
+    const equipped = (await first.listTools()).tools.map(tool => tool.name);
+    for (const name of ['fire', 'rearm', 'camera', 'jam']) assert.ok(equipped.includes(name));
+    await first.callTool({ name: 'camera', arguments: { mission: 1, mode: 'zoom' } });
+    assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'camera' });
+    await first.callTool({ name: 'jam', arguments: { mission: 1, enabled: true } });
+    assert.deepEqual(calls.at(-1), { role: 'drone-1', name: 'jam' });
+    gun = false; optics = false; jammer = false; await server.refreshTools();
+    const removed = (await first.listTools()).tools.map(tool => tool.name);
+    for (const name of ['fire', 'rearm', 'camera', 'jam']) {
+      assert.equal(removed.includes(name), false);
+      assert.equal((await first.callTool({ name, arguments: { mission: 1 } })).isError, true);
+      assert.equal(calls.at(-1)?.name, 'observe', 'revoked commands return only a fresh observation');
+    }
     alive = false; await server.refreshTools();
     assert.deepEqual((await first.listTools()).tools, []);
     const previous = calls.length;
