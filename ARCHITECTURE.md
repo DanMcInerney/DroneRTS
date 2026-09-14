@@ -25,6 +25,11 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Player information | `client/match-panel.ts`, `client/overhead-map.ts`, `client/fleet-panels.ts` | Team banks, resource meters, combat events, map markers and cards are spectator DOM overlays, outside camera images. |
 | Invisible observer | `client/explorer.ts` | Independent free camera with altitude-sensitive travel; does not create a unit or change its sensors. |
 | Diagnostics | `server/diagnostics.ts`, `shared/diagnostics.ts`, `client/admin.ts` | Bounded/redacted local audit queries, evidence types and admin UI. Available reasoning summaries are distinguished from unavailable hidden reasoning. |
+| Replay evidence contract | `shared/replay.ts` | Versioned player-only scene header, sampled frames, commands, acquired observations, combat events and terminal status. No actor-facing import. |
+| Replay persistence | `server/replay-recorder.ts` | Immutable JSONL snapshots and actual delivered images, with sampling, byte limits, queue backpressure and explicit omissions/failures. Never blocks simulation waiting for storage. |
+| Replay access | `server/replay-store.ts`, `server/replay-paths.ts` | Bounded complete-record byte cursors and validated local image reads; shared path validation prevents traversal or symlink access. |
+| Replay timeline | `client/replay-model.ts` | Acquisition-time indexing, discrete past frames, actor camera selection, event navigation and cursor-relative metrics. No extrapolated evidence. |
+| Replay presentation | `client/replay.ts`, `client/replay-plot.ts` | Fetch/playback lifecycle and independent 2D recorded-scene rendering. Closing Admin or changing sessions cancels pending work. Never accesses the live Three.js renderer. |
 | Application lifecycle | `server/index.ts` | HTTP/WebSocket connections, capture delivery, match startup/stop, browser disconnect timeout and protocol/runtime failures. |
 
 ## Team and actor isolation
@@ -38,6 +43,10 @@ The initial MCP list contains `observe`, `act`, `send`, `wait` and `mine`. A tea
 A successful shot follows camera aim and a gravity arc through swept collisions; it cannot target an enemy ID or obtain a hidden hit answer. Mining needs recent private optical evidence and physical reach; it cannot probe arbitrary resource IDs. The old `server/treasure-hunt.ts` remains a historical isolated module with its own regression tests and no active role in RTS scoring.
 
 Keep one authoritative copy of poses, equipment, credits, resources, projectiles and mission versions. Display interpolation, velocity and private sightings are derived or purpose-specific internal state. Changes to damage rules should not require rewriting MAVLink parsing, mailbox delivery or camera composition.
+
+Replay subscribes to that authority: `RtsRules` emits each combat event once, while `FleetGame` emits only the final delivered observation after any bounded camera refresh. The recorder receives a separate player-only event containing actual pixels; actor tool responses keep their existing observation contract. `server/index.ts` owns recording start/stop alongside the session log and samples broadcasts at 10 Hz of simulation time. A final forced frame preserves victory/death state before shutdown. Snapshot records exclude the rolling event list because individual combat records own that history.
+
+The viewer uses recorded geometry and fleet membership, not current world configuration. It holds the latest recorded frame at or before the cursor and labels stale frames; trails break across gaps. Exact event timestamps remain distinct from sampled world state. Camera acquisition time can precede disk-write time, so observations are sorted by acquisition and never replaced by a future image. Camera files are intentionally separate from redacted diagnostic JSON and exports. Records and images have independent per-session budgets; reaching an image limit leaves subsequent observation metadata available.
 
 ## Verification
 

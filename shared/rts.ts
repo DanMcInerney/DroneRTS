@@ -11,6 +11,7 @@ export interface Projectile extends Point {
 }
 export interface MatchEvent extends Partial<Point> {
   id: string; type: string; simTime: number; team?: TeamId; drone?: DroneId; target?: string; message: string;
+  projectileId?: string; cause?: 'terrain' | 'ram' | 'bullet' | 'expired';
 }
 export interface MatchState {
   phase: 'ready' | 'active' | 'finished'; winner: TeamId | 'draw' | null;

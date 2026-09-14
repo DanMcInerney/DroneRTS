@@ -18,6 +18,8 @@ const equipment = (drone: Drone) => drone.equipment ??= emptyEquipment();
 
 /** All durable match state belongs to GameState. No second economy or damage authority exists. */
 export class RtsRules {
+  constructor(private readonly onEvent?: (event: MatchEvent) => void) {}
+
   newMatch(resources: readonly ResourceNode[]): MatchState {
     const economy = () => ({ credits: 0, earned: 0, shopUnlocked: false });
     return {
@@ -72,10 +74,11 @@ export class RtsRules {
     const forward = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
     const speed = RTS_CONFIG.bulletSpeed;
     // Start at the body center, ignoring only the owner: muzzle offsets must not shoot through walls.
-    matchOf(state).projectiles.push({ id: randomUUID(), owner: drone.id, team: team(drone), ...position(drone),
+    const projectileId = randomUUID();
+    matchOf(state).projectiles.push({ id: projectileId, owner: drone.id, team: team(drone), ...position(drone),
       vx: forward.x * speed, vy: forward.y * speed, vz: forward.z * speed, age: 0 });
     drone.lastFiredAt = state.simTime; this.cancelMining(drone);
-    this.event(state, { type: 'fired', team: team(drone), drone: drone.id, ...position(drone), message: `${drone.id} fired.` });
+    this.event(state, { type: 'fired', projectileId, team: team(drone), drone: drone.id, ...position(drone), message: `${drone.id} fired.` });
     return { fired: true };
   }
 
@@ -83,7 +86,7 @@ export class RtsRules {
     if (!alive(drone) || matchOf(state).phase !== 'active') return { collided: false, position: next };
     const hit = terrainContact(from, next, state.obstacles, RTS_CONFIG.droneRadius);
     if (!hit) return { collided: false, position: next };
-    this.damage(state, drone, 'terrain');
+    this.damage(state, drone, 'terrain', undefined, hit.contact);
     const result = alive(drone) ? offset(hit.contact, hit.normal, 0.35) : hit.contact;
     return { collided: true, position: result };
   }
@@ -205,25 +208,26 @@ export class RtsRules {
         if (Number.isFinite(first)) {
           consumed = true;
           const impact = at(from, next, first);
-          if (target) { this.damage(state, target, 'bullet', bullet.owner); changed.add(target.id); }
-          this.event(state, { type: 'impact', team: bullet.team, drone: bullet.owner, target: target?.id, ...impact, message: target ? 'Projectile hit a drone.' : 'Projectile struck terrain.' });
+          if (target) { this.damage(state, target, 'bullet', bullet.owner, impact, bullet.id); changed.add(target.id); }
+          this.event(state, { type: 'impact', projectileId: bullet.id, cause: target ? 'bullet' : 'terrain', team: bullet.team, drone: bullet.owner, target: target?.id, ...impact, message: target ? 'Projectile hit a drone.' : 'Projectile struck terrain.' });
         } else Object.assign(bullet, next);
         bullet.vy -= RTS_CONFIG.bulletGravity * h; bullet.age += h; elapsed += h;
       }
       if (!consumed && bullet.age < RTS_CONFIG.bulletLifetime - 1e-9) keep.push(bullet);
+      else if (!consumed) this.event(state, { type: 'projectile_expired', projectileId: bullet.id, cause: 'expired', team: bullet.team, drone: bullet.owner, ...position(bullet), message: 'Projectile expired without an impact.' });
     }
     match.projectiles = keep;
   }
 
-  private damage(state: GameState, drone: Drone, cause: 'terrain' | 'ram' | 'bullet', source?: DroneId) {
+  private damage(state: GameState, drone: Drone, cause: 'terrain' | 'ram' | 'bullet', source?: DroneId, impact?: Point, projectileId?: string) {
     if (!alive(drone)) return;
     this.cancelMining(drone); drone.action = undefined;
     if (equipment(drone).armor) {
       equipment(drone).armor = false; drone.status = 'Armor absorbed impact';
-      this.event(state, { type: 'armor_consumed', team: team(drone), drone: drone.id, target: source, ...position(drone), message: `${drone.id}'s armor absorbed ${cause === 'bullet' ? 'a bullet' : 'a collision'}.` });
+      this.event(state, { type: 'armor_consumed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id}'s armor absorbed ${cause === 'bullet' ? 'a bullet' : 'a collision'}.` });
     } else {
       drone.alive = false; drone.online = false; drone.status = 'Destroyed';
-      this.event(state, { type: 'destroyed', team: team(drone), drone: drone.id, target: source, ...position(drone), message: `${drone.id} was destroyed by ${cause}.` });
+      this.event(state, { type: 'destroyed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id} was destroyed by ${cause}.` });
     }
   }
 
@@ -239,7 +243,9 @@ export class RtsRules {
 
   private event(state: GameState, event: Omit<MatchEvent, 'id' | 'simTime'>) {
     const events = matchOf(state).events;
-    events.push({ ...event, id: randomUUID(), simTime: state.simTime });
+    const record = { ...event, id: randomUUID(), simTime: state.simTime };
+    events.push(record);
     if (events.length > 160) events.splice(0, events.length - 160);
+    this.onEvent?.(record);
   }
 }

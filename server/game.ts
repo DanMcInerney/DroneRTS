@@ -9,6 +9,7 @@ import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { Mailbox } from './mailbox.ts';
 import { CAMERA_PITCH_LIMITS, DroneMotion } from './drone-motion.ts';
 import { RtsRules } from './rts.ts';
+import type { RecordedObservation } from '../shared/replay.ts';
 import { ResourceVision } from './resource-vision.ts';
 import { MODEL, EFFORT, RTS_MISSION } from './runtime-tools.ts';
 
@@ -35,7 +36,7 @@ export class FleetGame extends EventEmitter {
   private playerQueue: Array<{ id: string; text: string; team: TeamId; bootstrap?: boolean }> = [];
   private playerWake = new Set<() => void>();
   private serial = 0;
-  private rules = new RtsRules();
+  private rules = new RtsRules(event => this.emit('match-event', event));
   private vision = new ResourceVision();
   private teamMissions: Record<TeamId, number> = { blue: 0, red: 0 };
   private connected = false;
@@ -290,6 +291,12 @@ export class FleetGame extends EventEmitter {
     if (image) bundle.content.push(image);
     if (result.isError) bundle.isError = true;
     this.emit('observation', { drone: role, sensors, mission: this.droneMissions[role], deliveredCursor: inbox.cursor, eventCount: inbox.events.length });
+    // Acquisition evidence goes only to the player recorder, never into the tool bundle.
+    // Emit the final delivered sample, excluding obsolete recaptures and retired actors.
+    if (this.listenerCount('recorded-observation')) this.emit('recorded-observation', {
+      drone: role, pose: sample.pose, simTime: sample.simTime, capturedAt: sensors.timestamp.capturedAt,
+      mission: sample.mission, ...(image?.type === 'image' ? { image: { mimeType: image.mimeType, data: image.data } } : {}),
+    } satisfies RecordedObservation);
     return bundle;
   }
 

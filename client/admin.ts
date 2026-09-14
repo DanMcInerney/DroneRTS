@@ -2,6 +2,8 @@ import './admin.css';
 
 import { DIAGNOSTIC_CATEGORIES as categories, type DiagnosticEvent as Event, type DiagnosticPage as Page, type DiagnosticSession as Session, type DiagnosticStatus as Status } from '../shared/diagnostics';
 import { dronePresentation } from './drone-presentation';
+import { ReplayViewer } from './replay';
+import { auditReplayTime } from './replay-model';
 
 const sizes = (bytes: number) => bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 const roleName = (role: string) => role.startsWith('drone-') ? dronePresentation(role).label : role.replace(/^parent$/, 'Relay').replace(/^operator$/, 'Operator');
@@ -26,13 +28,14 @@ export function mountAdmin() {
       <section class="admin-console" aria-label="Session event explorer">
         <div class="admin-console-top"><div><div class="admin-kicker">SESSION EXPLORER</div><h2>Follow the evidence.</h2></div><div class="admin-session-actions"><button id="admin-export" class="admin-button" type="button">↓ Export log</button><button id="admin-follow" class="admin-button admin-follow active" type="button" aria-pressed="true"><span>Ⅱ</span> Pause feed</button></div></div>
         <div class="admin-session-bar"><label>SESSION<select id="admin-session" aria-label="Session log"><option value="">Loading sessions…</option></select></label><span id="admin-session-info">Local audit files</span><button id="admin-refresh" class="admin-text-button" type="button">Jump to latest ↗</button></div>
+        <div id="admin-replay-host"></div>
         <div class="admin-filterbar"><nav class="admin-tabs" aria-label="Event categories">${categories.map(([id, label]) => `<button data-category="${id}" class="${id === 'all' ? 'selected' : ''}" type="button" aria-pressed="${id === 'all'}">${label}</button>`).join('')}</nav><div class="admin-searchbar"><label class="admin-search"><span aria-hidden="true">⌕</span><input id="admin-search" type="search" placeholder="Search payload, message or tool…" maxlength="200" aria-label="Search recorded events" /></label><select id="admin-role" aria-label="Filter actor"><option value="all">Every actor</option><option value="parent">Relay</option><option value="operator">Operator</option><option value="player">Player</option></select></div></div>
         <div class="admin-evidence-note" id="admin-evidence-note">Events are recorded evidence. Expand a row for the redacted source JSON. Opening a row pauses the feed.</div>
         <div class="admin-timeline-header"><span>TIME / ACTOR</span><span>EVENT & PAYLOAD</span><span id="admin-event-count">0 events loaded</span></div>
         <div class="admin-timeline" id="admin-timeline" aria-label="Recorded session events"></div>
         <div class="admin-console-footer"><button id="admin-older" class="admin-button" type="button" disabled>↑ Load earlier events</button><span id="admin-window">Up to 600 events in this view</span><button id="admin-export-view" class="admin-text-button" type="button">Export visible JSONL</button></div>
       </section>
-      <footer class="admin-footnote"><span><b>What is captured</b> Zenoh application envelopes and acknowledgements; sampled, CRC-validated MAVLink packet hex and decoded fields; tool calls, results and runtime-provided reasoning summaries.</span><span><b>What is unavailable</b> Hidden model reasoning is not exposed. Older sessions may lack summaries or packet bytes. Images and credentials are omitted. Peer payloads are not a TCP packet capture. Sampling limits appear in each wire record.</span></footer>
+      <footer class="admin-footnote"><span><b>What is captured</b> Zenoh application envelopes and acknowledgements; sampled, CRC-validated MAVLink packet hex and decoded fields; tool calls, results and runtime-provided reasoning summaries. New sessions also record bounded match replays and acquired camera images.</span><span><b>What is unavailable</b> Hidden model reasoning is not exposed. Older sessions may lack replay, summaries or packet bytes. Credentials and inline audit images are omitted. Peer payloads are not a TCP packet capture. Recording and sampling limits appear beside the evidence.</span></footer>
     </div>`;
   document.body.append(panel);
   const el = <T extends HTMLElement = HTMLElement>(id: string) => panel.querySelector<T>(`#${id}`)!;
@@ -42,9 +45,11 @@ export function mountAdmin() {
   let sessions: Session[] = [], activeSession: string | null = null, sessionRefresh = 0, timer: ReturnType<typeof setTimeout> | undefined, debounce: ReturnType<typeof setTimeout> | undefined;
   let restoreFocus: HTMLElement | null = null, previousOverflow = '', previousHash = '';
   const opened = new Set<number>();
+  const replay = new ReplayViewer(el('admin-replay-host'));
+  let requests = new AbortController();
   const error = (message = '') => { el('admin-error').textContent = message; el('admin-error').hidden = !message; };
   async function request<T>(path: string): Promise<T> {
-    const response = await fetch(`/api/diagnostics${path}`, { cache: 'no-store' });
+    const response = await fetch(`/api/diagnostics${path}`, { cache: 'no-store', signal: requests.signal });
     const value = await response.json(); if (!response.ok) throw new Error(value.error || 'Diagnostics request failed.'); return value;
   }
   function setLive(value: boolean) { live = value; follow.classList.toggle('active', value); follow.setAttribute('aria-pressed', String(value)); follow.textContent = value ? 'Ⅱ Pause feed' : '▶ Resume feed'; }
@@ -98,6 +103,11 @@ export function mountAdmin() {
       const label = document.createElement('span'); label.textContent = `RECORDED SOURCE · BYTE ${event.offset.toLocaleString()} · REDACTED`;
       const pre = document.createElement('pre'); pre.textContent = JSON.stringify({ wallTime: event.wallTime, type: event.type, value: event.value }, null, 2);
       details.append(label, pre); row.append(summary, details);
+      const replayTime = auditReplayTime(event.value);
+      if (replayTime !== undefined) {
+        summary.title = `Seek replay to ${replayTime.toFixed(2)} simulation seconds`;
+        summary.addEventListener('click', () => replay.seek(replayTime));
+      }
       row.addEventListener('toggle', () => { if (row.open) { opened.add(event.offset); setLive(false); } else opened.delete(event.offset); }); fragment.append(row);
     }
     timeline.replaceChildren(fragment); timeline.scrollTop = live ? timeline.scrollHeight : oldScroll;
@@ -132,9 +142,12 @@ export function mountAdmin() {
   function sessionInfo() {
     const selected = sessions.find(item => item.id === session.value);
     el('admin-session-info').textContent = selected ? `${selected.id === activeSession ? 'CURRENT SESSION' : 'HISTORICAL SESSION'} · ${sizes(selected.bytes)}` : 'No local audit files';
+    replay.setSession(session.value, session.value === activeSession);
   }
   async function refreshSessions() {
+    const version = generation;
     const data = await request<{ sessions: Session[]; activeSession: string | null }>('/sessions');
+    if (!visible || version !== generation) return false;
     const selected = session.value; sessions = data.sessions; activeSession = data.activeSession;
     session.replaceChildren(...sessions.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = `${date(item.updatedAt)}${item.id === data.activeSession ? ' · LIVE' : ''} · ${sizes(item.bytes)}`; return option; }));
     if (!sessions.length) { const option = document.createElement('option'); option.value = ''; option.textContent = 'No sessions recorded yet'; session.append(option); }
@@ -143,6 +156,7 @@ export function mountAdmin() {
     return selected !== session.value;
   }
   async function load(mode: 'latest' | 'older' | 'tail') {
+    if (!visible) return;
     if (!session.value) { events = []; renderEvents(); return; }
     const version = generation, id = session.value;
     const params = new URLSearchParams({ limit: '150', category, role: role.value, q: search.value });
@@ -162,17 +176,20 @@ export function mountAdmin() {
   }
   async function refresh(mode: 'latest' | 'older' | 'tail' = 'tail') {
     if (busy || !visible) return;
+    const version = generation;
     busy = true; el<HTMLButtonElement>('admin-older').disabled = true;
     try {
-      const results = await Promise.allSettled([request<Status>('/status').then(renderStatus), Date.now() - sessionRefresh > 10_000 ? refreshSessions() : Promise.resolve(false)]);
+      const results = await Promise.allSettled([request<Status>('/status').then(status => { if (visible && version === generation) renderStatus(status); }), Date.now() - sessionRefresh > 10_000 ? refreshSessions() : Promise.resolve(false)]);
+      if (!visible || version !== generation) return;
       const selectionChanged = results[1].status === 'fulfilled' && results[1].value;
       if (live || mode !== 'tail' || selectionChanged) await load(selectionChanged ? 'latest' : mode);
       const failed = results.find(result => result.status === 'rejected');
-      error(failed?.status === 'rejected' ? String(failed.reason instanceof Error ? failed.reason.message : failed.reason) : '');
-    } catch (failure) { error(failure instanceof Error ? failure.message : 'Could not read diagnostics.'); }
+      if (failed?.status !== 'rejected' || !(failed.reason instanceof DOMException && failed.reason.name === 'AbortError')) error(failed?.status === 'rejected' ? String(failed.reason instanceof Error ? failed.reason.message : failed.reason) : '');
+    } catch (failure) { if (!(failure instanceof DOMException && failure.name === 'AbortError')) error(failure instanceof Error ? failure.message : 'Could not read diagnostics.'); }
     finally { busy = false; el<HTMLButtonElement>('admin-older').disabled = !hasOlder; }
   }
   function filters() {
+    requests.abort(); requests = new AbortController();
     generation++; events = []; next = 0; before = 0; hasOlder = false;
     const notes: Record<string, string> = { network: 'Zenoh application payloads, durable receipts, link changes and retries. Open payload records for topics and envelopes. This is not a TCP packet capture.', mavlink: 'Actual received MAVLink 2 datagrams with CRC validation, hexadecimal bytes and decoded fields. Telemetry and burst logging are sampled; records state their limits.', agents: 'Recorded agent messages, runtime events and runtime-provided reasoning summaries. Hidden reasoning is unavailable; older sessions may have no summaries.' };
     el('admin-evidence-note').textContent = notes[category] ?? 'Events are recorded evidence. Expand a row for the redacted source JSON. Opening a row pauses the feed.';
@@ -209,6 +226,7 @@ export function mountAdmin() {
   function route() {
     const open = location.hash === '#admin'; if (open === visible) return;
     visible = open; panel.hidden = !open; generation++;
+    requests.abort(); requests = new AbortController(); replay.setVisible(open);
     const app = document.querySelector<HTMLElement>('#app'); if (app) app.inert = open;
     clearTimeout(timer);
     if (open) {

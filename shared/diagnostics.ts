@@ -3,7 +3,7 @@ import type { GameState, RuntimeState } from './types';
 /** Read-only player diagnostics contract, independent of the agent tool surface. */
 export const DIAGNOSTIC_CATEGORIES = [
   ['all', 'All events'], ['network', 'Peer radio'], ['mavlink', 'MAVLink'],
-  ['agents', 'Agent activity'], ['tools', 'Tool calls'], ['sensors', 'Observations'],
+  ['agents', 'Agent activity'], ['tools', 'Tool calls'], ['sensors', 'Observations'], ['combat', 'Combat'],
   ['system', 'System'], ['errors', 'Errors'],
 ] as const;
 export type DiagnosticCategory = typeof DIAGNOSTIC_CATEGORIES[number][0];
