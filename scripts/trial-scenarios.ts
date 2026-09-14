@@ -1,7 +1,7 @@
 /** Developer-only arrangements and objectives; never imported by production gameplay. */
 import type { FleetGame } from '../server/game.ts';
 
-export const SCENARIOS = ['flight', 'aim-stationary', 'aim-moving', 'match'] as const;
+export const SCENARIOS = ['flight', 'aim-stationary', 'aim-moving', 'encounter', 'encounter-reversed', 'match'] as const;
 export type TrialScenario = typeof SCENARIOS[number];
 
 export function arrangeTrial(game: FleetGame, scenario: TrialScenario) {
@@ -11,13 +11,21 @@ export function arrangeTrial(game: FleetGame, scenario: TrialScenario) {
     game.queueMission(mission, 'blue'); game.queueMission(mission, 'red');
     return { fixture: false, description: 'Production opening; flight-only operator objective.', missions: { blue: mission, red: mission } };
   }
-  // Three spaced, initially visible pairs above the city. This is an aiming fixture,
-  // not evidence of resource discovery, purchase decisions or enemy acquisition.
+  // Three spaced, initially visible pairs above the city. These fixtures do not
+  // establish resource discovery, purchase decisions or enemy acquisition.
+  const encounter = scenario === 'encounter' || scenario === 'encounter-reversed';
   for (const [index, drone] of game.state.drones.entries()) {
     const blue = drone.team === 'blue';
-    Object.assign(drone, { x: -45 + (index % 3) * 20, y: 30, z: blue ? 40 : 26,
-      yaw: blue ? 8 : 180, pitch: 0 });
-    drone.equipment = { gun: blue, armor: false, miner: false };
+    const north = scenario === 'encounter-reversed' ? blue : !blue;
+    Object.assign(drone, { x: -45 + (index % 3) * 20, y: 30, z: north ? 26 : 40,
+      yaw: (north ? 180 : 0) + (encounter || blue ? 8 : 0), pitch: 0 });
+    drone.equipment = { gun: blue || encounter, armor: false, miner: false };
+  }
+  if (encounter) {
+    const mission = 'This is a combat encounter trial. Eliminate the opposing team while keeping your team alive. Use your attached gun, choose your own movement and aim, and coordinate with teammates using what you observe. Avoid contact with terrain, buildings and other drones, and avoid friendly fire. Do not mine or buy during this trial.';
+    game.queueMission(mission, 'blue'); game.queueMission(mission, 'red');
+    return { fixture: true, description: 'Three initially visible opposing pairs; both teams receive guns, equal camera offsets and the same combat objective. Movement and aiming are autonomous. No geometry or calibration is sent to agents.',
+      missions: { blue: mission, red: mission }, initialDrones: structuredClone(game.state.drones) };
   }
   const blue = 'This is an aiming practice trial. Use your attached gun to engage enemy drones that you can see. Hold your position while testing camera aim and firing. Learn from successive camera observations and share useful findings with teammates. Avoid friendly fire. Do not mine or buy during this trial.';
   const red = scenario === 'aim-stationary'

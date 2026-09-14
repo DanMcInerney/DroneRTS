@@ -22,7 +22,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Native actor hosting | `server/runtime*.ts` | Model verification, isolated settings, clean child bootstrap, role tokens, policy enforcement and dynamic MCP tool lists. Parents have only the mechanical relay; drone tools unlock from game-owned capabilities. |
 | Browser composition | `client/scene.ts` | One renderer serves six feeds, tactical map, explorer and truthful sensor captures. Display interpolation is never used for capture. |
 | Physical visual state | `client/drone-model.ts`, `client/drone-visuals.ts`, `client/combat-view.ts` | ID-keyed bodies, equipment, visible damage, finite salvage and projectile geometry. Snapshot capture temporarily applies the captured world state and restores presentation afterward. |
-| Player information | `client/match-panel.ts`, `client/overhead-map.ts`, `client/fleet-panels.ts` | Team banks, resource meters, combat events, map markers and cards are spectator DOM overlays, outside camera images. |
+| Player information | `client/match-panel.ts`, `client/overhead-map.ts`, `client/fleet-panels.ts`, `client/drone-radio.ts` | Team banks, resource meters, combat events, map markers and cards are spectator DOM overlays, outside camera images. |
 | Invisible observer | `client/explorer.ts` | Independent free camera with altitude-sensitive travel; does not create a unit or change its sensors. |
 | Diagnostics | `server/diagnostics.ts`, `shared/diagnostics.ts`, `client/admin.ts` | Bounded/redacted local audit queries, evidence types and admin UI. Available reasoning summaries are distinguished from unavailable hidden reasoning. |
 | Replay evidence contract | `shared/replay.ts` | Versioned player-only scene header, sampled frames, commands, acquired observations, combat events and terminal status. No actor-facing import. |
@@ -33,7 +33,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Application lifecycle | `server/index.ts` | HTTP/WebSocket connections, capture delivery, match startup/stop, browser disconnect timeout and protocol/runtime failures. |
 | Developer trial arrangements | `scripts/trial-scenarios.ts` | Flight objectives and explicit aiming fixtures; never imported by production prompts, rules or hosting. |
 | Bounded live evaluation | `scripts/playtest-focused.ts`, `scripts/trial-host.ts` | Port checks, source fingerprint, time limit and owned test-host lifecycle. Composes the existing game, team session, native transports, actual browser cameras and replay writer. |
-| Developer measurements | `scripts/measure-controls.ts`, `scripts/analyze-trial.ts` | Prescribed no-inference control fixtures and offline analysis of real trial records. Private calibration and spectator telemetry stay outside actor observations. |
+| Developer measurements | `scripts/measure-controls.ts`, `scripts/analyze-trial.ts`, `scripts/analyze-engagement.ts` | Prescribed no-inference control fixtures and offline flight, combat, viewing-opportunity and timing analysis of real trial records. Private calibration and spectator telemetry stay outside actor observations. |
 
 ## Team and actor isolation
 

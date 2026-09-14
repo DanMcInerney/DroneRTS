@@ -1,8 +1,9 @@
 import type { WorldState } from './types';
 import type { DroneViewport } from './scene';
 import { dronePresentation } from './drone-presentation';
+import { DroneRadio } from './drone-radio';
 
-type Panels = { card: HTMLElement; mapItem: HTMLElement; networkItem: HTMLElement };
+type Panels = { card: HTMLElement; mapItem: HTMLElement; networkItem: HTMLElement; radio: DroneRadio };
 
 /** Reconciles all per-drone panels by identity and owns their telemetry display. */
 export class FleetPanels {
@@ -56,13 +57,16 @@ export class FleetPanels {
     networkItem.querySelector('strong')!.textContent = identity.label.toUpperCase();
     networkItem.querySelector('span')!.id = `network-info-${suffix}`;
     const button = networkItem.querySelector('button')!; button.id = `network-link-${suffix}`; button.addEventListener('click', () => this.onLink(id));
-    return { card, mapItem, networkItem };
+    const radioRoot = document.createElement('section'); radioRoot.className = 'drone-radio'; card.append(radioRoot);
+    const radio = new DroneRadio(radioRoot, id);
+    return { card, mapItem, networkItem, radio };
   }
 
   update(state: WorldState, connectionReady: boolean) {
     const peers = new Map(state.network?.peers.map(peer => [peer.id, peer]) ?? []);
     for (const drone of state.drones) {
       const items = this.panels.get(drone.id); if (!items) continue;
+      items.radio.update(state.radio);
       const put = (selector: string, value: string) => { items.card.querySelector<HTMLElement>(selector)!.textContent = value; };
       put('.drone-connection', drone.alive === false ? 'ELIMINATED' : drone.online ? 'CONNECTED' : 'OFFLINE'); items.card.classList.toggle('drone-online', drone.online);
       items.card.classList.toggle('drone-eliminated', drone.alive === false);

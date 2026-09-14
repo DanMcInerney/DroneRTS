@@ -1,11 +1,11 @@
 import './style.css';
 import './explorer.css';
 import './rts.css';
+import './dashboard.css';
 import { FleetScene } from './scene';
 import type { Pose, WorldState } from './types';
 import { mountAdmin } from './admin';
 import { MATCH_DRONE_IDS } from '../shared/fleet';
-import { dronePresentation } from './drone-presentation';
 import { FleetPanels } from './fleet-panels';
 import { layout } from './layout';
 import { MatchPanel } from './match-panel';
@@ -21,7 +21,6 @@ const resetButton = element<HTMLButtonElement>('reset');
 const sendButton = element<HTMLButtonElement>('send');
 const instruction = element<HTMLTextAreaElement>('instruction');
 const speedSlider = element<HTMLInputElement>('speed');
-const radioLog = element('radio-log');
 const panels = new FleetPanels(element('fleet-feeds'), element('map-fleet-list'), element('network-peers'), async droneId => {
   const peer = state?.network?.peers.find(peer => peer.id === droneId);
   if (peer) await command('network/link', { droneId, online: !peer.online });
@@ -33,7 +32,6 @@ let state: WorldState | undefined;
 let socket: WebSocket | undefined;
 let connected = false;
 let busy = false;
-let radioSignature = '';
 let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
 function alertMessage(message: string) { element('alert-text').textContent = message; element('alert').hidden = false; }
@@ -52,31 +50,6 @@ function updateControls() {
 }
 function setConnection(value: boolean) { connected = value; element('connection-text').textContent = value ? 'Simulator connected' : 'Reconnecting to simulator'; element('connection-dot').classList.toggle('online', value); updateControls(); }
 
-function renderRadio(messages: WorldState['radio']) {
-  const signature = `${messages.length}:${messages[0]?.id}:${messages.at(-1)?.id}`;
-  if (signature === radioSignature) return;
-  radioSignature = signature; element('radio-count').textContent = String(messages.length);
-  if (!messages.length) {
-    radioLog.replaceChildren(); const empty = document.createElement('div'); empty.className = 'empty-radio';
-    empty.innerHTML = '<div class="radio-icon" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div><strong>The airwaves are quiet.</strong><p>Peer messages appear here as the drones explore,<br />share discoveries, and choose their next moves.</p><span>Only messages actually sent by the fleet are shown.</span>';
-    radioLog.append(empty); return;
-  }
-  const follow = element<HTMLInputElement>('follow-radio').checked, oldScroll = radioLog.scrollTop;
-  const fragment = document.createDocumentFragment();
-  messages.forEach(message => {
-    const row = document.createElement('article'); row.className = `radio-message ${message.from.startsWith('drone-') ? message.from : 'system-message'}`;
-    const meta = document.createElement('div'); meta.className = 'radio-meta';
-    const sender = document.createElement('strong'); sender.textContent = dronePresentation(message.from).label.toUpperCase();
-    if (message.from.startsWith('drone-')) sender.style.color = dronePresentation(message.from).color;
-    const recipient = document.createElement('span'); recipient.textContent = `→ ${message.to === 'all' ? 'TEAM' : dronePresentation(message.to).label.toUpperCase()}`;
-    const kind = document.createElement('span'); kind.className = 'message-kind'; kind.textContent = message.kind;
-    const time = document.createElement('time'); time.textContent = clock(message.simTime);
-    const body = document.createElement('p'); body.textContent = message.text;
-    meta.append(sender, recipient, kind, time); row.append(meta, body); fragment.append(row);
-  });
-  radioLog.replaceChildren(fragment); radioLog.scrollTop = follow ? radioLog.scrollHeight : oldScroll;
-}
-
 function renderState(next: WorldState) {
   state = next;
   const views = panels.reconcile(next.drones.map(drone => drone.id));
@@ -92,7 +65,7 @@ function renderState(next: WorldState) {
   if (document.activeElement !== speedSlider) speedSlider.value = String(next.speed);
   element('speed-value').textContent = `${next.speed}×`;
   element('network-status').textContent = next.network?.message ?? 'Launch the fleet to connect.';
-  renderRadio(next.radio); updateControls();
+  updateControls();
 }
 
 async function post(path: string, body?: unknown) {
@@ -127,7 +100,6 @@ for (const scope of ['entire', 'downtown']) element(`map-${scope}`).addEventList
   scene?.fitOverview(scope === 'downtown');
   for (const option of ['entire', 'downtown']) element(`map-${option}`).setAttribute('aria-pressed', String(option === scope));
 });
-element('follow-radio').addEventListener('change', () => { if (element<HTMLInputElement>('follow-radio').checked) radioLog.scrollTop = radioLog.scrollHeight; });
 
 function connect() {
   socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);

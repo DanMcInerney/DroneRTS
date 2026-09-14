@@ -7,32 +7,16 @@ const timestamp = (time: number) => `${Math.floor(time / 60).toString().padStart
 /** Spectator match information is DOM-only, so never enters optical observations. */
 export class MatchPanel {
   private eventSignature = '';
-  private rosterSignature = '';
 
   update(state: WorldState) {
     const match = state.match;
-    element('match-phase').textContent = match?.phase === 'active' ? state.running ? 'IN PLAY' : 'STOPPED' : match?.phase === 'finished' ? 'FINAL' : 'READY';
+    element('match-phase').textContent = match?.phase === 'active' ? state.running ? 'IN PLAY' : 'STOPPED' : match?.phase === 'finished' ? match.winner === 'blue' ? 'BLUE WINS' : match.winner === 'red' ? 'RED WINS' : 'DRAW' : 'READY';
     for (const team of ['blue', 'red'] as const) {
       const drones = state.drones.filter(drone => (drone.team ?? dronePresentation(drone.id).team ?? 'blue') === team);
       const alive = drones.filter(drone => drone.alive !== false).length;
       element(`${team}-alive`).replaceChildren(document.createTextNode(String(alive)));
       const total = document.createElement('span'); total.textContent = ` / ${drones.length}`; element(`${team}-alive`).append(total);
       element(`${team}-credits`).textContent = Math.floor((match?.teams[team].credits ?? 0) + 1e-9).toLocaleString();
-    }
-    const rosterSignature = JSON.stringify(state.drones.map(drone => [drone.id, drone.alive, drone.equipment]));
-    if (rosterSignature !== this.rosterSignature) {
-      this.rosterSignature = rosterSignature;
-      for (const team of ['blue', 'red'] as const) {
-        const roster = document.createDocumentFragment();
-        for (const drone of state.drones.filter(drone => (drone.team ?? dronePresentation(drone.id).team ?? 'blue') === team)) {
-          const card = document.createElement('div'); card.className = `roster-unit ${drone.alive === false ? 'eliminated' : ''}`;
-          const name = document.createElement('strong'); name.textContent = dronePresentation(drone.id).label;
-          const loadout = document.createElement('span');
-          loadout.textContent = drone.alive === false ? 'ELIMINATED' : [drone.equipment?.gun && 'Gun', drone.equipment?.armor && 'Armor', drone.equipment?.miner && 'Miner'].filter(Boolean).join(' · ') || 'Unequipped';
-          card.append(name, loadout); roster.append(card);
-        }
-        element(`${team}-roster`).replaceChildren(roster);
-      }
     }
     const resources = document.createDocumentFragment();
     for (const [index, resource] of (match?.resources ?? []).entries()) {
