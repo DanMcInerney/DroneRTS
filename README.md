@@ -1,8 +1,10 @@
-# Drone Fleet PoC
+# DroneRTS
 
 A local Three.js treasure hunt in a simple cube model of downtown Cincinnati, with three FPV cameras, a radio transcript and a plain-English mission box. One real Codex session launches three native drone subagents. The parent forwards player instructions; the drones choose their own movements and communicate through a small radio protocol.
 
 All four gameplay actors are configured as **gpt-5.6-luna / xhigh**. The runtime checks the installed model list before starting inference and does not substitute another model.
+
+Open this repository's root folder as your development workspace. [AGENTS.md](AGENTS.md) provides the project context, development commands and sensor boundaries for a coding agent continuing the work.
 
 ## Run
 
