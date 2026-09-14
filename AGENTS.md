@@ -12,6 +12,7 @@ This is a standalone Git repository for a local Three.js drone swarm RTS. Two te
 - Before restarting a server or launching a test mission, inspect `/api/state`. Preserve an active player session on port 4317; use an isolated server with `FLEET_PORT=4318` for automated live trials. Keep live trials bounded and stop the test fleet/server afterward.
 - Use the Codex sidebar browser for watchable playtests when available. The user has also authorized isolated Playwright as a fallback. Do not start inference merely to validate documentation or a folder move.
 - `node --import tsx scripts/verify-rts.ts` exercises a deterministic browser fixture without inference. `node --import tsx scripts/playtest-rts.ts` runs bounded real two-team Luna/xhigh inference. Current results belong in `RTS-PLAYTEST.md`; preserve historical reports as evidence of their own revisions.
+- Focused evaluation commands and their fixture boundaries are documented in README.md. `scripts/measure-controls.ts` needs no server or inference. `scripts/playtest-focused.ts` owns port 4318 and launches actual actors; do not run it alongside another server on that port. Analyze saved evidence with `scripts/analyze-trial.ts` before claiming a moving-target hit or autonomous skill.
 
 ## Preserve the experiment
 

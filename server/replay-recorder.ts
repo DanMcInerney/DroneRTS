@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { open, rename, unlink, writeFile, type FileHandle } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { DroneId, GameState } from '../shared/types.ts';
@@ -42,16 +43,16 @@ export class ReplayRecorder {
   private stopping?: Promise<void>;
   private pendingEnd?: ReplayEnd;
 
-  private constructor(private options: RecorderOptions) {
+  private constructor(private options: RecorderOptions, private replaceStatus = rename) {
     this.limits = { ...REPLAY_LIMITS, ...options.limits };
     for (const [key, value] of Object.entries(this.limits)) {
       if (!Number.isSafeInteger(value) || value < 1 || value > REPLAY_LIMITS[key as keyof ReplayLimits]) throw new Error(`Invalid replay ${key} limit.`);
     }
   }
 
-  static async create(options: RecorderOptions): Promise<ReplayRecorder> {
+  static async create(options: RecorderOptions, io: { replaceStatus?: typeof rename } = {}): Promise<ReplayRecorder> {
     // Invalid optional limits are a programmer error; filesystem failures are not.
-    const recorder = new ReplayRecorder(options);
+    const recorder = new ReplayRecorder(options, io.replaceStatus);
     try {
       const header = Buffer.from(JSON.stringify(options.header) + '\n');
       if (header.length > MAX_HEADER || header.length + END_RESERVE > recorder.limits.dataBytes) throw new Error('Replay header exceeds the recording budget.');
@@ -72,7 +73,17 @@ export class ReplayRecorder {
     const temporary = resolve(this.directory, `status-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, JSON.stringify({ state, ...(message ? { message } : {}) }), { flag: 'wx' });
-      await rename(temporary, resolve(this.directory, 'status.json'));
+      // Windows can briefly deny replacement while a reader or scanner holds the
+      // destination. Keep the old complete marker available and retry atomically;
+      // persistent failures still reach the normal explicit error path.
+      const backoff = [10, 25, 50, 100, 200];
+      for (let attempt = 0; ; attempt++) {
+        try { await this.replaceStatus(temporary, resolve(this.directory, 'status.json')); break; }
+        catch (error) {
+          if (attempt === backoff.length || !['EPERM', 'EACCES', 'EBUSY'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+          await delay(backoff[attempt]);
+        }
+      }
     } finally { await unlink(temporary).catch(() => {}); }
   }
   private async write(data: Buffer) {

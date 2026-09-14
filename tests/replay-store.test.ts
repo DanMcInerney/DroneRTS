@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
@@ -64,6 +64,58 @@ test('default recording retains one simultaneous camera observation from every m
   assert.ok(cameras.every(camera => camera.imageAvailable));
   for (const camera of cameras) assert.deepEqual(await readFile(join(session, camera.imageId!)), Buffer.from(png, 'base64'));
   assert.equal(saved.find(record => record.type === 'end')?.reason, 'stopped');
+  assert.deepEqual(warnings, []);
+});
+
+test('transient status replacement contention preserves a completed readable replay and camera', async t => {
+  const { directory, session, store } = await fixture(t), warnings: string[] = [];
+  let blocked = 0;
+  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, onWarning: message => warnings.push(message) }, {
+    replaceStatus: async (from, to) => {
+      if (JSON.parse(await readFile(from, 'utf8')).state === 'stopped' && blocked++ < 2) {
+        assert.equal(JSON.parse(await readFile(to, 'utf8')).state, 'recording');
+        assert.ok((await store.page(id)).available);
+        throw Object.assign(new Error('Destination is temporarily shared'), { code: 'EPERM' });
+      }
+      await rename(from, to);
+    },
+  });
+  recorder.recordObservation(observation()); await recorder.stop(1);
+  const saved = await records(store), camera = saved.find(r => r.type === 'observation')!;
+  assert.equal(saved.at(-1)?.type, 'end');
+  assert.equal(JSON.parse(await readFile(join(session, 'status.json'), 'utf8')).state, 'stopped');
+  assert.deepEqual(await readFile(join(session, camera.imageId!)), Buffer.from(png, 'base64'));
+  assert.deepEqual(warnings, []); assert.equal(blocked, 3);
+  assert.equal((await readdir(session)).some(name => name.endsWith('.tmp')), false);
+});
+
+for (const code of ['EACCES', 'ENOSPC']) test(`persistent ${code} status failure remains explicit and bounded`, async t => {
+  const { directory, session, store } = await fixture(t), warnings: string[] = [];
+  let attempts = 0;
+  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, onWarning: message => warnings.push(message) }, {
+    replaceStatus: async (from, to) => {
+      if (JSON.parse(await readFile(from, 'utf8')).state === 'stopped') {
+        attempts++; throw Object.assign(new Error('Status replacement denied'), { code });
+      }
+      await rename(from, to);
+    },
+  });
+  recorder.recordFrame(state(0)); await recorder.stop(1);
+  assert.equal(attempts, code === 'EACCES' ? 6 : 1);
+  assert.equal(warnings.length, 1);
+  assert.equal(JSON.parse(await readFile(join(session, 'status.json'), 'utf8')).state, 'error');
+  await assert.rejects(store.page(id), /recording failed/);
+  assert.equal((await readdir(session)).some(name => name.endsWith('.tmp')), false);
+});
+
+test('concurrent real replay reads and final status replacement stay readable', async t => {
+  const { directory, store } = await fixture(t), warnings: string[] = [];
+  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, onWarning: message => warnings.push(message) });
+  recorder.recordFrame(state(0)); recorder.recordObservation(observation());
+  await Promise.all([recorder.stop(1), ...Array.from({ length: 8 }, async () => {
+    for (let i = 0; i < 12; i++) assert.ok((await store.page(id)).available);
+  })]);
+  assert.equal((await records(store)).at(-1)?.type, 'end');
   assert.deepEqual(warnings, []);
 });
 
