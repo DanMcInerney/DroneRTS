@@ -11,12 +11,12 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { FleetGame } from '../server/game.ts';
 import type { Pose } from '../shared/types.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const stage = process.argv[2] ?? 'after';
 assert.ok(['baseline', 'after', 'profile'].includes(stage));
 const port = Number(process.env.FLEET_QA_PORT ?? 4320);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317);
-const directory = resolve(process.env.FLEET_QA_OUTPUT ?? `artifacts/cargo-camera/${stage}`);
 const preflight: Record<string, unknown> = {};
 for (const checked of new Set([4317, 4318, port])) {
   try {
@@ -28,6 +28,7 @@ for (const checked of new Set([4317, 4318, port])) {
     else throw error;
   }
 }
+const { directory } = createArtifactRun(`cargo-camera-${stage}`, { output: process.env.FLEET_QA_OUTPUT });
 await mkdir(directory, { recursive: true });
 const game = new FleetGame(), app = express(), server = createServer(app);
 const sockets = new WebSocketServer({ server, path: '/ws' });

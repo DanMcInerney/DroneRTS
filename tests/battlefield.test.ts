@@ -78,7 +78,7 @@ test('each launch contains three complete drone bodies and its initial camera se
       const resourceSize = resourceZoneSize(node);
       assert.equal(insideZone(spawn, node, resourceSize), false, 'no spawn starts automatically mining');
       for (const sample of zoneSamples(node, resourceSize)) {
-        assert.ok(Math.hypot(sample.x - spawn.x, sample.y - spawn.y, sample.z - spawn.z) > 20, 'the entire deposit needs separation from launch');
+        assert.ok(Math.hypot(sample.x - spawn.x, sample.y - spawn.y, sample.z - spawn.z) > 8, 'the core map retains at least 80m of separation from every deposit surface');
         assert.equal(inFrame(sample) && clear(spawn, sample, 0), false, `${node.id} has a visible initial cube surface for drone ${index + 1}`);
       }
     }
@@ -121,6 +121,10 @@ test('all grounded aprons have clear airspace and three shared, separated servic
   for (const { zone, size } of zones) {
     assert.equal(zone.y, 0, `${zone.id} must be grounded`);
     assert.equal(zone.zoneSize, size, `${zone.id} explicitly records its visible interaction bounds`);
+    for (const axis of ['x', 'z'] as const) {
+      assert.ok(zone[axis] - size / 2 - RTS_CONFIG.droneRadius > CITY.bounds[axis][0]
+        && zone[axis] + size / 2 + RTS_CONFIG.droneRadius < CITY.bounds[axis][1], `${zone.id} needs its whole apron and airframe inside the map`);
+    }
     assert.ok(zoneSamples(zone, size).every(point => !water(point)), `${zone.id} must be dry across its footprint`);
     const cube = new OBB(new Vector3(zone.x, zone.y + size / 2, zone.z), new Vector3(size / 2, size / 2, size / 2));
     for (const building of CITY.buildings) {
@@ -147,7 +151,7 @@ test('all grounded aprons have clear airspace and three shared, separated servic
 
 test('both teams have paired opening routes and clear low-altitude access to the downtown mega deposit', () => {
   const [west, east] = BATTLEFIELD.servicePads;
-  assert.ok(Math.hypot(east.x - west.x, east.z - west.z) < 110);
+  assert.ok(Math.hypot(east.x - west.x, east.z - west.z) < 70);
   // A sparse visibility graph verifies actual safe street routes, rather than
   // treating straight lines through downtown buildings as available travel.
   const points = [...BATTLEFIELD.servicePads, ...BATTLEFIELD.resources, ...CITY.intersections]
@@ -200,7 +204,7 @@ test('central loading apron has more exposed low-altitude approach directions th
   }
 });
 
-test('the wider city has no forced square dimensions and permits terrain contact', () => {
+test('the downtown core has no forced square dimensions and permits terrain contact', () => {
   assert.notEqual(CITY.bounds.x[1] - CITY.bounds.x[0], CITY.bounds.z[1] - CITY.bounds.z[0]);
   assert.ok(CITY.bounds.y[0] < 0, 'downward calibration can result in a real terrain collision');
 });

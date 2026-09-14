@@ -3,22 +3,27 @@ import assert from 'node:assert/strict';
 import { CITY } from '../shared/city.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 
-test('downtown bounds retain sourced streets and riverfront at real scale', () => {
-  assert.deepEqual(CITY.bounds, { x: [-125, 115], y: [-5, 80], z: [-90, 100] });
+test('landmark-core bounds retain sourced streets and the skyline at real scale', () => {
+  assert.deepEqual(CITY.bounds, { x: [-32, 50], y: [-5, 80], z: [-20, 46] });
   assert.equal(CITY.cityBoundary.length, 0);
-  assert.ok(CITY.river.length > 10);
-  for (const p of [...CITY.river, ...CITY.roads.flatMap(road => road.points), ...CITY.spawns]) {
+  assert.equal(CITY.river.length, 0, 'the core ends north of the river; clipped zero-area rings are omitted');
+  for (const p of [...CITY.river, ...CITY.riverHoles.flat(), ...CITY.parks.flatMap(park => park.points),
+    ...CITY.roads.flatMap(road => road.points), ...CITY.spawns]) {
     assert.ok(p.x >= CITY.bounds.x[0] - 0.001 && p.x <= CITY.bounds.x[1] + 0.001);
     assert.ok(p.z >= CITY.bounds.z[0] - 0.001 && p.z <= CITY.bounds.z[1] + 0.001);
   }
 });
 
 test('Cincinnati scene retains mapped massing and skyline heights, with clear spawns and street intersections', () => {
-  assert.ok(CITY.buildings.length > 200); assert.ok(CITY.roads.length > 500);
+  assert.ok(CITY.buildings.length > 100); assert.ok(CITY.roads.length > 150);
   assert.ok(CITY.intersections.length >= 12);
   const top = (prefix: string) => Math.max(...CITY.buildings.filter(b => b.id?.startsWith(prefix)).map(b => b.height + (b.baseY ?? 0)));
   assert.ok(Math.abs(top('great-american-tower') - 20.27) < 0.002);
   assert.ok(Math.abs(top('carew-tower') - 17.5) < 0.002);
+  for (const id of ['fourth-vine-tower', 'scripps-center', 'fifth-third-center', 'netherland-plaza', 'chemed-center', 'pnc-center']) {
+    assert.ok(CITY.buildings.some(b => b.id?.startsWith(id)), `${id} remains in the landmark core`);
+  }
+  assert.ok(CITY.parks.some(park => park.name === 'Fountain Square'));
   for (const spawn of CITY.spawns) assert.equal(CITY.buildings.some(b => intersectsBuilding(spawn, spawn, b, 0.3)), false);
   for (const junction of CITY.intersections) {
     const centre = { x: junction.x, y: 0.55, z: junction.z };

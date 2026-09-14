@@ -9,6 +9,7 @@ import { FleetGame } from '../server/game.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import type { ToolResult } from '../shared/types.ts';
 import { CARGO_CONFIG, RTS_CONFIG, apronServicePositions } from '../shared/rts.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const port = Number(process.env.FLEET_QA_PORT ?? 4318);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Use an isolated QA port');
@@ -24,7 +25,7 @@ for (const checked of new Set([4317, 4318, port])) {
   }
 }
 assert.equal((await (await fetch(`${base}/api/state`)).json()).running, false, 'Preserve active match');
-const directory = resolve(process.env.FLEET_QA_OUTPUT ?? 'artifacts/rts-ui'); await mkdir(directory, { recursive: true });
+const { directory } = createArtifactRun('rts-ui', { output: process.env.FLEET_QA_OUTPUT }); await mkdir(directory, { recursive: true });
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
 const game = new FleetGame(); game.setConnected(true); game.start();
 game.capture = async () => 'data:image/jpeg;base64,AQID';

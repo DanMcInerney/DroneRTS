@@ -2,10 +2,10 @@ import { chromium, type Page } from '@playwright/test';
 import { appendFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const runName = `run-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-const artifactsDir = join(projectDir, 'artifacts', 'playtest', runName);
+const artifacts = createArtifactRun('playtest'), artifactsDir = artifacts.directory;
 const url = process.env.PLAYTEST_URL ?? 'http://127.0.0.1:4317';
 const defaultInstruction = 'Find the colored pads and have one drone hover over each.';
 const secondInstruction = 'Everyone hold position and briefly report your status.';
@@ -39,6 +39,7 @@ const result = {
 };
 
 await mkdir(artifactsDir, { recursive: true });
+const beforeSessions = new Set((await readdir(join(projectDir, 'artifacts'))).filter(name => /^session-.*\.jsonl$/.test(name)));
 await writeFile(join(artifactsDir, 'state-history.jsonl'), '');
 
 async function state(page: Page): Promise<State> {
@@ -59,7 +60,7 @@ async function waitFor(page: Page, predicate: (current: State) => boolean, timeo
 async function capture(page: Page, filename: string) {
   const path = join(artifactsDir, filename);
   await page.screenshot({ path, fullPage: false });
-  result.screenshots.push(`artifacts/playtest/${runName}/${filename}`);
+  result.screenshots.push(join(artifactsDir, filename));
 }
 
 async function record(page: Page, label: string) {
@@ -211,7 +212,7 @@ try {
 } finally {
   result.finishedAt = new Date().toISOString();
   const sessionFiles = (await readdir(join(projectDir, 'artifacts'))).filter(file => file.startsWith('session-') && file.endsWith('.jsonl')).sort();
-  const sessionFile = sessionFiles.at(-1);
+  const sessionFile = sessionFiles.filter(name => !beforeSessions.has(name)).at(-1);
   if (sessionFile) {
     const sessionPath = join(projectDir, 'artifacts', sessionFile);
     const lines = (await readFile(sessionPath, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line) as { type: string; value: any });
@@ -223,6 +224,10 @@ try {
     result.checks.sessionLog = { path: `artifacts/${sessionFile}`, counts, nativeCalls, toolCalls, observations, radio };
   }
   await capture(page, 'final-browser-state.png').catch(() => {});
+  if ((result.checks.stop as { running?: boolean } | undefined)?.running === false && sessionFile) {
+    artifacts.collectSession(sessionFile);
+    (result.checks.sessionLog as { path: string }).path = join(artifactsDir, sessionFile);
+  }
   await writeFile(join(artifactsDir, 'playtest-result.json'), JSON.stringify(result, null, 2) + '\n');
   if (process.env.PLAYTEST_HOLD_BROWSER !== '1') await browser.close();
 }

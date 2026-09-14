@@ -1,8 +1,18 @@
 /* Player diagnostics are DOM-only and do not enter camera captures. */
-.cargo-state{display:grid;gap:5px;padding:8px 12px;background:#292a1e;color:#e0cf94;font:8px/1.5 var(--mono)}
-.cargo-state strong{font-size:9px}.cargo-progress{height:4px;width:100%;accent-color:#dfbd65;border:0}
-.onboard-state{padding:8px 12px;background:#14242b;color:#99b6c1;font:8px/1.7 var(--mono);overflow-wrap:anywhere}
+.feed-card{container-type:inline-size}.onboard-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);background:#14242b}
+.onboard-row:has(.cargo-state[hidden]),.onboard-row:has(details[open]){grid-template-columns:minmax(0,1fr)}
+@container(max-width:340px){.onboard-row{grid-template-columns:minmax(0,1fr)}}
+.equipment-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;padding:5px 10px;background:#121c24}
+.equipment-row .loadout-strip,.equipment-row .equipment-state{padding:0;min-height:0;border:0;background:none;gap:5px}
+.equipment-row .equipment-state{margin-left:auto;font-size:8px}.equipment-row .equipment-state:empty{display:none}
+.cargo-state{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:4px 10px;padding:5px 10px;background:#292a1e;color:#e0cf94;font:9px/1.45 var(--mono)}
+.cargo-state strong{font-size:9px;white-space:nowrap}.logistics-label{text-align:right;overflow-wrap:anywhere}.cargo-progress{grid-column:1/-1;height:3px;width:100%;accent-color:#dfbd65;border:0}
+.onboard-row .cargo-state{display:flex;flex-wrap:wrap;align-content:center;gap:3px 8px}.onboard-row .logistics-label{flex:1}.onboard-row .cargo-progress{flex-basis:100%}
+.onboard-state{padding:5px 10px;background:#14242b;color:#99b6c1;font:9px/1.45 var(--mono);overflow-wrap:anywhere}
 .onboard-state summary{cursor:pointer;color:#bfd5dd}.onboard-state>span{display:block;margin-top:6px}
+.onboard-state>span:empty{display:none}.feed-card .feed-footer{min-height:28px;padding:5px 10px;flex-wrap:wrap;gap:4px 8px}.feed-card .coordinates{margin-left:auto}
+.feed-card .drone-radio-heading{height:25px;padding:0 10px}.feed-card .drone-radio-log{height:100px;padding:0 10px 6px}
+.feed-card .drone-radio-log:has(.drone-radio-empty),.feed-card .drone-radio-log:empty{height:auto;min-height:0}.feed-card .drone-radio-empty{padding:5px 0}
 .radio-delivery{display:block;margin:6px 0;color:#879fa9;font:7px/1.6 var(--mono);overflow-wrap:anywhere}
 .player-chat{margin:0 18px 10px;border:1px solid #304551;border-radius:4px}.player-chat .drone-radio-log{height:190px}
 .objective-action{font-size:9px;margin-top:8px}.cargo-state[hidden],.cargo-state [hidden],.loadout-strip [hidden]{display:none!important}

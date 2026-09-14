@@ -37,27 +37,35 @@ function localBox(parent, id, width, depth, x, z, height, baseY = 0) {
   return { ...parent, id: `${parent.id}-${id}`, x: parent.x + x * Math.cos(a) + z * Math.sin(a),
     z: parent.z - x * Math.sin(a) + z * Math.cos(a), width, depth, height, baseY };
 }
+function overlapsMap(box) {
+  const angle = box.rotation * Math.PI / 180, c = Math.abs(Math.cos(angle)), s = Math.abs(Math.sin(angle));
+  const halfX = (box.width * c + box.depth * s) / 2, halfZ = (box.width * s + box.depth * c) / 2;
+  return box.x + halfX >= bounds.x[0] && box.x - halfX <= bounds.x[1]
+    && box.z + halfZ >= bounds.z[0] && box.z - halfZ <= bounds.z[1];
+}
 const landmarkBoxes = source.landmarks.map(fit);
 const palette = ['#adbec3', '#d2c6b2', '#a8b5bb', '#baa995', '#b6c4c7', '#c3b5a4', '#d5cec0'];
-const buildings = source.buildings.map(fit).filter(box => Math.abs(box.x) < 104 && box.z > -81 && box.z < 82
-  && !landmarkBoxes.some(landmark => inside(box.x, box.z, landmark, 0.25)))
+const fittedBuildings = source.buildings.map(fit).filter(box => !landmarkBoxes.some(landmark => inside(box.x, box.z, landmark, 0.25)))
   .map((box, i) => ({ ...box, color: palette[i % palette.length] }));
 for (let i = 0; i < landmarkBoxes.length; i++) {
   const b = landmarkBoxes[i], record = source.landmarks[i];
   if (record.kind === 'stadium') {
     const wall = Math.min(b.width, b.depth) * 0.18;
-    buildings.push(localBox(b, 'north', b.width, wall, 0, -(b.depth - wall) / 2, b.height),
+    fittedBuildings.push(localBox(b, 'north', b.width, wall, 0, -(b.depth - wall) / 2, b.height),
       localBox(b, 'south', b.width, wall, 0, (b.depth - wall) / 2, b.height * 0.65),
       localBox(b, 'east', wall, b.depth - 2 * wall, (b.width - wall) / 2, 0, b.height * 0.85),
       localBox(b, 'west', wall, b.depth - 2 * wall, -(b.width - wall) / 2, 0, b.height * 0.85));
   } else if (['carew-tower', 'fourth-vine-tower', 'great-american-tower'].includes(b.id)) {
     // Three solid box tiers approximate the skyline; tiers share render and collision geometry.
     const base = b.height * 0.63, middle = b.height * 0.24, crown = b.height - base - middle;
-    buildings.push(localBox(b, 'base', b.width, b.depth, 0, 0, base),
+    fittedBuildings.push(localBox(b, 'base', b.width, b.depth, 0, 0, base),
       localBox(b, 'middle', b.width * 0.76, b.depth * 0.76, 0, 0, middle, base),
       localBox(b, 'crown', b.width * 0.48, b.depth * 0.48, 0, 0, crown, base + middle));
-  } else buildings.push(b);
+  } else fittedBuildings.push(b);
 }
+// Cull boxes wholly outside the map; keep intersecting boxes whole so the crop
+// never moves a facade, rescales a landmark or separates render/collision shapes.
+const buildings = fittedBuildings.filter(overlapsMap);
 const roads = source.roads.flatMap(road => clipRoad(road.points.map(project)).map(points => ({ name: road.name, width: road.widthM * 0.1, points })));
 const parks = source.parks.map(park => ({ name: park.name, points: clipRing(park.points.map(project)), color: park.id === 'fountain-square' ? '#d8d1bb' : '#94ad7b' })).filter(park => park.points.length > 2);
 const northBank = riverSource.northBank.map(project).sort((a, b) => a.x - b.x);
@@ -100,8 +108,12 @@ function clipRing(ring) {
   }
   return ring;
 }
-const waterRings = riverSource.waterRings.map(ring => clipRing(ring.map(([lon, lat]) => project({ lon, lat })))).filter(ring => ring.length > 2);
-const river = waterRings[0], riverHoles = waterRings.slice(1);
+const polygonArea = ring => Math.abs(ring.reduce((sum, p, i) => {
+  const next = ring[(i + 1) % ring.length];
+  return sum + round(p.x) * round(next.z) - round(next.x) * round(p.z);
+}, 0)) / 2;
+const waterRings = riverSource.waterRings.map(ring => clipRing(ring.map(([lon, lat]) => project({ lon, lat })))).filter(ring => ring.length > 2 && polygonArea(ring) > 1e-6);
+const river = waterRings[0] ?? [], riverHoles = waterRings.slice(1);
 function shorelineZ(x) {
   for (let i = 1; i < northBank.length; i++) {
     const a = northBank[i - 1], b = northBank[i];

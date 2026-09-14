@@ -4,10 +4,10 @@ import { mkdir, appendFile, writeFile, readdir, readFile } from 'node:fs/promise
 import { resolve } from 'node:path';
 import type { GameState } from '../shared/types.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const base = 'http://127.0.0.1:4318';
 const duration = Math.min(600, Math.max(30, Number(process.env.RTS_TRIAL_SECONDS ?? 480)));
-const directory = resolve('artifacts/playtest-rts', new Date().toISOString().replace(/[:.]/g, '-'));
 const readState = async (): Promise<GameState> => (await fetch(`${base}/api/state`)).json();
 const post = async (path: string) => {
   const response = await fetch(`${base}/api/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
@@ -16,6 +16,7 @@ const post = async (path: string) => {
 const initial = await readState();
 assert.equal(initial.running, false, 'Preserve any active trial');
 assert.equal(initial.drones.length, 6);
+const artifacts = createArtifactRun('playtest-rts'), directory = artifacts.directory;
 await mkdir(directory, { recursive: true });
 const before = await readdir(resolve('artifacts'));
 const result: Record<string, any> = { startedAt: new Date().toISOString(), directory, duration, model: 'gpt-5.6-luna', effort: 'xhigh', samples: [], failures: [] };
@@ -51,6 +52,7 @@ finally {
   result.verifiedModels = records.filter(record => record.type === 'agent' && record.value.type === 'model-verified').map(record => record.value);
   result.errors = records.filter(record => ['transport-error', 'tool-error'].includes(record.type) || record.type === 'agent' && /error|denied/.test(record.value.type ?? ''));
   result.completedAt = new Date().toISOString();
+  if (result.stopped) for (const name of logs) artifacts.collectSession(name);
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ result: resolve(directory, 'result.json'), failures: result.failures, naturalCompletion: result.naturalCompletion ?? false, stopped: result.stopped, agentActivity: result.agentActivity }));
 }

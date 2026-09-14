@@ -9,6 +9,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { createTrialHost } from './trial-host.ts';
 import { SCENARIOS, type TrialScenario } from './trial-scenarios.ts';
 import { MODEL, EFFORT } from '../server/runtime-tools.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const scenario = process.argv[2] as TrialScenario;
 assert.ok(SCENARIOS.includes(scenario), `Choose ${SCENARIOS.join(', ')}`);
@@ -18,7 +19,6 @@ const port = Number(process.env.RTS_TRIAL_PORT ?? 4318);
 assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535 && port !== 4317, 'Trial port must be 1024–65535 and must preserve player port 4317');
 const url = `http://127.0.0.1:${port}`;
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const directory = resolve(projectDir, 'artifacts/focused-trials', `${new Date().toISOString().replace(/[:.]/g, '-')}-${scenario}`);
 const preflight: Record<string, unknown> = {};
 for (const checkedPort of new Set([4317, 4318, port])) {
   try {
@@ -32,6 +32,7 @@ for (const checkedPort of new Set([4317, 4318, port])) {
     else throw error;
   }
 }
+const artifacts = createArtifactRun(`focused-${scenario}`), directory = artifacts.directory;
 await mkdir(directory, { recursive: true });
 const sourcePaths = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: projectDir, encoding: 'utf8' })
   .split(/\r?\n/).filter(path => /\.(ts|json|mjs|py|html|css)$/.test(path)).sort();
@@ -78,6 +79,7 @@ finally {
   });
   result.failures.push(...host.failures); result.warnings = host.warnings;
   result.stopped = !host.game.state.running; result.completedAt = new Date().toISOString();
+  if (result.cleanup === 'complete') artifacts.collectNetwork(host.game.sessionIdentity);
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ result: resolve(directory, 'result.json'), stopped: result.stopped, failures: result.failures }));
   process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);

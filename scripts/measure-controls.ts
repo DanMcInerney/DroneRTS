@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createArtifactRun } from './test-artifacts.ts';
 import { FleetGame } from '../server/game.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import { RTS_CONFIG, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, Obstacle, ToolResult } from '../shared/types.ts';
+
+const { directory } = createArtifactRun('control-measurements');
 
 const wrap = (value: number) => ((value + 180) % 360 + 360) % 360 - 180;
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -124,9 +127,9 @@ async function waypoint(tick: number, length: number): Promise<Result> {
 
 async function hover(tick: number, reverse: boolean): Promise<Result> {
   const f = await new Fixture(reverse ? 'reverse_then_hover' : 'cruise_then_hover', tick).ready();
-  await f.command({ kind: 'fly_to', x: 60, y: 10, z: 0 }); f.advance(1);
+  await f.command({ kind: 'fly_to', x: 40, y: 10, z: 0 }); f.advance(1);
   const atCommand = pose(f.drone), commandTime = f.game.state.simTime;
-  if (reverse) { await f.command({ kind: 'fly_to', x: -60, y: 10, z: 0, replace: true }); f.advance(0.1); }
+  if (reverse) { await f.command({ kind: 'fly_to', x: -25, y: 10, z: 0, replace: true }); f.advance(0.1); }
   await f.command({ kind: 'hover' });
   const atHover = pose(f.drone), hoverTime = f.game.state.simTime; f.advance(2);
   const drift = distance(atHover, f.drone), final = pose(f.drone); f.advance(1);
@@ -194,7 +197,10 @@ function ballisticAim(relative: Point, velocity: Point) {
 
 async function shot(tick: number, range: number, moving: boolean, compensated: boolean, occluded = false): Promise<Result> {
   const f = await new Fixture(`shot_${range}_${moving ? 'moving' : 'stationary'}_${compensated ? 'compensated' : 'direct'}${occluded ? '_wall' : ''}`, tick).ready();
-  Object.assign(f.target, { x: 0, y: 10, z: -range });
+  // Translate the prescribed shot together so the moving-target command fits
+  // the landmark crop; relative range, ballistic aim and target speed are fixed.
+  Object.assign(f.drone, { z: 20 });
+  Object.assign(f.target, { x: 0, y: 10, z: 20 - range });
   f.drone.equipment!.gun = true;
   f.drone.ammo = RTS_CONFIG.magazineSize;
   // The target starts from rest and accelerates for 0.5 s before firing: displacement 0.75, terminal velocity 3.
@@ -202,10 +208,10 @@ async function shot(tick: number, range: number, moving: boolean, compensated: b
   const aim = compensated ? ballisticAim(targetAtFire, velocity) : { vector: targetAtFire, interceptSeconds: null };
   const heading = Math.atan2(aim.vector.x, -aim.vector.z) * 180 / Math.PI;
   const pitch = Math.atan2(aim.vector.y, Math.hypot(aim.vector.x, aim.vector.z)) * 180 / Math.PI;
-  if (occluded) f.game.state.obstacles = [{ x: 0, z: -range / 2, width: 10, depth: 1, height: 20 }];
+  if (occluded) f.game.state.obstacles = [{ x: 0, z: 20 - range / 2, width: 10, depth: 1, height: 20 }];
   f.trace = [sample(f.game)];
   await f.command({ kind: 'look', heading, pitch }); f.advance(3);
-  if (moving) await f.command({ kind: 'fly_to', x: 60, y: 10, z: -range }, f.target.id);
+  if (moving) await f.command({ kind: 'fly_to', x: 40, y: 10, z: 20 - range }, f.target.id);
   f.advance(0.5);
   assert.ok(Math.abs(f.target.x - targetAtFire.x) < 1e-6, 'Measured target displacement must match setup calibration');
   const fireTime = f.game.state.simTime, atFire = { shooter: pose(f.drone), target: pose(f.target) };
@@ -245,7 +251,7 @@ const comparisons = results.filter(r => r.tickSeconds === 0.05).map(a => {
 });
 assert.equal(results.length, 34); assert.equal(comparisons.length, 17);
 assert.ok(comparisons.every(c => c.sameAliveOutcomes && c.sameJobOutcomes && c.sameEventTypes));
-const stamp = new Date().toISOString(), directory = path.resolve('artifacts', 'control-measurements', stamp.replaceAll(':', '-'));
+const stamp = new Date().toISOString();
 await mkdir(directory, { recursive: true });
 const metadata = { schemaVersion: 'control-measurements/2', rulesVersion: 'cargo-v2',
   observationProtocol: 'fleet-observation/2', measuredAt: stamp, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),

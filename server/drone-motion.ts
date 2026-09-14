@@ -75,7 +75,7 @@ export class DroneMotion {
     let maxSpeed = profile.maxSpeed * (observation?.loaded ? CARGO_CONFIG.loadedSpeedMultiplier : 1);
     const distance = length(delta);
     let blocked: MotionBlockReason | undefined;
-    if (observation && target && distance > 0.004) {
+    if (observation && target && distance > 0) {
       const direction = { x: delta.x / distance, y: delta.y / distance, z: delta.z / distance };
       if (motion.blockedAction === drone.action?.id) blocked = motion.blockedReason;
       else {
@@ -85,11 +85,16 @@ export class DroneMotion {
           const speed = length(motion.velocity), stopping = speed * speed / (2 * acceleration) + speed * dt;
           // Replacing a target cannot erase existing momentum. Also inspect
           // the sensed stopping corridor along actual own velocity.
-          if (speed > 0.03) {
+          if (speed > 0) {
             const current = this.clearance(drone, { x: motion.velocity.x / speed,
               y: motion.velocity.y / speed, z: motion.velocity.z / speed }, observation);
             blocked = current.reason;
-            if (!blocked && current.obstructed && current.distance <= stopping + LOCAL_SENSOR_CONFIG.clearanceMargin) blocked = 'obstruction';
+            if (!blocked && current.distance <= stopping + (current.obstructed ? LOCAL_SENSOR_CONFIG.clearanceMargin : 0)) {
+              // A coverage edge is not a measured obstacle, but crossing it
+              // with retained momentum is still uncertified. This applies
+              // even to a very slow approach as the near-field guard narrows.
+              blocked = current.obstructed ? 'obstruction' : 'coverage-unavailable';
+            }
           }
           if (coverage.obstructed && coverage.distance <= stopping + LOCAL_SENSOR_CONFIG.clearanceMargin) blocked = 'obstruction';
           // A direction between fixed beams has less certified swept coverage.
@@ -111,22 +116,54 @@ export class DroneMotion {
     const desired = { x: delta.x * multiplier, y: delta.y * multiplier, z: delta.z * multiplier };
     const change = { x: desired.x - motion.velocity.x, y: desired.y - motion.velocity.y, z: desired.z - motion.velocity.z };
     const magnitude = length(change), fraction = magnitude > 0 ? Math.min(1, acceleration * dt / magnitude) : 0;
+    let velocity = { x: motion.velocity.x + change.x * fraction,
+      y: motion.velocity.y + change.y * fraction, z: motion.velocity.z + change.z * fraction };
+    if (observation && target && !blocked) {
+      // Certify the actual integrated step and the remaining braking corridor,
+      // including a turn with existing momentum. A target-speed bound alone
+      // cannot constrain the trapezoidal displacement of retained velocity.
+      const displacement = { x: (motion.velocity.x + velocity.x) * dt / 2,
+        y: (motion.velocity.y + velocity.y) * dt / 2, z: (motion.velocity.z + velocity.z) * dt / 2 };
+      const travel = length(displacement), speed = length(velocity);
+      const proposed = { x: drone.x + displacement.x, y: drone.y + displacement.y, z: drone.z + displacement.z };
+      for (const corridor of [
+        { origin: drone, vector: displacement, distance: travel },
+        { origin: proposed, vector: velocity, distance: speed * speed / (2 * acceleration) + speed * dt },
+      ]) {
+        const size = length(corridor.vector);
+        if (size === 0) continue;
+        const coverage = this.clearance(corridor.origin, { x: corridor.vector.x / size,
+          y: corridor.vector.y / size, z: corridor.vector.z / size }, observation);
+        blocked = coverage.reason ?? (corridor.distance >= coverage.distance
+          ? coverage.obstructed ? 'obstruction' : 'coverage-unavailable' : undefined);
+        if (blocked) break;
+      }
+      if (blocked) {
+        motion.blockedAction = drone.action?.id; motion.blockedReason = blocked;
+        const speed = length(motion.velocity), brake = speed > 0 ? Math.max(0, 1 - acceleration * dt / speed) : 0;
+        velocity = { x: motion.velocity.x * brake, y: motion.velocity.y * brake, z: motion.velocity.z * brake };
+      }
+    }
     const next = zero();
     for (const axis of ['x', 'y', 'z'] as const) {
       const before = motion.velocity[axis];
-      motion.velocity[axis] += change[axis] * fraction;
+      motion.velocity[axis] = velocity[axis];
       next[axis] = drone[axis] + (before + motion.velocity[axis]) * dt / 2;
     }
     const remaining = target ? Math.hypot(target.x - next.x, target.y - next.y, target.z - next.z) : Infinity;
     // The entire final displacement must fit the low-speed arrival allowance,
     // including any correction to the exact target. A fixed-distance snap can
     // exceed the service speed at small physics timesteps.
-    const arrived = !blocked && remaining < 0.004 && length(motion.velocity) < 0.04 && distance <= 0.04 * dt;
+    let arrived = !blocked && remaining < 0.004 && length(motion.velocity) < 0.04 && distance <= 0.04 * dt;
+    if (arrived && observation && distance > 0) {
+      const coverage = this.clearance(drone, { x: delta.x / distance, y: delta.y / distance, z: delta.z / distance }, observation);
+      arrived = !coverage.reason && distance < coverage.distance;
+    }
     if (arrived) { Object.assign(next, target); motion.velocity = zero(); }
     return { next, arrived, ...(blocked ? { blocked } : {}) };
   }
 
-  private clearance(drone: Drone, direction: Vector, observation: MotionObservation):
+  private clearance(drone: Vector, direction: Vector, observation: MotionObservation):
     { distance: number; obstructed: boolean; reason?: MotionBlockReason } {
     const sample = observation.ranges;
     const failure = (reason: MotionBlockReason) => ({ distance: 0, obstructed: false, reason });
@@ -145,9 +182,13 @@ export class DroneMotion {
       if (Math.abs(length(beam) - 1) > 1e-6) continue;
       const cosine = direction.x * beam.x + direction.y * beam.y + direction.z * beam.z;
       if (cosine <= 0) continue;
-      const axial = offset.x * beam.x + offset.y * beam.y + offset.z * beam.z;
-      if (axial < -1e-6) continue;
-      const offAxis = Math.hypot(offset.x - axial * beam.x, offset.y - axial * beam.y, offset.z - axial * beam.z);
+      const projection = offset.x * beam.x + offset.y * beam.y + offset.z * beam.z;
+      const axial = Math.max(0, projection);
+      // A braking turn may begin just behind a beam's origin plane. Its
+      // origin sphere still certifies space: charge the entire offset against
+      // radial coverage instead of pretending the sample moved with us.
+      const offAxis = projection < 0 ? length(offset)
+        : Math.hypot(offset.x - axial * beam.x, offset.y - axial * beam.y, offset.z - axial * beam.z);
       const radius = reading.coverage.radius - LOCAL_SENSOR_CONFIG.vehicleRadius - offAxis;
       if (radius < 0) continue;
       const sine = Math.sqrt(Math.max(0, 1 - Math.min(1, cosine) ** 2));
