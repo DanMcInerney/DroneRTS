@@ -1,5 +1,6 @@
 import { resolve } from 'node:path';
-import { DRONE_IDS, type DroneId, type Pose } from '../shared/types.ts';
+import type { DroneId, Pose } from '../shared/types.ts';
+import { DEFAULT_FLEET, validateRoster, isDroneId, type FleetRoster } from '../shared/fleet.ts';
 import { PythonRpc } from './python-rpc.ts';
 
 type WireEvent = Record<string, unknown>;
@@ -15,11 +16,13 @@ export class MavlinkAdapter {
   private started = false;
   private stopped = false;
   private startPromise?: Promise<void>;
+  readonly roster: FleetRoster;
 
-  constructor({ projectDir, onEvent }: { projectDir: string; onEvent?: (event: WireEvent) => void }) {
+  constructor({ projectDir, onEvent, roster = DEFAULT_FLEET }: { projectDir: string; roster?: FleetRoster; onEvent?: (event: WireEvent) => void }) {
+    this.roster = validateRoster(roster);
     const python = process.env.FLEET_PYTHON || resolve(projectDir,
       process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
-    this.rpc = new PythonRpc(resolve(projectDir, 'network/mavlink.py'), [], event => {
+    this.rpc = new PythonRpc(resolve(projectDir, 'network/mavlink.py'), ['--roster', JSON.stringify(this.roster)], event => {
       if (event.event === 'fatal') this.started = false;
       onEvent?.(event);
     }, python);
@@ -37,7 +40,7 @@ export class MavlinkAdapter {
 
   private requireDrone(droneId: DroneId) {
     if (!this.started) throw new Error('MAVLink adapter is not running');
-    if (!DRONE_IDS.includes(droneId)) throw new Error('Unknown MAVLink drone identity');
+    if (!isDroneId(droneId, this.roster)) throw new Error('Unknown MAVLink drone identity');
   }
 
   async command(droneId: DroneId, args: Record<string, unknown>, currentPose: Pose, simTime: number): Promise<Record<string, unknown>> {

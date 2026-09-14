@@ -35,7 +35,8 @@ test('game uses Zenoh for missions and peer mail, MAVLink for movement/sensing, 
     assert.ok(radio.events.some((e: any) => e.message?.text === 'A measured finding'));
     assert.equal(game.inboxes['drone-3'].events.some(e => e.type === 'radio'), false);
     const command = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -4, y: 7, z: 23 });
-    assert.equal(body(command).accepted, true); game.tick(0.25); game.tick(0.25);
+    assert.equal(body(command).accepted, true);
+    for (let step = 0; game.state.drones[0].action && step < 40; step++) game.tick(0.25);
     assert.equal(body(await game.tool('drone-1', 'observe')).sensors.position.x, -4);
 
     await network.link('drone-3', false);

@@ -1,6 +1,6 @@
 # MAVLink bridge scope
 
-Network mode starts one local Python helper containing three simulated vehicle endpoints and three corresponding controller endpoints. Every endpoint binds an operating-system-assigned UDP port on `127.0.0.1`. Drone system IDs are 1, 2 and 3; vehicle component ID is 1. The controller uses system 255/component 190. Each pair pins its expected UDP source address as well as MAVLink source and target identities.
+Network mode starts one local Python helper containing one simulated vehicle/controller endpoint pair per roster member. The default fleet has three pairs. `shared/fleet.ts` owns membership and MAVLink system IDs; the adapter passes its validated roster to the helper, which validates it at the process boundary. Every endpoint binds an operating-system-assigned UDP port on `127.0.0.1`. Default drone system IDs are 1, 2 and 3; vehicle component ID is 1. The controller uses system 255/component 190. Each pair pins its expected UDP source address as well as MAVLink source and target identities.
 
 This is a real MAVLink 2 wire bridge around the existing Node simulation. It is **not PX4 or ArduPilot SITL**, an autopilot implementation, or hardware flight control. No aircraft is connected, and no host mesh interface is changed. Physics, collision handling and actuator limits remain in the game. There is no arming, offboard-mode negotiation, heartbeat/failsafe implementation, link signing, hardware authentication or real-time flight guarantee.
 
@@ -11,7 +11,7 @@ The implementation imports the reference `pymavlink.dialects.v20.common` dialect
 | Game action | Controller → simulated endpoint | Endpoint → controller | Accepted result |
 | --- | --- | --- | --- |
 | `fly_to(x,y,z)` | `SET_POSITION_TARGET_LOCAL_NED` (84), `MAV_FRAME_LOCAL_NED`, position-only mask `0x0DF8` | `POSITION_TARGET_LOCAL_NED` (85), echoing the received setpoint | Position decoded from the returned binary echo determines the actual game waypoint. |
-| `hover` | `SET_POSITION_TARGET_LOCAL_NED` (84), local NED, velocity-only mask `0x0DC7`, all three velocities zero | `POSITION_TARGET_LOCAL_NED` (85) | The decoded zero-velocity hold cancels translation at the game's current position. This is not an absolute position setpoint. |
+| `hover` | `SET_POSITION_TARGET_LOCAL_NED` (84), local NED, velocity-only mask `0x0DC7`, all three velocities zero | `POSITION_TARGET_LOCAL_NED` (85) | The decoded zero-velocity hold cancels the waypoint and brakes smoothly to a hover. This is not an absolute position setpoint. |
 | `look(heading)` | `COMMAND_LONG` (76), `MAV_CMD_CONDITION_YAW` (115), absolute compass angle, default turn rate and shortest direction | `COMMAND_ACK` (77), accepted and addressed to controller | The endpoint's decoded angle is released only after its matching ACK. |
 | `look(pitch)` | `COMMAND_LONG` (76), `MAV_CMD_DO_GIMBAL_MANAGER_PITCHYAW` (1000), pitch angle, pitch-lock flag; yaw and angular rates are NaN/unset | `COMMAND_ACK` (77) | The endpoint's decoded camera pitch is released only after its matching ACK. It is an actuator command, not telemetry. |
 

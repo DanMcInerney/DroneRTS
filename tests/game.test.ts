@@ -119,3 +119,93 @@ test('tool failures emit inspectable error events and success resets the consecu
   assert.equal(errors.at(-1)?.consecutive, 1);
   game.stop();
 });
+
+test('look turns through the shortest arc with bounded yaw and pitch rates', async () => {
+  const game = await ready(), drone = game.state.drones[0];
+  Object.assign(drone, { yaw: 179, pitch: 0 });
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'look', heading: 179, pitch: 50 });
+  assert.equal(drone.yaw, 179); assert.equal(drone.pitch, 0);
+  let yawTravel = 0, pitchTravel = 0;
+  for (let i = 0; i < 120; i++) {
+    const yaw = drone.yaw, pitch = drone.pitch;
+    game.tick(0.05);
+    const yawDelta = ((drone.yaw - yaw + 540) % 360) - 180;
+    assert.ok(yawDelta >= -0.001 && yawDelta <= 180 * 0.05 + 0.001);
+    assert.ok(Math.abs(drone.pitch - pitch) <= 120 * 0.05 + 0.001);
+    yawTravel += yawDelta; pitchTravel += drone.pitch - pitch;
+  }
+  assert.ok(Math.abs(yawTravel - 2) < 0.001);
+  assert.equal(pitchTravel, 50); assert.equal(drone.yaw, -179);
+  game.stop();
+});
+
+test('waypoint translation accelerates, brakes, and arrives once without a pose snap', async () => {
+  const game = await ready(), drone = game.state.drones[0];
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 1, y: 7, z: 23 });
+  assert.equal(drone.x, -5); assert.equal(drone.yaw, 0);
+  const distances: number[] = [];
+  for (let i = 0; i < 240 && drone.action; i++) {
+    const x = drone.x;
+    game.tick(0.05);
+    distances.push(drone.x - x);
+  }
+  assert.ok(distances[0] > 0 && distances[0] < 0.02);
+  assert.ok(distances[4] > distances[0] * 3);
+  assert.ok(Math.max(...distances) <= 0.15 + 1e-8);
+  assert.ok(distances.at(-1)! < 0.01);
+  assert.equal(drone.x, 1); assert.equal(drone.action, undefined);
+  assert.equal(game.inboxes['drone-1'].events.filter(event => event.type === 'arrived').length, 1);
+  game.stop();
+});
+
+test('retarget and hover preserve motion continuity, then settle without an old arrival', async () => {
+  const game = await ready(), drone = game.state.drones[0];
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 15, y: 7, z: 23 });
+  for (let i = 0; i < 20; i++) game.tick(0.05);
+  const before = { x: drone.x, yaw: drone.yaw };
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -15, y: 7, z: 23 });
+  assert.equal(drone.x, before.x); assert.equal(drone.yaw, before.yaw);
+  game.tick(0.05);
+  assert.ok(drone.x > before.x, 'An opposite waypoint must brake existing velocity before reversing');
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'hover' });
+  const hoverX = drone.x;
+  game.tick(0.05);
+  assert.ok(drone.x > hoverX, 'Hover eases the current velocity to zero');
+  for (let i = 0; i < 40; i++) game.tick(0.05);
+  const settled = { x: drone.x, yaw: drone.yaw };
+  game.tick(0.25);
+  assert.equal(drone.x, settled.x); assert.equal(drone.yaw, settled.yaw);
+  assert.equal(drone.action, undefined);
+  assert.equal(game.inboxes['drone-1'].events.some(event => event.type === 'arrived'), false);
+  game.stop();
+});
+
+test('new missions and fleet restarts clear pending flight and orientation targets', async () => {
+  const game = await ready(), drone = game.state.drones[0];
+  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 15, y: 7, z: 23 });
+  game.tick(0.1);
+  game.queueMission('Hold'); await game.tool('parent', 'forward_next_instruction');
+  const held = { x: drone.x, yaw: drone.yaw, pitch: drone.pitch };
+  game.tick(0.25);
+  assert.deepEqual({ x: drone.x, yaw: drone.yaw, pitch: drone.pitch }, held);
+  await game.tool('drone-1', 'act', { mission: 2, kind: 'look', heading: 90, pitch: 50 });
+  game.tick(0.1); game.stop(); game.start();
+  const restarted = { x: drone.x, yaw: drone.yaw, pitch: drone.pitch };
+  game.tick(0.25);
+  assert.deepEqual({ x: drone.x, yaw: drone.yaw, pitch: drone.pitch }, restarted);
+  game.stop();
+});
+
+test('reset changes every chest intersection while launching preserves the chosen map', () => {
+  const game = new FleetGame();
+  const original = new Set(game.state.treasures.map(chest => `${chest.x},${chest.z}`));
+  game.reset();
+  assert.ok(game.state.treasures.every(chest => !original.has(`${chest.x},${chest.z}`)));
+  const chosen = game.state.treasures.map(chest => ({ ...chest }));
+  game.state.treasures[0].found = true;
+  game.state.treasures[0].foundBy = 'drone-1';
+  game.state.treasures[0].foundAt = 12;
+  game.setConnected(true); game.start();
+  assert.deepEqual(game.state.treasures, chosen);
+  game.stop();
+});

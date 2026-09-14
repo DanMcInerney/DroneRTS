@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { RadioMessage } from '../shared/types.ts';
+import { DEFAULT_FLEET } from '../shared/fleet.ts';
 
 const project = resolve(import.meta.dirname, '..');
 const python = process.env.FLEET_PYTHON ?? resolve(project, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
@@ -118,7 +119,7 @@ async function fleet(t: { after: (callback: () => Promise<void>) => void }, with
   await Promise.all(reservations.map(server => new Promise<void>(done => server.close(() => done()))));
   const args = (index: number) => ['--drone', index === 3 ? 'operator' : `drone-${index + 1}`, '--session', session,
     '--listen', endpoints[index], '--peers', endpoints.filter((_, i) => i !== index).join(','),
-    '--store', resolve(dir, `drone-${index + 1}.sqlite`)];
+    '--store', resolve(dir, `drone-${index + 1}.sqlite`), '--roster', JSON.stringify(DEFAULT_FLEET)];
   const workers = Array.from({ length: count }, (_, index) => new Worker(args(index)));
   t.after(async () => {
     await Promise.all(workers.map(worker => worker.stop()));
