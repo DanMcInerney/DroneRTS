@@ -1,0 +1,2 @@
+eclipse-zenoh==1.10.1
+pymavlink==2.4.49
