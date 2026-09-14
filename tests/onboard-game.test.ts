@@ -87,7 +87,8 @@ test('destruction terminates the worker and revokes its workspace while other dr
   await source(game, 'await drone.sleep(700); await drone.files.write("late.md","invalid");');
   const workspace = game.onboardWorkspace('drone-1');
   await game.tool('drone-1', 'routine', { mission: 1, op: 'start', path: 'entry.js' });
-  const drone = game.state.drones[0]; drone.y = 100; drone.battery = 0;
+  const drone = game.state.drones[0]; drone.equipment!.armor = false;
+  Object.assign(game.state.drones[1], { x: drone.x, y: drone.y, z: drone.z });
   game.tick(0.05); assert.equal(drone.alive, false); assert.equal(drone.job?.state, 'cancelled');
   assert.equal(workspace.status().revoked, true); assert.throws(() => workspace.read('entry.js'), /revoked/);
   assert.equal(game.onboardWorkspace('drone-2').status().revoked, false);

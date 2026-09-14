@@ -314,3 +314,90 @@ The replay contains **204 delivered camera observations with no missing images**
 No files, routines or libraries were authored/imported/transferred in this trial; drone-3 used two application exchanges and an ordinary route job. Final private workspace usage remained zero. Final runtime accounting was 1,598,902 bytes per drone, radio 28,672 and staging 262,144; logs were zero for all six drones. One recovered startup `Reconnecting... 2/5` runtime diagnostic and one stale-mission send rejection were recorded. There were no terminal trial failures or missing images. Both offline analyzers completed, all gameplay actors/helpers and the owned trial server stopped, and both owned sidebar browser tabs were closed. Final read-only `/api/state` checks found ports **4317, 4318, 4320 and 4321 unavailable**; no player session was stopped.
 
 This run demonstrates useful two-drone report-driven hauling and restored local recovery, with delivered income and overlapping activity. It does **not** satisfy the stronger acceptance gate of three drones contributing overlapping useful work. No full battle was launched, no tactical assistance was sent, and no mission/balance changes were made to force that gate. Reliable three-drone logistics, autonomous helper/library reuse and full-match strategy remain unproven.
+
+## September 14 return-gap investigation after PR #8
+
+The follow-up checkout began at merged revision `d3cf8cc`. The original raw trial remains in the `fc37/DroneRTS` worktree. A focused copy of 32 original audit records is saved in `artifacts/investigation/return-gap-evidence.json`, with the across-actor comparison in `actor-gap-analysis.json`.
+
+Drone-1's failure to return can be localized more precisely than the original report:
+
+| Boundary | Recorded evidence |
+| --- | --- |
+| Last attempted descent | Its precision movement toward Y=6 was blocked by a nearby peer; the vehicle remained at Y=8.864. |
+| Explicit hold | `act(hover)` completed at 18:51:08.563 UTC with the low-battery event, no movement, and the previous blocked job retained as history. |
+| Announced retreat | The actual `send(status)` was submitted at 18:51:19.895 UTC, simulation time 390.101. Its text described 58 charge from an earlier sample. |
+| Tool completion | A fresh bundle returned at 18:51:19.964; the native MCP completion arrived at 18:51:19.971, **76 ms** after submission. The new sample showed **48.202/300 charge**, zero velocity/cargo, no active movement/routine, and all 26 proximity directions out of range. The nearby peer had moved clear. |
+| Remaining interval | No further tool submission, movement rejection, catalog-yield request, completed reasoning summary, actor final response or completed turn was recorded for drone-1 before retirement. |
+| Death and retirement | Battery exhaustion occurred at simulation time **443.760**; retirement was observed at 18:52:13.545 UTC, **53.574 wall seconds** after the last native tool completion. Only then was its active turn interrupted. |
+
+The return was never submitted. The radio/camera boundary completed successfully, so this was not a radio call stuck in flight, a return command rejected by the controller, or a finished turn that the scheduler forgot to resume. The last 48.2 charge lasted approximately 53.6 seconds at the documented 0.9/s hover drain. The controller correctly held after the earlier blocked descent and had no new route to execute.
+
+The evidence does **not** distinguish long model thinking, context compaction or backend delay during the silent active turn. The old logger recorded completed reasoning items but no starts/compaction boundaries or per-actor context sizes. Drone-2 and drone-3 also had completed-tool-to-next-tool gaps of **40.998** and **47.921 seconds** in this trial; their typical medians were 4.540 and 5.747 seconds, versus drone-1's 5.904. Those gaps support a latency concern but do not establish a provider root cause or justify an automatic return route.
+
+The follow-up adds player-only activity metadata for native turns, reasoning/MCP/compaction boundaries, context/token counts and role-attributed retry errors. It copies no hidden reasoning bodies, encrypted content or deltas; it changes no objective, model, prompt, tool capability, control policy or equipment balance. The notification fields were checked against the installed CLI's generated app-server schema. Baseline verification passed **368 tests** and the production build. After the diagnostic change, **19 focused runtime tests** (including two new privacy/identity regressions) and the build passed. Logs are saved under `artifacts/investigation/`.
+
+### Fresh team trial: successful return, delayed report, one delivery
+
+`2026-09-14T19-16-48-311Z-haul-team` ran with a 600-wall-second bound on owned port 4318 at fixed 1×, ending at **598.904 simulation seconds**. Source-manifest SHA-256: `2e7f9f9f1eb3771fcaa53f28e2c3f11abe8c052d1bd639ca1719382d8477e135`. The diagnostic edits above were made after launch and were not loaded into this host. Six fresh Luna/xhigh actors used native Zenoh/MAVLink and actual browser camera acquisition; the standard team-haul fixture objective was unchanged.
+
+All six survived with armor intact. Each blue drone returned and reached full charge at least once. Drone-1's sampled charge fell to **0.869** before entering service, so its successful return was extremely close and does not prove a reliable reserve policy. It submitted a real return command after its announcement, unlike the earlier failure. Its longest completed-tool-to-next-tool gap was **65.159 seconds**; drone-2 had 53.344, and drone-3 had 81.615. The original logging still cannot identify what happened inside these gaps.
+
+Drone-3's acquired **238.787-second** image visibly shows the stocked outer apron; it reported the estimate at **389.820**. Drone-2 received that exact report in a tool bundle at **432.101**, later verified the same apron in its own **489.163-second** acquired image, loaded **60 salvage at 504.042**, and delivered **60 at 572.325**. Both reviewed images are saved in the replay. Receipt-to-pickup was 71.941 seconds and receipt-to-delivery 140.224. Drone-1 relayed the same lead, then made a duplicate trip to the now-empty cache and attempted service without loading. There was no second delivery or distinct useful third contribution.
+
+The full audit records **46 peer messages**, **275 observation deliveries**, no collision/armor-loss/destruction events, no authored files, routines or transfers, and no terminal runtime/transport failure. The final snapshot contains 780 stock, 60 delivered, zero aboard and zero lost: conservation delta **0**. Cleanup completed.
+
+**Evidence limit:** replay storage filled at **529.099 simulation seconds**, before the delivery, and its status is explicitly `limit`. The recorded prefix has 241 camera observations. The standard replay analyzers' `analysis.json`/`haul-analysis.json` therefore describe that prefix and must not be quoted as final match totals. The delivery time and final conservation/survival results above come from the full combat audit and saved `result.json`, summarized separately in `final-assessment.json`; `actor-progress.json` records the audit timing gaps. No replay quota was enlarged. There is no recorded camera/pose history for the omitted tail.
+
+This repeat demonstrates another report-driven haul and successful returns by all three blue drones, but still does not satisfy the stronger three-useful-contributors gate. The user explicitly requested investigation followed by a battle in this session; the following bounded production match is an exploratory battle under that request, not a claim that reliable three-drone logistics has been established.
+
+### Production-startup failure and native-radio fix
+
+The first production attempt, `2026-09-14T19-27-54-264Z-match` (manifest `c40cbd55ef472559c100cb8083cc91015d66c03e72d0c033abd13ca6d9723f8c`), was stopped at **180.342 simulation seconds** after every drone remained on received mission 0. Both parents had submitted the correct **version-1** opening, but native validation rejected its **5,290-character** text against a **4,000-character** mission limit. The actors never received the objective, so this attempt supplies no battle/autonomy evidence. Version 0 was the absence of delivery, not an incorrectly numbered outgoing objective. The shorter hauling objectives did not exercise this failure.
+
+The relay removed its queued objective before the rejection, and the rejected parent tool call did not report a terminal host failure. The parents subsequently waited for new instructions while the six drones kept waiting or unsuccessfully trying mission-0 sends. The audit retained failed MCP calls, but its trial failure list remained empty; the deliberate Stop and successful cleanup are recorded as `external-stop`. There was no native mission publication or received peer radio, no movement, purchase, cargo or combat.
+
+The fix gives host-bound objective text a **6,000-character** allowance within the existing **8 KiB UTF-8 envelope cap**, while ordinary chat stays at 1,200 and player-entered objective replacements stay at 4,000. No storage quota, model, briefing text or tactic changed. A parent forwarding exception now uses the existing terminal match-failure path with its team and cause. Two regressions first failed on the original implementation, then passed: the exact production briefing traverses both real Zenoh networks and appears unchanged in all six drone bundles; invalid relay admission reports a failure. The native test also rejects a 6,001-character objective, an oversized multibyte envelope and a 1,201-character chat. Reproduction and passing logs are in `artifacts/investigation/startup-reproduction.log` and `startup-regressions.log`.
+
+### Production battle after the fix: battery deaths, no engagement
+
+`2026-09-14T19-35-30-896Z-match` used the unmodified production opening on owned port 4318, fixed 1×, six fresh **gpt-5.6-luna / xhigh** actors, two mechanical relay parents, real Zenoh/MAVLink and sidebar-browser camera acquisition. Its source-manifest SHA-256 is `dde70da808e6bed5955f5523701ded0c165918f929b4669adc7f6221802b4a88`. All six received the full version-1 objective. No player tactics or assistance were sent.
+
+The 480-wall-second trial ended at **479.814 simulation seconds**, with **Blue 2, Blue 3 and Red 2 alive** and **no winner**. Both teams bought one gun, but **no shots or drone hits** occurred. Blue 1 and Blue 2 collided at **301.659 s**, consuming both armor charges without immediate deaths. Blue 1, Red 1 and Red 3 later died from exhausted batteries at **411.829**, **428.587** and **432.426 s** respectively. The three survivors each reached full charge at their base during the run.
+
+Red 3 independently reached a stocked apron and loaded **30 at 393.366 s**, then lost all 30 on its power-loss death before delivering. Its actual acquired images at **387.654** and **395.784 s** show the marked apron and stock before/after pickup. Its return route was admitted at **421.676 s** with only **10.740/300 charge**; it was still traveling when power failed. Blue 1 also submitted a real return during this run, admitted at **404.296 s** with **7.528/300 charge**, and died en route. Unlike the original investigated failure, neither of these returns was merely an announcement. There was no delivered income: **810 stock + 0 aboard + 0 delivered + 30 lost = 840**, conservation delta **0**.
+
+The full audit contains **320 observation deliveries** and **50 peer messages**. Blue again produced conflicting opening-buyer acknowledgements, although only the successful Blue 1 purchase was actually submitted. Reports prompted convergence near an estimated apron and a friendly collision; they did not establish effective team logistics. The recorded nearest opposing pair remained **38.794 local units** apart. This sampled proximity and any camera-frustum proxy do not prove target recognition or an engagement opportunity. The only actor tools used were `act`, `buy`, `observe`, `route`, `send` and `wait`: no helper, file, routine, library or code transfer was authored.
+
+### Compaction is now a measured source of decision latency
+
+Five actors emitted one completed native context-compaction interval each. These are observed metadata boundaries, not access to private reasoning:
+
+| Pilot | Compaction interval, seconds | Containing completed-tool-to-next-tool gap, seconds |
+| --- | ---: | ---: |
+| Blue 1 / drone-1 | 35.345 | 42.059 |
+| Blue 2 / drone-2 | 47.642 | 51.935 |
+| Red 1 / drone-4 | 62.125 | 65.939 |
+| Red 2 / drone-5 | 41.249 | 45.380 |
+| Red 3 / drone-6 | 34.936 | 39.581 |
+
+Their maximum reported last-input sizes were **239,090–243,062 tokens**, with a reported model context window of **258,400**. Blue 3's maximum was 188,074 and it recorded no compaction. Other 20–26-second tool gaps occurred without compaction, so compaction does not explain every delay.
+
+Blue 1's compaction began immediately after it announced an upward retreat following the collision. The successful send bundle showed **86.595 charge**, no active movement and the historical blocked descent. Its next observation, 42.1 seconds later, showed the identical position and **48.701 charge**. It eventually issued an upward move, another adjustment and the too-late return described above. This supplies a measured example of an announced retreat followed by a compaction pause, but cannot retroactively prove that the original 53.574-second silence had the same cause.
+
+Red 1 entered compaction after submitting a short precision approach with **65.657 charge**. The movement completed during the interval, and its next bundle showed **5.732 charge**, the completed job, and a hover at Y=3, above the cargo loading band. It died 6.369 simulation seconds later without another action. Red 2 and Red 3 likewise completed admitted movements while compacting; Blue 2 continued charging at base and survived its pause. These observations support continued local execution during model inactivity. They do not show the controller choosing new work, and no automatic retreat policy was added.
+
+`actor-progress.json` and `final-assessment.json` preserve the compaction boundaries, surrounding telemetry, final outcomes and source identity. This run establishes long compaction latency as a concrete contributor to battery exposure. Reliable reserve management, useful three-drone logistics, autonomous helper reuse and combat skill remain unproven.
+
+**Recording and verification limits:** replay storage filled at **468.278 s**; its 317 recorded camera observations have no missing image files within the prefix, but the final 11.536 seconds and three later observations are not in the replay. The final totals above use the full audit and `result.json`. All three offline analyzers completed against matching source and describe the recorded prefix. Two ordinary radio errors (a stale mission and an unsupported message kind) were recovered; no runtime/transport errors or terminal trial failures were recorded. Cleanup completed, the owned gameplay actors/helpers/server stopped, and the owned sidebar camera tab closed. Final read-only checks found ports 4317 and 4318 unavailable; no player session was stopped.
+
+After all implementation changes, **372 tests passed**, including real native transport integration, and the production build passed. The build retains its existing large-bundle advisory. Full logs are `artifacts/investigation/tests-final.log` and `build-final.log`; `git diff --check` passed. No changes were made to gameplay objectives, model settings, tactics, storage quotas or source geography.
+
+## September 14, 2026 — user-requested battery removal
+
+Following the battle above, the user requested removal of batteries. New matches now use **cargo-v2**, with no battery state, depletion, automatic charging, battery module, recharge tool or power-loss death. The three module choices are gun, cargo and optics; armor remains separate. The actor briefing, direct and aggregate tool menus, own telemetry, HUD and current rules documentation match this change. Bases still accept cargo, fit equipment and provide paid timed rearming. Combat, collisions, cargo conservation and last-team-standing victory remain active. Old cargo-v1/cube recordings retain their recorded battery values, equipment and power-loss causes; earlier reports above have not been reinterpreted.
+
+Verification passed **371 automated tests**, including the real native transport suite. New/current gates cover 1,200 simulation seconds without an endurance death, continued movement, absent battery telemetry, rejected battery/recharge requests, unchanged wallets on rejection, cargo pickup/delivery and rearming independent of legacy empty-charge fields, and reset removing legacy battery state. The final runtime briefing regression and production build passed after the last prompt/UI cleanup. The package deployment inputs and storage quotas did not change.
+
+The no-inference browser fixture passed against current cargo-v2: six acquired cameras, simultaneous pickup and 90-salvage delivery, no battery UI, paid rearming/cancellation, equipment replacement, map/service presentation, responsive layout and reset. The explicit historical cargo-v1 replay fixture also passed, including battery/charging presentation, cargo service, shot/impact correlation, source/SDK evidence, inert replay and live-sensor isolation. Current desktop/mobile screenshots were reviewed. Artifacts are under `artifacts/battery-removal/rts-ui-final/` and `artifacts/battery-removal/replay-ui/`, with test/build logs under `artifacts/investigation/battery-*.log`.
+
+No additional model-inference battle was launched after removing batteries. This verifies mechanics and presentation; it does not establish improved autonomous hauling, targeting or victory. The earlier compaction measurements remain relevant to decision latency, but current matches cannot lose a drone to energy depletion.

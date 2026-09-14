@@ -126,13 +126,13 @@ test('service completion during capture refreshes the delivered sample once', as
   assert.ok(completed); assert.ok(result.sensors.timestamp.simTime >= completed.simTime); game.stop();
 });
 
-test('unavailable legacy mining and charging status calls cannot replace an in-progress rearm', async () => {
-  const game = await armed(), drone = game.state.drones[0]; drone.battery = RTS_CONFIG.batteryCapacity / 2;
+test('unavailable legacy mining and recharge calls cannot replace an in-progress rearm', async () => {
+  const game = await armed(), drone = game.state.drones[0];
   await game.tool('drone-1', 'rearm', { mission: 1 }); const service = drone.servicing;
-  const charging = body(await game.tool('drone-1', 'recharge', { mission: 1 }));
-  assert.equal(charging.accepted, true); assert.equal(charging.charging, true); assert.equal(drone.servicing, service);
+  const charging = await game.tool('drone-1', 'recharge', { mission: 1 });
+  assert.equal(charging.isError, true); assert.equal(body(charging).charging, undefined); assert.equal(drone.servicing, service);
   assert.equal((await game.tool('drone-1', 'mine', { mission: 1 })).isError, true); assert.equal(drone.servicing, service);
-  advance(game, 1); assert.ok(drone.battery! > RTS_CONFIG.batteryCapacity / 2);
+  advance(game, 1); assert.equal(drone.battery, undefined);
   assert.ok(drone.servicing); assert.equal(drone.servicing.kind, 'rearm'); game.stop();
 });
 

@@ -1,7 +1,8 @@
 import type { DroneId } from './fleet.ts';
 
 export type TeamId = 'blue' | 'red';
-export const EQUIPMENT_MODULES = ['gun', 'cargo', 'optics', 'battery'] as const;
+export const EQUIPMENT_MODULES = ['gun', 'cargo', 'optics'] as const;
+export const CARGO_V1_EQUIPMENT_MODULES = ['gun', 'cargo', 'optics', 'battery'] as const;
 /** Retained only for interpreting recordings and explicitly historical rules fixtures. */
 export const LEGACY_EQUIPMENT_MODULES = ['gun', 'miner', 'optics', 'battery', 'jammer'] as const;
 export type EquipmentModule = typeof EQUIPMENT_MODULES[number] | typeof LEGACY_EQUIPMENT_MODULES[number];
@@ -31,7 +32,7 @@ export interface MatchEvent extends Partial<Point> {
   projectileId?: string; cause?: 'terrain' | 'ram' | 'bullet' | 'expired' | 'power';
 }
 export interface MatchState {
-  rulesVersion?: 'cube-v1' | 'cargo-v1'; salvageLost?: number;
+  rulesVersion?: 'cube-v1' | 'cargo-v1' | 'cargo-v2'; salvageLost?: number;
   phase: 'ready' | 'active' | 'finished'; winner: TeamId | 'draw' | null;
   teams: Record<TeamId, TeamEconomy>; resources: ResourceNode[]; projectiles: Projectile[]; events: MatchEvent[];
   servicePads?: ServicePad[];
@@ -44,6 +45,7 @@ export const RTS_CONFIG = Object.freeze({
   miningRate: 0.5, minerRate: 1, upgradedMinerRate: 1.5,
   magazineSize: 12, rearmCost: 10, serviceDuration: 8,
   resourceZoneSize: 6, serviceZoneSize: 6,
+  // Historical battery rules only; cargo-v2 has no energy simulation.
   batteryCapacity: 300, extendedBatteryCapacity: 600, lowBatteryFraction: 0.2,
   idleDrain: 0.9, movingDrain: 0.1, miningDrain: 0.15, jammerDrain: 0.8,
   rechargeDuration: 12, jammerRange: 18,
@@ -52,7 +54,9 @@ export const RTS_CONFIG = Object.freeze({
 });
 
 export const emptyEquipment = (): Equipment => ({ gun: false, armor: false, cargo: false, miner: false, optics: false, minerUpgrade: false, battery: false, jammer: false });
-export const startingEquipment = (): Equipment => ({ ...emptyEquipment(), armor: true });
+export const startingEquipment = (): Equipment => ({ gun: false, armor: true, cargo: false, miner: false, optics: false, minerUpgrade: false, jammer: false });
+export const isCargoRules = (version?: string): boolean => version === 'cargo-v1' || version === 'cargo-v2';
+export const hasBatteries = (version?: string): boolean => version !== 'cargo-v2';
 export const batteryCapacityFor = (drone: { equipment?: Equipment }): number => drone.equipment?.battery ? RTS_CONFIG.extendedBatteryCapacity : RTS_CONFIG.batteryCapacity;
 
 /** Shared vehicle/apron calibration; lengths and speeds are simulator units and units/second. */

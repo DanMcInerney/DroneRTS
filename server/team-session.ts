@@ -85,7 +85,13 @@ export class TeamSession {
       }));
       const runtime = (dependencies.runtime ?? (config => new CodexFleetRuntime(config)))({ projectDir: options.projectDir, roster: teamRoster(team), team,
         toolHandler: async (role, name, args) => {
-          if (role === 'parent') return options.game.forwardTeam(team);
+          if (role === 'parent') {
+            try { return await options.game.forwardTeam(team); }
+            catch (error) {
+              this.fail(`${team} objective relay failed: ${error instanceof Error ? error.message : String(error)}`);
+              throw error;
+            }
+          }
           if (!teamRoster(team).some(member => member.id === role)) throw new Error('Actor identity is outside this team');
           return options.game.tool(role, name, args);
         },

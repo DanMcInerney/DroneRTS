@@ -72,7 +72,7 @@ export function cargoServiceProp(pad: ServicePad) {
   const group = apron(pad.id, pad.x, pad.y, pad.z, size, color, true);
   // A low service cabinet is a non-solid interaction prop, below even the lowest
   // service-hover body envelope. It adds no obstacle or approach restriction.
-  const cabinet = new THREE.Group(); cabinet.name = 'charging-cabinet'; cabinet.position.set(size * 0.35, 0.067, size * 0.4);
+  const cabinet = new THREE.Group(); cabinet.name = 'service-cabinet'; cabinet.position.set(size * 0.35, 0.067, size * 0.4);
   const body = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.14, 0.24), paint('#3b4144')); body.position.y = 0.07; cabinet.add(body);
   const top = groundMark(0.43, 0.20, color, 0, 0, 0.141); cabinet.add(top);
   const stripe = groundMark(0.055, 0.17, '#dce5dc', 0, 0, 0.143); cabinet.add(stripe);

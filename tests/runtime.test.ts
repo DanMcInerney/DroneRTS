@@ -59,6 +59,43 @@ test('runtime records only provided reasoning summaries, never hidden reasoning 
   assert.match(events.at(-1).availability, /No reasoning summary/);
 });
 
+test('actor activity identifies compaction and pending tool intervals without retaining private content or changing control', () => {
+  const { runtime, internal, events } = fixture();
+  internal.roles.set('child', 'drone-1');
+  const catalog = runtime.toolsForRole('drone-1');
+  for (const activity of ['reasoning', 'contextCompaction', 'mcpToolCall']) {
+    for (const phase of ['started', 'completed']) {
+      internal.onMessage({ method: `item/${phase}`, params: { threadId: 'child', turnId: 'turn-1', item: {
+        type: activity, id: `item-${activity}`, content: ['PRIVATE'], encryptedContent: 'SECRET', arguments: { hidden: 'PRIVATE' },
+      } } });
+    }
+  }
+  const activity = events.filter(event => event.type === 'actor-activity');
+  assert.equal(activity.length, 6);
+  assert.deepEqual(activity.map(event => event.phase), ['started', 'completed', 'started', 'completed', 'started', 'completed']);
+  assert.ok(activity.every(event => event.role === 'drone-1' && event.threadId === 'child' && event.turnId === 'turn-1' && Number.isFinite(event.observedAtMs)));
+  internal.onMessage({ method: 'item/reasoning/textDelta', params: { threadId: 'child', delta: 'PRIVATE' } });
+  internal.onMessage({ method: 'thread/compacted', params: { threadId: 'child', turnId: 'turn-1', content: 'PRIVATE' } });
+  assert.equal(events.at(-1).type, 'actor-context-compacted');
+  assert.doesNotMatch(JSON.stringify(events), /PRIVATE|SECRET/);
+  assert.deepEqual(runtime.toolsForRole('drone-1'), catalog);
+  assert.equal(internal.activeTurns.size, 0); assert.equal(internal.resumptions.size, 0);
+});
+
+test('usage and retry diagnostics retain actor identity and numeric context size without copying payloads', () => {
+  const { internal, events } = fixture();
+  internal.roles.set('child', 'drone-2');
+  internal.onMessage({ method: 'thread/tokenUsage/updated', params: { threadId: 'child', turnId: 'turn-2', tokenUsage: {
+    total: { totalTokens: 100 }, last: { inputTokens: 70, outputTokens: 30, reasoningOutputTokens: 20, private: 'PRIVATE' }, modelContextWindow: 1000,
+  } } });
+  const usage = events.find(event => event.type === 'actor-usage');
+  assert.equal(usage.role, 'drone-2'); assert.equal(usage.lastInputTokens, 70); assert.equal(usage.modelContextWindow, 1000);
+  assert.equal(events.at(-1).usage, 100, 'existing aggregate accounting is preserved');
+  internal.onMessage({ method: 'error', params: { threadId: 'child', turnId: 'turn-2', willRetry: true, error: { message: 'Retrying request', additionalDetails: 'PRIVATE' } } });
+  assert.equal(events.at(-1).role, 'drone-2'); assert.equal(events.at(-1).turnId, 'turn-2'); assert.equal(events.at(-1).willRetry, true);
+  assert.doesNotMatch(JSON.stringify(events), /PRIVATE/);
+});
+
 test('runtime prompts, permissions and readiness use the configured roster without leaking wire metadata', () => {
   const roster = validateRoster([
     { id: 'drone-7', label: 'Scout', color: '#aaccee', systemId: 42 },
@@ -131,7 +168,7 @@ test('overlapping failure and UI shutdown share one cleanup and retain the error
 
 test('catalog exposes purchases with team credit access and equipment tools only after attachment', () => {
   const base = createDroneTools().map(tool => tool.name);
-  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'recharge', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
+  assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
   const shop = createDroneTools(undefined, { shop: true, gun: false, alive: true }).map(tool => tool.name);
   assert.deepEqual(shop, [...base.slice(0, -1), 'buy', 'exchange']);
   const armed = createDroneTools(undefined, { shop: true, gun: true, alive: true }).map(tool => tool.name);
@@ -142,11 +179,12 @@ test('catalog exposes purchases with team credit access and equipment tools only
   assert.deepEqual(equipped.map(tool => tool.name), [...armed.slice(0, -1), 'camera', 'exchange']);
   assert.deepEqual(equipped.find(tool => tool.name === 'camera')!.inputSchema.required, ['mission', 'mode']);
   assert.deepEqual(equipped.find(tool => tool.name === 'rearm')!.inputSchema.required, ['mission']);
-  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'cargo', 'optics', 'battery']);
+  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'cargo', 'optics']);
   const jammer = createDroneTools(undefined, { shop: true, gun: false, jammer: true, alive: true });
   assert.deepEqual(jammer.map(tool => tool.name), shop, 'historical equipment must not reactivate deferred tools');
   assert.deepEqual(createDroneTools(undefined, { shop: true, gun: true, alive: false }), []);
   const instructions = droneInstructions('drone-1', undefined, 'blue');
+  assert.doesNotMatch(instructions, /battery|recharge|power loss/i);
   assert.match(instructions, /blue team/);
   assert.match(instructions, /tool_catalog_changed[\s\S]*finish this turn immediately/);
   assert.doesNotMatch(instructions, /Cincinnati|Smale|Fountain Square|chest-1|Vine Street/);

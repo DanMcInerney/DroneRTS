@@ -49,6 +49,14 @@ test('two native parents each relay only to their three-member team over distinc
   await f.session.stop(); assert.equal(f.stopped.length, 5);
 });
 
+test('a rejected objective relay reports a terminal match failure instead of silently leaving actors waiting', async () => {
+  const f = fixture(); await f.session.start();
+  f.game.forwardTeam = async () => { throw new Error('Invalid message text'); };
+  await assert.rejects(f.runtimeOptions[0].toolHandler('parent', 'forward_next_instruction', {}), /Invalid message text/);
+  assert.deepEqual(f.failures, ['blue objective relay failed: Invalid message text']);
+  await f.session.stop();
+});
+
 test('radio reconciliation serializes native calls, coalesces rapidly changing interference and gates sends', async () => {
   let release!: () => void, active = 0, maxActive = 0;
   const blocked = new Promise<void>(resolve => { release = resolve; });

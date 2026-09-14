@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
-import { batteryCapacityFor, cargoCapacityFor, CARGO_CONFIG, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, insideApron, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type CargoInactiveReason, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
+import { batteryCapacityFor, hasBatteries, isCargoRules, CARGO_V1_EQUIPMENT_MODULES, cargoCapacityFor, CARGO_CONFIG, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, insideApron, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type CargoInactiveReason, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
 import { CITY, type CityPoint } from '../shared/city.ts';
 import { at, distance, offset, sphereContact, subtract, terrainContact, unit } from './rts-geometry.ts';
 
@@ -15,9 +15,9 @@ const matchOf = (state: GameState) => {
   return state.match;
 };
 const equipment = (drone: Drone) => drone.equipment ??= emptyEquipment();
-const chargeOf = (drone: Drone) => drone.battery ?? RTS_CONFIG.batteryCapacity;
+const chargeOf = (state: GameState, drone: Drone) => hasBatteries(matchOf(state).rulesVersion) ? drone.battery ?? RTS_CONFIG.batteryCapacity : Infinity;
 const cargoOf = (drone: Drone) => drone.cargo ??= { amount: 0 };
-const usesCargo = (state: GameState) => matchOf(state).rulesVersion === 'cargo-v1';
+const usesCargo = (state: GameState) => isCargoRules(matchOf(state).rulesVersion);
 
 /** All durable match state belongs to GameState. No second economy or damage authority exists. */
 export class RtsRules {
@@ -26,7 +26,7 @@ export class RtsRules {
   newMatch(resources: readonly ResourceNode[], servicePads: readonly ServicePad[] = []): MatchState {
     const economy = () => ({ credits: RTS_CONFIG.startingCredits, earned: 0, shopUnlocked: true });
     return {
-      rulesVersion: 'cargo-v1', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
+      rulesVersion: 'cargo-v2', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
       resources: resources.filter(node => node.kind !== 'dropped').map(node => ({ ...node, kind: 'cache', reserved: 0, remaining: node.capacity, zoneSize: resourceZoneSize(node) })),
       servicePads: servicePads.map(pad => ({ ...pad, zoneSize: serviceZoneSize(pad) })), projectiles: [], events: [],
     };
@@ -41,7 +41,7 @@ export class RtsRules {
       drone.alive = true; drone.equipment = startingEquipment(); drone.mining = undefined; drone.lastFiredAt = undefined;
       drone.ammo = 0; drone.cameraMode = 'wide'; drone.servicing = undefined;
       drone.gunPurchased = false; drone.cargo = { amount: 0 }; drone.logistics = undefined;
-      drone.battery = RTS_CONFIG.batteryCapacity; drone.jamming = false; drone.charging = false;
+      delete drone.battery; delete drone.charging; drone.jamming = false;
     }
     this.syncInterference(state);
     this.event(state, { type: 'match_started', message: 'Salvage is live. Last team flying wins.' });
@@ -50,7 +50,7 @@ export class RtsRules {
   private assertActive(state: GameState, drone: Drone) {
     if (!alive(drone)) throw new Error('This drone is destroyed');
     if (matchOf(state).phase !== 'active') throw new Error('The match is not active');
-    if (chargeOf(drone) <= 0) throw new Error('No battery charge remains');
+    if (chargeOf(state, drone) <= 0) throw new Error('No battery charge remains');
     team(drone);
   }
 
@@ -86,7 +86,7 @@ export class RtsRules {
   stop(state: GameState) {
     for (const drone of state.drones) {
       this.cancelService(state, drone); this.cancelLogistics(state, drone, 'stopped');
-      this.cancelMining(drone); drone.charging = false;
+      this.cancelMining(drone); drone.charging = hasBatteries(matchOf(state).rulesVersion) ? false : undefined;
     }
   }
 
@@ -94,10 +94,11 @@ export class RtsRules {
     this.assertActive(state, drone);
     if (!Object.hasOwn(RTS_CONFIG.prices, item)) throw new Error('Unknown attachment');
     if (usesCargo(state) && (item === 'miner' || item === 'miner_upgrade' || item === 'jammer')) throw new Error('This attachment is unavailable under cargo rules');
+    if (!hasBatteries(matchOf(state).rulesVersion) && item === 'battery') throw new Error('Batteries are unavailable under current rules');
     const wallet = matchOf(state).teams[team(drone)], price = RTS_CONFIG.prices[item];
     if (!wallet.shopUnlocked) throw new Error('The team shop is unavailable');
     if (!this.friendlyPad(state, drone)) throw new Error('A friendly service pad must be within reach');
-    const modules: readonly EquipmentModule[] = usesCargo(state) ? EQUIPMENT_MODULES : LEGACY_EQUIPMENT_MODULES;
+    const modules: readonly EquipmentModule[] = usesCargo(state) ? hasBatteries(matchOf(state).rulesVersion) ? CARGO_V1_EQUIPMENT_MODULES : EQUIPMENT_MODULES : LEGACY_EQUIPMENT_MODULES;
     const gear = equipment(drone), isModule = modules.includes(item as EquipmentModule);
     if (replace !== undefined && (!isModule || !modules.includes(replace) || !gear[replace] || replace === item)) {
       throw new Error('Replacement must name a different equipped module');
@@ -129,7 +130,7 @@ export class RtsRules {
       drone.ammo = !usesCargo(state) || !drone.gunPurchased ? RTS_CONFIG.magazineSize : 0;
       drone.gunPurchased = true;
     }
-    drone.battery = Math.min(chargeOf(drone), batteryCapacityFor(drone));
+    if (hasBatteries(matchOf(state).rulesVersion)) drone.battery = Math.min(chargeOf(state, drone), batteryCapacityFor(drone));
     drone.jamming = false; this.syncInterference(state);
     this.event(state, { type: 'purchased', team: team(drone), drone: drone.id, message: `${drone.id} attached ${item}.` });
     return { equipped: item, credits: wallet.credits };
@@ -154,6 +155,7 @@ export class RtsRules {
 
   recharge(state: GameState, drone: Drone) {
     this.assertActive(state, drone);
+    if (!hasBatteries(matchOf(state).rulesVersion)) throw new Error('Recharging is unavailable under current rules');
     const pad = this.friendlyPad(state, drone);
     drone.charging = !!pad;
     if (!pad) throw new Error('A friendly service pad must be within reach');
@@ -174,7 +176,7 @@ export class RtsRules {
   syncInterference(state: GameState) {
     const active = matchOf(state).phase === 'active' && !usesCargo(state);
     for (const drone of state.drones) {
-      if (!active || !alive(drone) || !drone.equipment?.jammer || chargeOf(drone) <= 0 || drone.servicing) drone.jamming = false;
+      if (!active || !alive(drone) || !drone.equipment?.jammer || chargeOf(state, drone) <= 0 || drone.servicing) drone.jamming = false;
     }
     const sources = state.drones.filter(drone => drone.jamming);
     const changes: Drone[] = [];
@@ -242,7 +244,7 @@ export class RtsRules {
     this.stepBullets(state, dt, previousPositions, changed);
     for (const drone of state.drones) drone.mining = !usesCargo(state) && alive(drone) ? this.resourceAt(state, drone)?.id : undefined;
     this.stepServices(state, dt, previousPositions);
-    this.stepEnergy(state, dt, previousPositions, changed);
+    if (hasBatteries(matchOf(state).rulesVersion)) this.stepEnergy(state, dt, previousPositions, changed);
     if (usesCargo(state)) this.stepLogistics(state, dt, previousPositions);
     else this.stepMining(state, dt);
     this.resolveVictory(state);
@@ -277,7 +279,7 @@ export class RtsRules {
       const charging = service.kind === 'recharge';
       // Legacy timed recharge records cannot grant an instant refill under zone charging.
       if (charging) { drone.servicing = undefined; continue; }
-      if (!alive(drone) || chargeOf(drone) <= 0 || !equipment(drone).gun || drone.action || moved || !pad || !this.inServiceReach(state, drone, pad)) {
+      if (!alive(drone) || chargeOf(state, drone) <= 0 || !equipment(drone).gun || drone.action || moved || !pad || !this.inServiceReach(state, drone, pad)) {
         this.cancelService(state, drone); continue;
       }
       service.remaining = Math.max(0, service.remaining - dt);
@@ -290,9 +292,9 @@ export class RtsRules {
 
   private stepEnergy(state: GameState, dt: number, previous: ReadonlyMap<DroneId, Point>, changed: Set<DroneId>) {
     for (const drone of state.drones) {
-      drone.charging = false;
+      drone.charging = hasBatteries(matchOf(state).rulesVersion) ? false : undefined;
       if (!alive(drone)) continue;
-      const before = Math.min(chargeOf(drone), batteryCapacityFor(drone));
+      const before = Math.min(chargeOf(state, drone), batteryCapacityFor(drone));
       if (before <= 0) { drone.battery = 0; this.damage(state, drone, 'power'); changed.add(drone.id); continue; }
       if (this.friendlyPad(state, drone)) {
         drone.charging = true;
@@ -349,7 +351,7 @@ export class RtsRules {
       }
     }
     for (const drone of state.drones) {
-      if (!alive(drone) || chargeOf(drone) <= 0) continue;
+      if (!alive(drone) || chargeOf(state, drone) <= 0) continue;
       const cargo = cargoOf(drone), speed = speeds.get(drone.id)!;
       let service = drone.logistics;
       if (!service || service.state !== 'loading' && service.state !== 'unloading') {
@@ -566,7 +568,7 @@ export class RtsRules {
   private damage(state: GameState, drone: Drone, cause: 'terrain' | 'ram' | 'bullet' | 'power', source?: DroneId, impact?: Point, projectileId?: string) {
     if (!alive(drone)) return;
     this.cancelService(state, drone); this.cancelLogistics(state, drone); this.cancelMining(drone); drone.action = undefined;
-    drone.jamming = false; drone.charging = false;
+    drone.jamming = false; drone.charging = hasBatteries(matchOf(state).rulesVersion) ? false : undefined;
     if (cause !== 'power' && equipment(drone).armor) {
       equipment(drone).armor = false; drone.status = cause === 'bullet' ? 'Hit detected. Armor lost.' : 'Collision detected. Armor lost.';
       this.syncInterference(state);
@@ -584,7 +586,7 @@ export class RtsRules {
     if (survivors.size > 1) return;
     const match = matchOf(state);
     match.phase = 'finished'; match.winner = survivors.size ? [...survivors][0] : 'draw'; state.completed = true;
-    for (const drone of state.drones) { this.cancelService(state, drone); this.cancelLogistics(state, drone, 'stopped'); drone.mining = undefined; drone.action = undefined; drone.jamming = false; drone.charging = false; }
+    for (const drone of state.drones) { this.cancelService(state, drone); this.cancelLogistics(state, drone, 'stopped'); drone.mining = undefined; drone.action = undefined; drone.jamming = false; drone.charging = hasBatteries(matchOf(state).rulesVersion) ? false : undefined; }
     this.syncInterference(state);
     match.projectiles = [];
     this.event(state, { type: 'match_finished', message: match.winner === 'draw' ? 'Draw. Both teams were eliminated.' : `${match.winner} wins. Last team flying.` });

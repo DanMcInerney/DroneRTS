@@ -4,6 +4,10 @@ import { FleetGame } from '../server/game.ts';
 import { FleetNetwork } from '../server/network.ts';
 import { MavlinkAdapter } from '../server/mavlink.ts';
 import { DRONE_IDS, type ToolResult } from '../shared/types.ts';
+import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
+import { RTS_MISSION } from '../shared/mission.ts';
+import { TeamSession } from '../server/team-session.ts';
+import type { RuntimeOptions } from '../server/runtime.ts';
 
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
 async function until(check: () => boolean, timeout = 7000) {
@@ -11,6 +15,33 @@ async function until(check: () => boolean, timeout = 7000) {
   while (!check() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 30));
   assert.ok(check(), 'Network condition did not arrive');
 }
+
+test('the complete production opening reaches all six actors through native team radio', { timeout: 30_000 }, async t => {
+  const game = new FleetGame(); game.setConnected(true); game.start();
+  game.capture = async () => 'data:image/jpeg;base64,AQID';
+  const runtimes: RuntimeOptions[] = [], failures: string[] = [];
+  const session = new TeamSession({ projectDir: process.cwd(), game, onStatus: () => {}, onNetwork: () => {},
+    onEvent: () => {}, onFailure: error => failures.push(error) }, {
+    // Only inference is stubbed; the normal startup/relay, Zenoh and MAVLink run.
+    runtime: options => { runtimes.push(options); return { start: async () => {}, stop: async () => {}, retireDrone: async () => {}, refreshTools: async () => {} }; },
+  });
+  t.after(async () => { game.stop(); await session.stop(); });
+  await session.start();
+  for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
+  for (const runtime of runtimes) await runtime.toolHandler('parent', 'forward_next_instruction', {});
+  await until(() => MATCH_DRONE_IDS.every(id => game.receivedMission(id) === 1));
+  for (const id of MATCH_DRONE_IDS) {
+    const bundle = body(await game.tool(id, 'observe'));
+    assert.equal(bundle.mission, 1);
+    assert.deepEqual(bundle.events.filter((event: any) => event.type === 'player').map((event: any) => event.text), [RTS_MISSION]);
+  }
+  const opening = game.state.radio.find(message => message.kind === 'mission' && message.data?.team === 'blue')!;
+  assert.ok(RTS_MISSION.length > 4000, 'exercise the full briefing, not the shorter hauling fixture objective');
+  await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-objective', text: 'x'.repeat(6001) }), /Invalid message text/);
+  await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-utf8', text: '🙂'.repeat(3000) }), /8192 UTF-8 bytes/);
+  await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-chat', kind: 'chat', text: 'x'.repeat(1201) }), /Invalid message text/);
+  assert.deepEqual(failures, []);
+});
 
 test('game uses Zenoh for missions and peer mail, MAVLink for movement/sensing, and no mission shortcut across a partition', { timeout: 30_000 }, async () => {
   const game = new FleetGame(); game.setConnected(true); game.start();

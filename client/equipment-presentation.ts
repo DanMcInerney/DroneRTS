@@ -1,5 +1,5 @@
 import type { Drone } from './types';
-import { batteryCapacityFor, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, RTS_CONFIG, type MatchState, type ServiceAction } from '../shared/rts';
+import { isCargoRules, batteryCapacityFor, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, RTS_CONFIG, type MatchState, type ServiceAction } from '../shared/rts';
 import { onboardPresentation } from './onboard-presentation';
 
 /** Player presentation only. Missing historical telemetry stays unknown. */
@@ -29,7 +29,7 @@ export function chargingPresentation(drone: Drone, battery = batteryPresentation
 export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resources' | 'servicePads' | 'rulesVersion'>, rulesVersion?: string): string[] {
   // Explicit recorded cube sizes mark the revision that increased capacity.
   // Earlier records used 100/150 charge; do not reinterpret them with live tuning.
-  const modern = (rulesVersion ?? match?.rulesVersion) === 'cargo-v1' || match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
+  const modern = isCargoRules(rulesVersion ?? match?.rulesVersion) || match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
   const battery = batteryPresentation(drone, modern ? undefined : drone.equipment?.battery ? 150 : 100), service = servicePresentation(drone.servicing);
   const charging = chargingPresentation(drone, battery);
   const onboard = onboardPresentation(drone);

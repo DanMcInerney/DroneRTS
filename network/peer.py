@@ -20,6 +20,9 @@ from fleet_config import parse_roster
 
 MAX_BYTES = 10240
 MAX_TTL_MS = 600000
+# The host-bound opening includes the full vehicle/rules briefing. It still
+# shares the existing 8 KiB UTF-8 envelope cap with ordinary radio messages.
+MAX_MISSION_TEXT = 6000
 
 
 def emit(value):
@@ -48,7 +51,7 @@ def validate_message(message, fleet_session, drones, sender=None, player_chat=Fa
         raise ValueError("Only the operator may replace an objective")
     if message.get("to") not in (*drones, "all", *(('player',) if player_chat else ())) or message["to"] == message["from"]:
         raise ValueError("Recipient must be all or another drone")
-    for field, limit in (("id", 200), ("kind", 64), ("sentAt", 80), ("text", 4000 if message.get("kind") == "mission" else 1200)):
+    for field, limit in (("id", 200), ("kind", 64), ("sentAt", 80), ("text", MAX_MISSION_TEXT if message.get("kind") == "mission" else 1200)):
         if not isinstance(message.get(field), str) or not 1 <= len(message[field]) <= limit:
             raise ValueError(f"Invalid message {field}")
     for field, minimum in (("sequence", 1), ("mission", 0)):

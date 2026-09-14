@@ -20,7 +20,7 @@ test('real MCP connections discover unlocked tools, notify peers and reject gues
   try {
     await first.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
     await peer.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-2']}`)));
-    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'recharge', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
+    assert.deepEqual((await first.listTools()).tools.map(tool => tool.name), ['observe', 'act', 'send', 'wait', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
     const rejected = await first.callTool({ name: 'buy', arguments: { mission: 1, item: 'gun' } });
     assert.equal(rejected.isError, true);
     assert.deepEqual(calls, [{ role: 'drone-1', name: 'observe' }]);

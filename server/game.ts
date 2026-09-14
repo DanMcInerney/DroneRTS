@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage, type GameEvent } from '../shared/types.ts';
 import { MATCH_DRONE_IDS as DRONE_IDS, teamForDrone, teamRoster, type TeamId } from '../shared/fleet.ts';
 import { BATTLEFIELD } from '../shared/battlefield.ts';
-import { batteryCapacityFor, cargoCapacityFor, startingEquipment, RTS_CONFIG, type EquipmentItem, type EquipmentModule, type MatchState } from '../shared/rts.ts';
+import { batteryCapacityFor, hasBatteries, cargoCapacityFor, startingEquipment, RTS_CONFIG, type EquipmentItem, type EquipmentModule, type MatchState } from '../shared/rts.ts';
 import { CITY } from '../shared/city.ts';
 import { cameraFovFor, DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { Mailbox } from './mailbox.ts';
@@ -221,7 +221,7 @@ export class FleetGame extends EventEmitter {
       completed: false, treasures: [], match: this.rules.newMatch(BATTLEFIELD.resources, BATTLEFIELD.servicePads),
       obstacles: CITY.buildings.map(building => ({ ...building })),
       drones: DRONE_IDS.map(id => ({ id, ...BATTLEFIELD.spawns[id], team: teamForDrone(id), alive: true,
-        equipment: startingEquipment(), ammo: 0, cameraMode: 'wide', battery: RTS_CONFIG.batteryCapacity, jamming: false, radioJammed: false, charging: false,
+        equipment: startingEquipment(), ammo: 0, cameraMode: 'wide', jamming: false, radioJammed: false,
         cargo: { amount: 0 }, velocity: { x: 0, y: 0, z: 0 },
         status: 'Standby', online: false, observations: 0 })),
       radio: [], runtime: { status: 'idle', message: `Ready to launch ${DRONE_IDS.length} native drone agents`, model: MODEL, effort: EFFORT },
@@ -270,7 +270,7 @@ export class FleetGame extends EventEmitter {
     this.rules.syncInterference(this.state);
     for (const drone of this.state.drones) {
       this.rules.cancelLogistics(this.state, drone, 'stopped');
-      drone.action = undefined; drone.online = false; drone.charging = false; this.rules.cancelMining(drone); this.rules.cancelService(this.state, drone);
+      drone.action = undefined; drone.online = false; drone.charging = hasBatteries(this.state.match?.rulesVersion) ? false : undefined; this.rules.cancelMining(drone); this.rules.cancelService(this.state, drone);
       if (drone.alive !== false) drone.status = 'Stopped';
       this.inboxes[drone.id].push({ type: 'stop', mission: this.state.mission, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
     }
@@ -542,10 +542,10 @@ export class FleetGame extends EventEmitter {
       cargo: { amount: drone.cargo?.amount ?? 0, capacity: cargoCapacityFor(drone) },
       logistics: drone.logistics ? { state: drone.logistics.state, progress: drone.logistics.progress,
         remaining: drone.logistics.remaining, duration: drone.logistics.duration, reason: drone.logistics.reason } : null,
-      battery: { charge: drone.battery ?? RTS_CONFIG.batteryCapacity, capacity: batteryCapacityFor(drone),
-        low: (drone.battery ?? RTS_CONFIG.batteryCapacity) <= batteryCapacityFor(drone) * RTS_CONFIG.lowBatteryFraction },
+      ...(hasBatteries(this.state.match?.rulesVersion) ? { battery: { charge: drone.battery ?? RTS_CONFIG.batteryCapacity, capacity: batteryCapacityFor(drone),
+        low: (drone.battery ?? RTS_CONFIG.batteryCapacity) <= batteryCapacityFor(drone) * RTS_CONFIG.lowBatteryFraction }, charging: Boolean(drone.charging) } : {}),
       jamming: Boolean(drone.jamming), radioJammed: Boolean(drone.radioJammed),
-      mining: Boolean(drone.mining), charging: Boolean(drone.charging),
+      mining: Boolean(drone.mining),
       service: drone.servicing ? { kind: drone.servicing.kind ?? 'rearm', remaining: drone.servicing.remaining } : null,
       ...(this.toolCapabilities(role).shop ? { equipment: drone.equipment, ammo: drone.ammo ?? 0, cameraMode: drone.cameraMode ?? 'wide',
         account: { credits: this.state.match!.teams[teamForDrone(role)].credits } } : {}),
@@ -583,11 +583,11 @@ export class FleetGame extends EventEmitter {
     return { sequence: ranges.sequence, frame: 'local-east-up-south', units: 'simulation-units', metersPerUnit: 10,
       acquiredAt: ranges.acquiredAt, acquiredAtMs, simTime: this.state.simTime, validity: this.connected ? 'valid' : 'stalled',
       position: positionOf(drone), velocity: this.motion.velocity(drone), heading: (360 - drone.yaw) % 360, cameraPitch: drone.pitch,
-      ranges, battery: { charge: drone.battery ?? 0, capacity: batteryCapacityFor(drone) },
+      ranges, ...(hasBatteries(this.state.match?.rulesVersion) ? { battery: { charge: drone.battery ?? 0, capacity: batteryCapacityFor(drone) }, charging: Boolean(drone.charging) } : {}),
       cargo: { amount: drone.cargo?.amount ?? 0, capacity: cargoCapacityFor(drone) },
       logistics: drone.logistics ? { state: drone.logistics.state, progress: drone.logistics.progress, remaining: drone.logistics.remaining,
         duration: drone.logistics.duration, reason: drone.logistics.reason } : null,
-      charging: Boolean(drone.charging), service: drone.servicing ? { kind: drone.servicing.kind ?? 'rearm', remaining: drone.servicing.remaining } : null,
+      service: drone.servicing ? { kind: drone.servicing.kind ?? 'rearm', remaining: drone.servicing.remaining } : null,
       equipment: structuredClone(drone.equipment), ammo: drone.ammo ?? 0,
       account: { credits: this.state.match!.teams[teamForDrone(role)].credits }, job: this.jobs.status(role) };
   }
@@ -654,7 +654,7 @@ export class FleetGame extends EventEmitter {
       }
       if (name === 'exchange') {
         if (!Array.isArray(args.operations) || !args.operations.length || args.operations.length > ONBOARD_PROFILE.maxBatchOperations) throw new ControllerRejection('Exchange requires 1–8 operations');
-        const allowed = ['act', 'route', 'send', 'camera', 'buy', 'fire', 'rearm', 'recharge'];
+        const allowed = ['act', 'route', 'send', 'camera', 'buy', 'fire', 'rearm'];
         const admittedTools = new Set(createDroneTools(teamRoster(teamForDrone(role)), this.toolCapabilities(role), teamForDrone(role)).map(tool => tool.name));
         const ids = new Set<string>(); let writers = 0;
         // Validate structure/conflicting writers before any admission. Later failures do not roll back earlier effects.

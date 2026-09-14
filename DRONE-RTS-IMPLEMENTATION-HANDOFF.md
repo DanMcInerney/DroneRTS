@@ -1,5 +1,7 @@
 # DroneRTS implementation handoff: onboard agents, cargo and constrained scripting
 
+**Subsequent rules change:** the user-authorized cargo-v2 revision removes batteries, charging and power-loss deaths from new matches. Its current contract is in [README.md](README.md); the battery requirements below describe the earlier cargo-v1 handoff.
+
 Prepared September 14, 2026. **This is an implementation specification, not a report of completed features.** This session writes documentation only. Use this as the primary handoff for the next chat. It consolidates [the gameplay plan](DRONE-RTS-NEXT-SESSION-PLAN.md) and [the researched protocol addendum](ONBOARD-LIBRARIES-AND-PROTOCOLS.md); those remain supporting evidence. Where the plans differ, this document supplies the latest storage and agent-runtime decisions.
 
 **Feedback/performance refinement:** read [the Gemini brief assessment and execution contract](ONBOARD-FEEDBACK-REFINEMENT.md) with sections 2–5 below. It specifies small command batches, automatic feedback at supported agent boundaries, continuous local control, command leases, measured timing targets and corrections to unverified library-footprint/FPS claims. These are proposed interface changes; current actor permissions are unchanged until the corresponding implementation/rules revision lands.

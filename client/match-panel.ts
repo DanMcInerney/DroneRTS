@@ -1,3 +1,4 @@
+import { isCargoRules } from '../shared/rts';
 import type { WorldState } from './types';
 import { dronePresentation } from './drone-presentation';
 
@@ -21,7 +22,7 @@ export class MatchPanel {
     }
     const resources = document.createDocumentFragment();
     for (const [index, resource] of (match?.resources ?? []).entries()) {
-      const cargoRules = match?.rulesVersion === 'cargo-v1';
+      const cargoRules = isCargoRules(match?.rulesVersion);
       const rich = cargoRules ? resource.capacity >= 600 : (resource.extractionMultiplier ?? 1) > 1;
       const row = document.createElement('div'); row.className = `resource-row ${resource.remaining <= 0 ? 'depleted' : ''} ${rich ? 'rich' : ''}`;
       const name = document.createElement('span'); name.textContent = resource.kind === 'dropped' ? '◆  Dropped cargo' : rich ? '◆  CENTRAL MEGA' : `◆  ${cargoRules ? 'Cache' : 'Deposit'} ${String(index + 1).padStart(2, '0')}`;
