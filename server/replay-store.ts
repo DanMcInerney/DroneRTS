@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pipeline } from 'node:stream/promises';
-import type { ReplayPage, ReplayRecord } from '../shared/replay.ts';
+import type { ReplayPage, ReplayRecord, ReplaySummary } from '../shared/replay.ts';
 import { missing, REPLAY_IMAGE, replayDirectory, ReplayError, replayFile, ReplayFileReplacedError } from './replay-paths.ts';
 
 const PAGE_BYTES = 4 * 1024 * 1024, RECORD_BYTES = 2 * 1024 * 1024, PAGE_RECORDS = 256;
@@ -26,11 +26,12 @@ export class ReplayStore {
     catch (error) { if (missing(error)) return { available: false, records: [], next: 0, hasMore: false, bytes: 0 }; throw error; }
     try {
       // This small independent marker exposes writer failures even after a partial line.
-      let status;
+      let status, summary: ReplaySummary | undefined;
       try {
         status = await this.openStatus(directory);
         if ((await status.stat()).size > 2048) throw new ReplayError('Replay status is oversized.', 409);
-        const value = JSON.parse(await status.readFile('utf8')) as { state: string };
+        const value = JSON.parse(await status.readFile('utf8')) as { state: string; summary?: ReplaySummary };
+        if (value.summary && Number.isFinite(value.summary.simTime) && Number.isFinite(value.summary.coveredThrough) && Array.isArray(value.summary.survivors)) summary = value.summary;
         if (value.state === 'error') throw new ReplayError('Replay recording failed. Its audit log contains the storage error.', 409);
       } catch (error) { if (!missing(error)) throw error; } finally { await status?.close(); }
       const { size } = await file.stat();
@@ -57,7 +58,7 @@ export class ReplayStore {
         if (!record || !TYPES.has(record.type)) throw new ReplayError('Replay contains an unknown record.', 409);
         records.push(record); cursor = newline + 1;
       }
-      return { available: true, records, next: after + cursor, hasMore: after + cursor < size, bytes: size };
+      return { available: true, records, next: after + cursor, hasMore: after + cursor < size, bytes: size, ...(summary ? { summary } : {}) };
     } finally { await file.close(); }
   }
 

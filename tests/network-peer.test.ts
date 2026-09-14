@@ -199,16 +199,16 @@ test('blue operator participates in native group/direct chat and storage receipt
   await assert.rejects(one.request('send', { message: { ...message('drone-1', 'all'), kind: 'mission' } }), /Only the operator/);
 });
 
-test('latest own status coalesces while offline and expired status cannot replay as current', { timeout: 45_000 }, async t => {
+test('status messages queue independently while offline and unsent expired messages do not replay', { timeout: 45_000 }, async t => {
   const { workers: [one, two], message } = await fleet(t);
   await one.request('link', { online: false });
   const old = { ...message('drone-1', 'drone-2', 'Earlier own estimate'), kind: 'status' };
   const latest = { ...message('drone-1', 'drone-2', 'Latest own estimate'), kind: 'status' };
   await one.request('send', { message: old }); await one.request('send', { message: latest });
-  assert.equal((await one.request('status')).pending, 1);
+  assert.equal((await one.request('status')).pending, 2);
   await one.request('link', { online: true });
-  await eventually(() => !!one.delivered(latest.id), 'only latest status transmitted');
-  assert.equal(two.received(old.id).length, 0); assert.equal(two.received(latest.id).length, 1);
+  await eventually(() => !!one.delivered(latest.id) && !!one.delivered(old.id), 'both status messages transmitted');
+  assert.equal(two.received(old.id).length, 1); assert.equal(two.received(latest.id).length, 1);
   await one.request('link', { online: false });
   const expired = { ...message('drone-1', 'drone-2'), kind: 'status' };
   await one.request('send', { message: expired, ttlMs: 50 }); await delay(100);

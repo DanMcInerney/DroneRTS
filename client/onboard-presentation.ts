@@ -10,7 +10,7 @@ export function onboardPresentation(drone: Drone) {
     cargo: cargo ? `CARGO ${cargo.amount.toFixed(0)} / ${cargoCapacityFor(drone)}` : undefined,
     logistics: logistics ? `${logistics.state.toUpperCase()}${active ? ` · ${Math.round(logistics.progress * 100)}% · ${logistics.remaining.toFixed(1)}s` : ''}${logistics.reason ? ` · ${logistics.reason.replaceAll('_', ' ')}` : ''}` : undefined,
     progress: active ? Math.max(0, Math.min(1, logistics.progress)) : undefined,
-    job: drone.job ? `${drone.job.kind.toUpperCase()} · ${drone.job.state.toUpperCase()}${drone.job.step !== undefined ? ` · ${drone.job.step + 1}/${drone.job.totalSteps ?? '?'}` : ''}${drone.job.reason ? ` · ${drone.job.reason}` : ''}` : undefined,
+    job: drone.job ? `${drone.job.kind.toUpperCase()} · ${drone.job.state.toUpperCase()}${drone.job.step !== undefined ? ` · ${Math.min(drone.job.step + 1, drone.job.totalSteps ?? Infinity)}/${drone.job.totalSteps ?? '?'}` : ''}${drone.job.reason ? ` · ${drone.job.reason}` : ''}` : undefined,
     source: drone.job?.sourceHash ? `${drone.job.sourcePath ?? 'Routine'} · SHA256 ${drone.job.sourceHash.slice(0, 12)}` : undefined,
     storage: drone.storage ? Object.entries(drone.storage).filter((entry): entry is [string, { usedBytes: number; limitBytes: number; freeBytes: number }] => {
       const value = entry[1]; return Boolean(value && typeof value === 'object' && 'usedBytes' in value && 'limitBytes' in value);

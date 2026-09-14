@@ -38,7 +38,7 @@ let busy = false;
 let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
 function alertMessage(message: string) { element('alert-text').textContent = message; element('alert').hidden = false; }
-try { scene = new FleetScene(element('world-views'), initialViews, element('overview-map')); scene.fitOverview(true); }
+try { scene = new FleetScene(element('world-views'), initialViews, element('overview-map')); scene.fitOverview(); }
 catch (error) { alertMessage(`The 3D view could not start. Enable WebGL and reload. ${error instanceof Error ? error.message : ''}`); element('fleet-feeds').classList.add('webgl-unavailable'); }
 
 function clock(time: number) { const tenths = Math.max(0, Math.round(time * 10)); const minutes = Math.floor(tenths / 600).toString().padStart(2, '0'); return `${minutes}:${((tenths % 600) / 10).toFixed(1).padStart(4, '0')}`; }
@@ -108,24 +108,27 @@ instruction.addEventListener('keydown', event => { if ((event.ctrlKey || event.m
 speedSlider.addEventListener('input', () => { element('speed-value').textContent = `${speedSlider.value}×`; });
 speedSlider.addEventListener('change', () => { void command('speed', { speed: Number(speedSlider.value) }); });
 element('dismiss-alert').addEventListener('click', () => { element('alert').hidden = true; });
-for (const scope of ['entire', 'downtown']) element(`map-${scope}`).addEventListener('click', () => {
-  scene?.fitOverview(scope === 'downtown');
-  for (const option of ['entire', 'downtown']) element(`map-${option}`).setAttribute('aria-pressed', String(option === scope));
-});
+element('map-downtown').addEventListener('click', () => scene?.fitOverview());
 
+declare const __FLEET_RENDERER_ID__: string;
 function connect() {
   socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
-  socket.addEventListener('open', () => setConnection(true));
+  socket.addEventListener('open', () => {
+    if (scene) socket?.send(JSON.stringify({ type: 'camera-ready', rendererId: __FLEET_RENDERER_ID__ }));
+  });
   socket.addEventListener('close', () => { setConnection(false); reconnectTimeout = setTimeout(connect, 1500); });
   socket.addEventListener('error', () => setConnection(false));
   socket.addEventListener('message', event => {
     try {
       const message = JSON.parse(String(event.data));
+      if (message.type === 'camera-accepted') setConnection(true);
+      if (message.type === 'camera-rejected') { setConnection(false); alertMessage(message.message); }
       if (message.type === 'state') renderState(message.state as WorldState);
       if (message.type === 'capture') {
+        if (message.rendererId !== __FLEET_RENDERER_ID__) throw new Error('Camera source changed. Reload the game browser.');
         if (!scene) throw new Error('Cannot return a camera observation because WebGL is unavailable.');
         const image = scene.capture(message.droneId as string, message.pose as Pose, message.drones, message.match);
-        socket?.send(JSON.stringify({ type: 'capture-result', requestId: message.requestId, image }));
+        socket?.send(JSON.stringify({ type: 'capture-result', requestId: message.requestId, rendererId: __FLEET_RENDERER_ID__, image }));
       }
     } catch (error) { alertMessage(error instanceof Error ? error.message : String(error)); }
   });

@@ -106,7 +106,7 @@ export class FleetNetwork {
     const worker = this.workers.get(message.from === 'player' ? 'operator' : message.from as DroneId);
     if (!worker || this.stopping) throw new Error('Drone network is unavailable');
     options.beforeSend?.();
-    return worker.request('send', { message, ttlMs: options.ttlMs ?? (message.kind === 'status' ? 5_000 : 120_000) });
+    return worker.request('send', { message, ttlMs: options.ttlMs ?? 120_000 });
   }
   storage(id: DroneId): RadioStorage | undefined { return this.storageByPeer.has(id) ? { ...this.storageByPeer.get(id)! } : undefined; }
   consumePlayer(ids: string[]) {

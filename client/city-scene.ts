@@ -40,16 +40,12 @@ function sign(text: string, width: number, color = '#143e43') {
 export function createCity(buildings: Obstacle[]) {
   const group = new THREE.Group();
   const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
-  // A continuous landscape extends beyond the municipal viewing envelope.
-  // The municipality is geography on the ground, not a floating square arena.
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(Math.max(20000, width * 4), Math.max(20000, depth * 4)), material('#a7b49a'));
+  // A small scenic margin avoids a floating slab at the flight envelope.
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(width + 800, depth + 800), material('#a7b49a'));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, 0, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
   ground.receiveShadow = true;
   group.add(ground);
-  // Low-contrast land tint shows the sourced Cincinnati shape in the full-city
-  // view. Outer neighborhoods remain scenic flat terrain, not invented roads.
-  for (const ring of CITY.cityBoundary) if (ring.length > 2) group.add(polygon(ring, '#bdbea5', 0.008));
   if (CITY.river.length > 2) {
     group.add(polygon(CITY.river, '#377e91', 0.025, CITY.riverHoles));
     const shoreline = CITY.river.map(point => new THREE.Vector3(point.x, 0.029, point.z));

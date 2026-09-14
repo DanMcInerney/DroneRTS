@@ -3,16 +3,11 @@ import assert from 'node:assert/strict';
 import { CITY } from '../shared/city.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 
-test('geographic world contains every Cincinnati boundary vertex and keeps the southern riverfront inside', () => {
-  const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
-  assert.notEqual(width, depth); assert.ok(width > 2900); assert.ok(depth > 1900 && depth < width);
-  assert.ok(CITY.cityBoundary[0].length > 100);
-  for (const p of CITY.cityBoundary.flat()) {
-    assert.ok(p.x > CITY.bounds.x[0] && p.x < CITY.bounds.x[1]);
-    assert.ok(p.z > CITY.bounds.z[0] && p.z < CITY.bounds.z[1] - 99);
-  }
-  assert.ok(CITY.river.length > 500, 'retain the actual winding river');
-  for (const p of CITY.river) {
+test('downtown bounds retain sourced streets and riverfront at real scale', () => {
+  assert.deepEqual(CITY.bounds, { x: [-125, 115], y: [-5, 80], z: [-90, 100] });
+  assert.equal(CITY.cityBoundary.length, 0);
+  assert.ok(CITY.river.length > 10);
+  for (const p of [...CITY.river, ...CITY.roads.flatMap(road => road.points), ...CITY.spawns]) {
     assert.ok(p.x >= CITY.bounds.x[0] - 0.001 && p.x <= CITY.bounds.x[1] + 0.001);
     assert.ok(p.z >= CITY.bounds.z[0] - 0.001 && p.z <= CITY.bounds.z[1] + 0.001);
   }

@@ -1,3 +1,4 @@
+import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Real renderer + local replay HTTP APIs, deterministic simulator, no model inference. */
 import { chromium, type WebSocketRoute } from '@playwright/test';
 import express from 'express';
@@ -85,7 +86,7 @@ const pending = new Map<string, (image: string) => void>();
 const broadcast = () => socket?.send(JSON.stringify({ type: 'state', state: game.state }));
 await page.routeWebSocket('**/ws', route => {
   socket = route; broadcast();
-  route.onMessage(data => { const message = JSON.parse(String(data)); if (message.type === 'capture-result') pending.get(message.requestId)?.(message.image); });
+  route.onMessage(data => { const message = JSON.parse(String(data)); if (message.type === 'camera-ready') route.send(JSON.stringify({ type: 'camera-accepted' })); if (message.type === 'capture-result') pending.get(message.requestId)?.(message.image); });
 });
 await page.route('**/api/state', route => route.fulfill({ json: game.state }));
 await page.route('**/api/start', route => route.fulfill({ status: 409, json: { error: 'Inference disabled in deterministic QA' } }));
@@ -96,7 +97,7 @@ await page.route('**/api/diagnostics/**', async route => {
 game.capture = (droneId, pose, simTime, drones, match) => new Promise((resolveImage, reject) => {
   const requestId = String(++sequence), timer = setTimeout(() => { pending.delete(requestId); reject(new Error('Camera timeout')); }, 8000);
   pending.set(requestId, image => { clearTimeout(timer); pending.delete(requestId); resolveImage(image); });
-  socket!.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones, match }));
+  socket!.send(JSON.stringify({ type: 'capture', requestId, rendererId: rendererIdentity(process.cwd()), droneId, pose, simTime, drones, match }));
 });
 const body = (result: ToolResult) => JSON.parse((result.content[0] as { text: string }).text);
 const step = async (count: number) => {
@@ -186,10 +187,11 @@ try {
   assert.match(await page.locator('#replay-drone-state').innerText(), /none recorded/);
   assert.equal(body(await game.tool('drone-1', 'fire', { mission: 1 })).fired, true);
   await step(10); assert.equal(game.state.match!.winner, 'blue');
-  recorder.recordFrame(game.state, true); await recorder.stop(game.state.simTime);
+  recorder.recordFrame(game.state, true); await recorder.finish(game.state);
   // Closing and reopening refreshes a completed session through the same real HTTP reader.
   await page.locator('#admin-back').click(); await page.locator('.admin-link').click();
   await page.getByText('Recording complete.', { exact: false }).waitFor();
+  await page.locator('#replay-status').getByText('Final outcome at', { exact: false }).waitFor();
   await page.locator('#replay-latest').click();
   assert.match(await page.locator('#replay-metrics').innerText(), /1 \/ 1/);
   await page.locator('#replay-actor').selectOption('drone-4');
@@ -285,7 +287,7 @@ try {
   assert.equal(await page.locator('#replay-workspace').isVisible(), false);
   assert.deepEqual(warnings, []); assert.deepEqual(errors, []);
   const result = { passed: true, inference: false, records: records.length, directory,
-    checks: ['live recording append', 'time scrubbing', 'playback', 'event seeking', 'six-actor selection', 'physical shot and impact correlation', 'image bytes match delivered camera', 'physical pickup and completed delivery income', 'recorded cargo progress and charging booleans', '300 / 600 battery capacity', 'automatic partial charging independent of rearming', 'charge retained after leaving the base', 'real QuickJS source, SDK calls and cancellation evidence', 'inert source viewer', 'actual player reply radio record', 'historical drill/jammer/capacity interpretation', 'replay/live sensor isolation', 'missing legacy audit evidence', 'responsive layout', 'no browser errors'] };
+    checks: ['final outcome and coverage summary', 'live recording append', 'time scrubbing', 'playback', 'event seeking', 'six-actor selection', 'physical shot and impact correlation', 'image bytes match delivered camera', 'physical pickup and completed delivery income', 'recorded cargo progress and charging booleans', '300 / 600 battery capacity', 'automatic partial charging independent of rearming', 'charge retained after leaving the base', 'real QuickJS source, SDK calls and cancellation evidence', 'inert source viewer', 'actual player reply radio record', 'historical drill/jammer/capacity interpretation', 'replay/live sensor isolation', 'missing legacy audit evidence', 'responsive layout', 'no browser errors'] };
   await writeFile(resolve(output, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
 } finally {
   game.stop(); await recorder.stop(game.state.simTime); await browser.close();

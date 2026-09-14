@@ -4,7 +4,6 @@ import { CITY } from '../shared/city';
 import type { Drone } from './types';
 import { dronePresentation } from './drone-presentation';
 import type { MatchState } from '../shared/rts';
-import { BATTLEFIELD } from '../shared/battlefield';
 
 /** Owns overhead projection, map input and ID-keyed annotations. */
 export class OverheadMap {
@@ -36,23 +35,24 @@ export class OverheadMap {
     view.addEventListener('click', event => enterAt(event.clientX, event.clientY), options);
     view.addEventListener('keydown', event => {
       if (event.key === '+' || event.key === '=' || event.key === '-') {
-        event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * (event.key === '-' ? 1.2 : 1 / 1.2), 25, 18000); this.invalidate(); return;
+        event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * (event.key === '-' ? 1.2 : 1 / 1.2), 25, 500); this.invalidate(); return;
       }
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault(); const box = view.getBoundingClientRect(); enterAt(box.left + box.width / 2, box.top + box.height / 2);
     }, options);
     view.addEventListener('wheel', event => {
       if (Math.abs(event.deltaY) < 1) return;
-      event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * Math.exp(Math.sign(event.deltaY) * 0.15), 25, 18000); this.invalidate();
+      event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * Math.exp(Math.sign(event.deltaY) * 0.15), 25, 500); this.invalidate();
     }, { ...options, passive: false });
     this.fit();
   }
 
-  fit(downtown = false) {
-    const minX = downtown ? BATTLEFIELD.focus.x[0] : CITY.bounds.x[0], maxX = downtown ? BATTLEFIELD.focus.x[1] : CITY.bounds.x[1];
-    const minZ = downtown ? BATTLEFIELD.focus.z[0] : CITY.bounds.z[0], maxZ = downtown ? BATTLEFIELD.focus.z[1] : CITY.bounds.z[1];
+  fit() {
+    const [minX, maxX] = CITY.bounds.x;
+    const [minZ, maxZ] = CITY.bounds.z;
     this.center.set((minX + maxX) / 2, (minZ + maxZ) / 2);
-    this.span = Math.max(maxX - minX, maxZ - minZ) * 1.06; this.invalidate();
+    const box = this.view.getBoundingClientRect(), aspect = box.width / Math.max(1, box.height);
+    this.span = Math.max((maxX - minX) / Math.max(1, aspect), (maxZ - minZ) * Math.min(1, aspect)) * 1.06; this.invalidate();
   }
 
   configure() {
@@ -76,7 +76,6 @@ export class OverheadMap {
       node.setAttribute('stroke', color); node.setAttribute('stroke-width', close ? '1' : '1.5'); node.setAttribute('fill', close ? '#597e4620' : 'none');
       node.setAttribute('stroke-dasharray', close ? '3 3' : '5 4'); paths.push(node);
     };
-    if (this.span > 500) CITY.cityBoundary.forEach(ring => path(ring.map(p => project(p.x, p.z)), '#4e705c', true));
     const currentById = new Map(current.map(drone => [drone.id, drone]));
     for (const shot of match?.projectiles ?? []) {
       path([project(shot.x - shot.vx * 0.07, shot.z - shot.vz * 0.07), project(shot.x, shot.z)], shot.team === 'blue' ? '#c3f5ff' : '#ffb092');

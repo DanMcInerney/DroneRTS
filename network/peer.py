@@ -130,8 +130,6 @@ class Peer:
             ttl = params.get("ttlMs", 120000)
             if type(ttl) not in (int, float) or not math.isfinite(ttl) or not 1 <= ttl <= 600000:
                 raise ValueError("ttlMs must be between 1 and 600000")
-            if message.get("kind") == "status":
-                ttl = min(ttl, 5000)
             recipients = [drone for drone in self.drones if drone != self.drone] if message["to"] == "all" else [message["to"]]
             if message["to"] == "all" and self.sender != "player" and self.player_chat and self.has_operator:
                 recipients.append("player")
@@ -145,7 +143,7 @@ class Peer:
                 binding = {"bootId": self.boot_id, "senderSequence": self.sender_sequence}
             message = {**message, "networkId": self.network_id, **binding,
                        "expiresAt": datetime.fromtimestamp(datetime.fromisoformat(message["sentAt"].replace("Z", "+00:00")).timestamp() + ttl / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                       "trafficClass": "control" if message["kind"] == "mission" else "status" if message["kind"] == "status" else "transfer" if message["kind"] == "transfer" else "durable"}
+                       "trafficClass": "control" if message["kind"] == "mission" else "transfer" if message["kind"] == "transfer" else "durable"}
             validate_message(message, self.fleet_session, self.drones, self.sender, self.player_chat)
             self.store.queue(message, recipients, deadline)
             return {"queued": True, "id": message["id"]}

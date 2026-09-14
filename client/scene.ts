@@ -109,7 +109,7 @@ export class FleetScene {
     this.renderer.setSize(host.clientWidth, host.clientHeight, false); this.frameDirty = true;
   }
 
-  fitOverview(downtown = false) { this.overview.fit(downtown); }
+  fitOverview() { this.overview.fit(); }
 
   private render(time: number) {
     if (this.stopped) return;

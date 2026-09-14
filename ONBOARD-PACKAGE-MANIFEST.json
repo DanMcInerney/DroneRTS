@@ -408,53 +408,53 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 6762,
-      "sha256": "b9b66f912ad71494757969112e800808ab193a98a113ea2f7e1b7c23a405cdeb"
+      "bytes": 6836,
+      "sha256": "8ff55107af912e70dd38e7c4f96b72f1d3d34eaef0daa34c9867e5994a5f74fd"
     },
     {
       "path": "server/onboard-workspace.ts",
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 13208,
-      "sha256": "83fc38ffd1f22400352b0ff70ba3692e8949471c79b3c3686912c46b1280bf20"
+      "bytes": 13347,
+      "sha256": "6f972b94b481f46f5b0afb7cb4b4b7777630f0e214a64970462c756fad6db262"
     },
     {
       "path": "server/radio-transfer.ts",
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 15604,
-      "sha256": "265a19bccf170002491540aa652d605d5ab5f453912c436181fde2f84dccee97"
+      "bytes": 15827,
+      "sha256": "b893cd4e89944e30c714fca94020587ac314bc67929baaaa8b8b518a5af29ed0"
     },
     {
       "path": "server/routine-runner.ts",
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 13153,
-      "sha256": "036d272a97ccc41500879c03d633ca6f5e1c06628a66aefa0defb073d37d8f60"
+      "bytes": 13305,
+      "sha256": "de52a3133b8f845f9cd712a315a5442c67bcd8b800de857da75fc6ea66e2d460"
     },
     {
       "path": "server/routine-worker.mjs",
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 7544,
-      "sha256": "8b87de9826e6dce970f391d4b3b5311cf7b6fb49b519753cf64e0ded7bdede66"
+      "bytes": 7674,
+      "sha256": "41231e21ef52f74b70a9a728e25cd7e2b9deab019373459f5447e424e2cb01c3"
     },
     {
       "path": "shared/onboard.ts",
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 1472,
-      "sha256": "d3f82d448d3ea505f245741f129a914b73f38667602ed4a32680e3a81d047c13"
+      "bytes": 1497,
+      "sha256": "4f878a346a451c68f65d2b17b9f97421030329a89d64c1c119bb8ae8b2b5525c"
     }
   ],
-  "artifactBytes": 1582160,
+  "artifactBytes": 1582903,
   "manifestBytes": 17307,
-  "installedBytes": 1599467,
+  "installedBytes": 1600210,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],

@@ -1,14 +1,15 @@
+import { CameraChannel } from '../server/camera-channel.ts';
+import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Test-only host: real renderer, game, team runtime, Zenoh, MAVLink and replay writer. */
 import express from 'express';
 import { createServer } from 'node:http';
 import type { Socket } from 'node:net';
 import { WebSocket, WebSocketServer } from 'ws';
-import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
 import { FleetGame } from '../server/game.ts';
 import { TeamSession } from '../server/team-session.ts';
-import { ReplayRecorder } from '../server/replay-recorder.ts';
+import { ReplayRecorder, REPLAY_SAMPLE_INTERVAL } from '../server/replay-recorder.ts';
 import { diagnosticsRouter, redactDiagnostic } from '../server/diagnostics.ts';
 import { replayRouter } from '../server/replay-store.ts';
 import { MATCH_FLEET } from '../shared/fleet.ts';
@@ -33,20 +34,23 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   let ticker: ReturnType<typeof setInterval> | undefined, disconnect: ReturnType<typeof setTimeout> | undefined;
   let stopPromise: Promise<void> | undefined, starting = false;
   let closePromise: Promise<void> | undefined;
-  const pending = new Map<string, { socket: WebSocket; resolve: (image: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+
   const audit = (type: string, value: unknown) => log.write(JSON.stringify({ wallTime: new Date().toISOString(), type, value: redactDiagnostic(value) }) + '\n');
   const broadcast = () => {
     recorder?.recordFrame(game.state);
     const packet = JSON.stringify({ type: 'state', state: game.state });
     for (const socket of sockets.clients) if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 2_000_000) socket.send(packet);
   };
+  const cameras = new CameraChannel(rendererIdentity(projectDir), ready => {
+    clearTimeout(disconnect); game.setConnected(ready); broadcast();
+    if (!ready && game.state.running) disconnect = setTimeout(() => fail('No current camera renderer for ten seconds'), 10_000);
+  }, record => audit('camera', record));
   const stop = (): Promise<void> => {
     if (stopPromise) return stopPromise;
     clearInterval(ticker); clearTimeout(disconnect); game.stop(); recorder?.recordFrame(game.state, true);
-    for (const capture of pending.values()) { clearTimeout(capture.timer); capture.reject(new Error('Trial stopped')); }
-    pending.clear();
+    cameras.cancel();
     stopPromise = (async () => {
-      await runtime?.stop(); await recorder?.stop(game.state.simTime);
+      await runtime?.stop(); await recorder?.finish(game.state);
       game.state.runtime.status = 'stopped'; game.state.runtime.message = 'Bounded trial stopped'; broadcast();
     })();
     return stopPromise;
@@ -69,30 +73,13 @@ export async function createTrialHost(projectDir: string, directory: string, sce
     sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws, req));
   });
   sockets.on('connection', socket => {
-    clearTimeout(disconnect); game.setConnected(true); broadcast();
+    cameras.attach(socket); broadcast();
     socket.on('message', bytes => {
-      try {
-        const message = JSON.parse(bytes.toString()), capture = pending.get(message.requestId);
-        if (message.type !== 'capture-result' || !capture || capture.socket !== socket) return;
-        pending.delete(message.requestId); clearTimeout(capture.timer);
-        if (typeof message.image !== 'string' || message.image.length > 2_000_000) capture.reject(new Error('Invalid camera response'));
-        else capture.resolve(message.image);
-      } catch { /* A malformed response will time out its outstanding capture. */ }
+      try { cameras.receive(socket, JSON.parse(bytes.toString())); } catch { /* Invalid packets cannot become captures. */ }
     });
-    socket.on('close', () => {
-      for (const [id, capture] of pending) if (capture.socket === socket) {
-        clearTimeout(capture.timer); capture.reject(new Error('Camera disconnected')); pending.delete(id);
-      }
-      if (!sockets.clients.size) { game.setConnected(false); if (game.state.running) disconnect = setTimeout(() => fail('Browser disconnected for ten seconds'), 10_000); }
-    });
+    socket.on('close', () => cameras.detach(socket));
   });
-  game.capture = (droneId, pose, simTime, drones, match) => new Promise((resolveImage, reject) => {
-    const socket = [...sockets.clients].find(candidate => candidate.readyState === WebSocket.OPEN);
-    if (!socket) { reject(new Error('Camera browser is disconnected')); return; }
-    const requestId = randomUUID(), timer = setTimeout(() => { pending.delete(requestId); reject(new Error('Camera timed out')); }, 8000);
-    pending.set(requestId, { socket, resolve: resolveImage, reject, timer });
-    socket.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones, match }));
-  });
+  game.capture = (...args) => cameras.capture(...args);
   for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended']) game.on(event, value => audit(event, value));
   game.on('tool', ({ drone, name, args }) => { recorder?.recordFrame(game.state, true); recorder?.recordCommand(drone, name, args, game.state.simTime); });
   game.on('recorded-observation', value => recorder?.recordObservation(value));
@@ -123,14 +110,14 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   } catch (error) { await vite.close(); log.end(); throw error; }
   return {
     game, sessionId, failures, warnings,
-    connected: () => sockets.clients.size > 0,
+    connected: () => cameras.ready,
     async start() {
       if (starting || stopPromise) throw new Error('Trial is single-use');
-      starting = true; game.start();
+      starting = true; game.start(); game.awaitFleetLaunch();
       const fixture = arrangeTrial(game, scenario); audit('trial-fixture', fixture);
       recorder = await ReplayRecorder.create({ directory, sessionId, header: {
-        type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
-        rulesVersion: game.state.match?.rulesVersion,
+        type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: REPLAY_SAMPLE_INTERVAL,
+        rulesVersion: game.state.match?.rulesVersion, rendererId: cameras.rendererId,
         roster: MATCH_FLEET, scene: { name: `${CITY.name} · ${scenario} trial`, bounds: CITY.bounds,
           focus: BATTLEFIELD.focus, obstacles: game.state.obstacles, roads: CITY.roads, river: CITY.river }, camera: DRONE_CAMERA,
       }, onWarning: message => { warnings.push(message); audit('replay-warning', { message }); } });

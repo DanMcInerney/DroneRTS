@@ -108,7 +108,7 @@ test('mission replacement during MAVLink transit cancels the accepted job before
   assert.equal(body(await game.tool('drone-1', 'observe')).mission, 2); game.stop();
 });
 
-test('expiry at the model boundary removes stale text and consumes queued or deferred mail', async () => {
+test('received peer text survives its delivery deadline while expired future-objective mail is consumed', async () => {
   const game = new FleetGame(); game.setConnected(true); game.start();
   game.capture = async () => 'data:image/jpeg;base64,AQID';
   for (const id of DRONE_IDS) await game.tool(id, 'observe');
@@ -121,8 +121,8 @@ test('expiry at the model boundary removes stale text and consumes queued or def
   game.receiveRadio('drone-1', { ...message, id: 'future', mission: 2, expiresAt: deadline });
   await new Promise(resolve => setTimeout(resolve, 90));
   const response = body(await game.tool('drone-1', 'observe'));
-  assert.equal(JSON.stringify(response).includes('Stale finding'), false);
-  assert.deepEqual(response.events.filter((e: any) => e.type === 'message_expired').map((e: any) => e.id).sort(), ['current', 'future']);
+  assert.equal(JSON.stringify(response).includes('Stale finding'), true);
+  assert.deepEqual(response.events.filter((e: any) => e.type === 'message_expired').map((e: any) => e.id).sort(), ['future']);
   assert.ok(consumed.includes('current') && consumed.includes('future')); game.stop();
 });
 

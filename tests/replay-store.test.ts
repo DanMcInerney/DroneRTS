@@ -4,6 +4,7 @@ import { appendFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symli
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
+import { FleetGame } from '../server/game.ts';
 import { ReplayRecorder } from '../server/replay-recorder.ts';
 import { ReplayStore, replayRouter } from '../server/replay-store.ts';
 import { ReplayError, replayFile, ReplayFileReplacedError } from '../server/replay-paths.ts';
@@ -202,11 +203,11 @@ test('storage and write-queue limits stop at a bounded prefix with an explicit t
 
 test('data byte limit reserves its terminal record instead of silently truncating JSONL', async t => {
   const { directory, path, store } = await fixture(t);
-  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, limits: { dataBytes: 2500 } });
+  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, limits: { dataBytes: 3500 } });
   recorder.recordCommand('drone-1', 'send', { text: 'x'.repeat(2000) }, 1);
   await recorder.stop(1);
   const saved = await records(store); assert.deepEqual(saved.map(value => value.type), ['header', 'end']);
-  assert.ok((await lstat(path)).size <= 2500); assert.equal((saved.at(-1) as { reason: string }).reason, 'limit');
+  assert.ok((await lstat(path)).size <= 3500); assert.equal((saved.at(-1) as { reason: string }).reason, 'limit');
 });
 
 test('camera backpressure and storage caps omit images explicitly while keeping sensor metadata', async t => {
@@ -306,4 +307,22 @@ test('replay routes validate paths, reject symlinks and serve only bounded local
     await symlink(join(session, image.imageId!), join(session, linkedId));
     await assert.rejects(store.image(id, linkedId), /unavailable/);
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EPERM') throw error; }
+});
+
+test('final outcome remains available after the replay cap without claiming missing frames', async t => {
+  const { directory, path, session, store } = await fixture(t);
+  const recorder = await ReplayRecorder.create({ directory, sessionId: id, header, limits: { dataBytes: 3500 } });
+  recorder.recordFrame(state(1));
+  recorder.recordCommand('drone-1', 'send', { text: 'x'.repeat(4000) }, 2);
+  const game = new FleetGame(); game.setConnected(true); game.start();
+  t.after(() => game.stop());
+  game.state.simTime = 600; game.state.match!.teams.blue.earned = 60;
+  recorder.recordEvent({ id: 'late-shot', type: 'fired', simTime: 599, drone: 'drone-1', message: 'Shot' });
+  await recorder.finish(game.state);
+  const page = await store.page(id);
+  assert.equal(page.records.at(-1)?.type, 'end');
+  assert.equal(page.summary?.coveredThrough, 1);
+  assert.equal(page.summary?.simTime, 600); assert.equal(page.summary?.blueDelivered, 60);
+  assert.equal(page.summary?.shots, 1); assert.equal(page.summary?.survivors.length, 6);
+  assert.ok((await lstat(path)).size + (await lstat(join(session, 'status.json'))).size <= 3500);
 });

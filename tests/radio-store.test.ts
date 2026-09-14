@@ -125,16 +125,15 @@ assert store.status()['journalPeakBytes'] <= TRANSACTION_BYTES
 assert store.db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'`);
 });
 
-test('latest sender status coalesces, refuses reordered updates and does not replay stale status', async () => {
+test('received status messages persist in receipt order across expiry and restart until consumed', async () => {
   await scenario(`first = message('status-one', kind='status', sequence=1)
 second = message('status-two', kind='status', sequence=2)
 third = message('status-three', kind='status', sequence=3)
 assert store.accept(first, now + 100)
 assert store.accept(third, now + 100)
-assert not store.accept(second, now + 100)
-assert [item[0]['id'] for item in store.unconsumed()] == ['status-three']
+assert store.accept(second, now + 100)
+assert [item[0]['id'] for item in store.unconsumed()] == ['status-one', 'status-three', 'status-two']
 assert store.consume(['status-three']) == 1
-assert store.db.execute("SELECT message FROM inbox WHERE id='status-three'").fetchone()[0] == ''
 assert not store.accept(second, now + 100)
 store.close()
 store = PeerStore(path, 'drone-2', 'session-one')
@@ -142,10 +141,12 @@ assert not store.accept(second, now + 100)
 store.queue(first, ['drone-3'], now + 100)
 store.queue(third, ['drone-3'], now + 100)
 store.queue(second, ['drone-3'], now + 100)
-assert [row['id'] for row in store.due(now)] == ['status-three']
-store.expire(now + 6)
-assert store.unconsumed() == []
-assert store.due(now + 6) == []
+assert [row['id'] for row in store.due(now)] == ['status-one', 'status-three', 'status-two']
+store.expire(now + 101)
+assert [item[0]['id'] for item in store.unconsumed()] == ['status-one', 'status-two']
+assert store.due(now + 101) == []
+assert store.consume(['status-one', 'status-two']) == 2
+store.expire(now + 102)
 assert store.status()['records'] == 0`);
 });
 
@@ -170,7 +171,7 @@ assert chat['receipts'] == '["drone-1"]'
 assert store.expire(now + 102) == []`);
 });
 
-test('failed SQLite allocation rolls back a status replacement without erasing its previous value', async () => {
+test('failed SQLite allocation preserves all previously received messages', async () => {
   await scenario(`original = message('original-status', kind='status', sequence=1)
 assert store.accept(original, now + 100)
 page_count = store.db.execute('PRAGMA page_count').fetchone()[0]
@@ -192,42 +193,24 @@ latest = {**message('latest-one', sender='drone-2', kind='status', sequence=3), 
 store.queue(one, ['drone-1'], now + 5)
 store.queue(three, ['drone-3'], now + 5)
 store.queue(latest, ['drone-1'], now + 5)
-assert [row['id'] for row in store.due(now)] == ['to-three', 'latest-one']
-assert store.status()['pendingRecipients'] == 2`);
+assert [row['id'] for row in store.due(now)] == ['to-one', 'to-three', 'latest-one']
+assert store.status()['pendingRecipients'] == 3`);
 });
 
-test('short-lived current status keeps its ordering watermark until older retries can no longer arrive', async () => {
-  await scenario(`from unittest.mock import patch
-with patch('peer_store.time.monotonic', return_value=now):
-    first = message('first-long', kind='status', sequence=1)
-    missing = message('unseen-middle', kind='status', sequence=2)
-    latest = message('latest-short', kind='status', sequence=3)
-    assert store.accept(first, now + 5)
-    assert store.accept(latest, now + 0.2)
-    assert store.consume(['latest-short']) == 1
-    assert store.accept(message('unread-short', sender='drone-3', kind='status', sequence=3), now + 0.2)
-    destination = {'to': 'drone-1', 'from': 'drone-2'}
-    store.queue({**first, **destination}, ['drone-1'], now + 5)
-    store.queue({**latest, **destination}, ['drone-1'], now + 0.2)
-    expired = store.expire(now + 0.3)
-    assert [row['id'] for row in expired] == ['latest-short']
-    assert store.expire(now + 0.4) == []
-    assert store.unconsumed() == []
-    assert store.due(now + 0.3) == []
-    for table in ['inbox', 'outbox']:
-        head = store.db.execute('SELECT message,status_until FROM ' + table + ' WHERE id=?', ('latest-short',)).fetchone()
-        assert head['message'] == ''
-        assert head['status_until'] >= now + 5
-    store.close()
-    store = PeerStore(path, 'drone-2', 'session-one')
-    assert not store.accept(missing, now + 5)
-    assert not store.accept(message('unseen-other', sender='drone-3', kind='status', sequence=2), now + 5)
-    store.queue({**missing, **destination}, ['drone-1'], now + 5)
-    assert store.due(now + 0.3) == []
-    assert store.unconsumed() == []
-    # An independently addressed outgoing stream retains its own ordering.
-    store.queue({**missing, **destination, 'id': 'other-destination', 'to': 'drone-3'}, ['drone-3'], now + 5)
-    assert [row['id'] for row in store.due(now + 0.3)] == ['other-destination']
-    store.expire(now + 6)
-    assert store.status()['records'] == 0`);
+test('transmission expiry removes pending status copies without deleting received text', async () => {
+  await scenario(`first = message('first', kind='status', sequence=1)
+latest = message('latest', kind='status', sequence=2)
+assert store.accept(first, now + 5)
+assert store.accept(latest, now + 0.2)
+store.queue(first, ['drone-1'], now + 5)
+store.queue(latest, ['drone-1'], now + 0.2)
+assert [row['id'] for row in store.expire(now + 0.3)] == ['latest']
+assert [row['id'] for row in store.due(now + 0.3)] == ['first']
+assert [item[0]['id'] for item in store.unconsumed()] == ['first', 'latest']
+store.expire(now + 6)
+assert store.due(now + 6) == []
+assert [item[0]['id'] for item in store.unconsumed()] == ['first', 'latest']
+assert store.consume(['first', 'latest']) == 2
+store.expire(now + 7)
+assert store.status()['records'] == 0`);
 });

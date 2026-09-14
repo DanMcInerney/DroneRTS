@@ -1,3 +1,5 @@
+import { CameraChannel } from '../server/camera-channel.ts';
+import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Deterministic browser + simulator QA. All inference endpoints are blocked. */
 import { chromium, type WebSocketRoute } from '@playwright/test';
 import assert from 'node:assert/strict';
@@ -33,22 +35,24 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } });
 page.setDefaultTimeout(15000);
 const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
 let socket: WebSocketRoute | undefined;
-let sequence = 0;
-const captures = new Map<string, (image: string) => void>();
 const broadcast = () => socket?.send(JSON.stringify({ type: 'state', state: game.state }));
+const cameraEvidence: Record<string, unknown>[] = [], stalePackets: string[] = [];
+const cameras = new CameraChannel(rendererIdentity(process.cwd()), ready => { game.setConnected(ready); broadcast(); }, record => cameraEvidence.push(record));
+// A stale page reconnecting first must never become the camera provider.
+const stale = { readyState: 1, send: (packet: string) => stalePackets.push(packet) };
+cameras.attach(stale); cameras.receive(stale, { type: 'camera-ready', rendererId: 'previous-build' });
+assert.equal(cameras.ready, false);
 await page.routeWebSocket('**/ws', route => {
-  socket = route; broadcast();
-  route.onMessage(data => { const message = JSON.parse(String(data)); if (message.type === 'capture-result') captures.get(message.requestId)?.(message.image); });
+  socket = route;
+  const peer = { readyState: 1, send: (packet: string) => route.send(packet) };
+  cameras.attach(peer); broadcast();
+  route.onMessage(data => cameras.receive(peer, JSON.parse(String(data))));
 });
 await page.route('**/api/state', route => route.fulfill({ json: game.state }));
 await page.route('**/api/start', route => route.fulfill({ status: 409, json: { error: 'Inference disabled in deterministic QA' } }));
 await page.route('**/api/stop', async route => { game.stop(); broadcast(); await route.fulfill({ json: { stopped: true } }); });
 await page.route('**/api/reset', async route => { game.reset(); broadcast(); await route.fulfill({ json: game.state }); });
-game.capture = (droneId, pose, simTime, drones, match) => new Promise((resolveImage, reject) => {
-  const requestId = String(++sequence), timer = setTimeout(() => { captures.delete(requestId); reject(new Error('Camera timeout')); }, 8000);
-  captures.set(requestId, image => { clearTimeout(timer); captures.delete(requestId); resolveImage(image); });
-  socket!.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones, match }));
-});
+game.capture = (...args) => cameras.capture(...args);
 const imageFile = async (name: string, result: ToolResult) => {
   const image = result.content.find(item => item.type === 'image'); assert.ok(image && image.type === 'image');
   await writeFile(resolve(directory, name), Buffer.from(image.data, 'base64'));
@@ -75,7 +79,9 @@ try {
   await firstCard.locator('.camera-mode').getByText('ZOOM', { exact: true }).waitFor();
   await page.screenshot({ path: resolve(directory, 'optics.png'), fullPage: true });
   await game.tool('drone-1', 'camera', { mission: 1, mode: 'wide' });
-  await page.locator('#overview-map').click({ position: { x: 240, y: 130 } });
+  await page.locator('#map-downtown').click();
+  await page.locator('#overview-map').screenshot({ path: resolve(directory, 'downtown-map.png') });
+  await page.locator('#overview-map').click();
   await page.locator('.explorer').waitFor({ state: 'visible' });
   await page.keyboard.down('w'); await page.waitForTimeout(180); await page.keyboard.up('w');
   const godObservation = await game.tool('drone-1', 'observe');
@@ -95,6 +101,7 @@ try {
   const tick = (seconds: number) => { for (let time = 0; time < seconds; time += .05) game.tick(Math.min(.05, seconds - time)); };
   tick(1); broadcast();
   await firstCard.locator('.logistics-label').getByText(/LOADING/).waitFor();
+  await imageFile('loading-camera.jpg', await game.tool('drone-3', 'observe'));
   await page.screenshot({ path: resolve(directory, 'three-loading.png'), fullPage: true });
   tick(CARGO_CONFIG.pickupDuration + .1);
   assert.ok(game.state.drones.slice(0, 3).every(drone => drone.alive && drone.cargo?.amount === 30));
@@ -149,9 +156,11 @@ try {
   game.stop(); broadcast(); await page.locator('#reset').click();
   assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && drone.equipment?.armor && drone.battery === undefined));
   assert.deepEqual(errors, []);
+  assert.equal(stalePackets.filter(packet => JSON.parse(packet).type === 'capture').length, 0);
+  await writeFile(resolve(directory, 'camera-evidence.json'), JSON.stringify(cameraEvidence, null, 2));
   const result = { passed: true, inference: false, fixture: true, directory, port, preflight,
-    checks: ['six actual cameras', 'optics wide/zoom', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
+    checks: ['stale first renderer rejected; current renderer supplies all acquisitions', 'six actual cameras', 'optics wide/zoom', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
       'simultaneous delivery without battery UI', 'delivered income funds modules', 'explicit cargo refit', 'legacy miner rejected',
       'finite gun ammunition', 'cancelled/refunded and completed rearm', 'cargo map and player reply', 'responsive layout', 'fresh reset'] };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));
-} finally { game.stop(); await browser.close(); }
+} finally { game.stop(); cameras.cancel(); await browser.close(); }

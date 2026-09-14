@@ -1,3 +1,4 @@
+import { LaunchGate } from './launch-gate.ts';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage, type GameEvent } from '../shared/types.ts';
@@ -48,6 +49,8 @@ interface RadioTransport {
 }
 
 export class FleetGame extends EventEmitter {
+  private launchGate?: LaunchGate;
+  awaitFleetLaunch() { this.launchGate = new LaunchGate(this.state.drones.map(drone => drone.id)); }
   state: GameState;
   inboxes: Record<DroneId, Mailbox>;
   private playerQueue: Array<{ id: string; text: string; team: TeamId; bootstrap?: boolean }> = [];
@@ -234,6 +237,7 @@ export class FleetGame extends EventEmitter {
     this.playerQueue = []; this.emit('change');
   }
   start() {
+    this.launchGate = undefined;
     if (!this.connected) throw new Error('Open the game browser before launching the fleet');
     this.inboxes = this.newInboxes();
     this.toolErrors.clear();
@@ -364,8 +368,6 @@ export class FleetGame extends EventEmitter {
       for (const item of pending) { this.receivedRadio.delete(`${recipient}:${item.id}`); this.receiveRadio(recipient, item); }
       return;
     }
-    if (message.kind === 'status') this.inboxes[recipient].events = this.inboxes[recipient].events.filter(event =>
-      event.type !== 'radio' || (event.message as RadioMessage)?.kind !== 'status' || (event.message as RadioMessage)?.from !== message.from);
     if (message.from !== 'player' && message.mission > this.droneMissions[recipient]) {
       const pending = this.deferredRadio.get(recipient) ?? []; pending.push(message); this.deferredRadio.set(recipient, pending); return;
     }
@@ -516,7 +518,7 @@ export class FleetGame extends EventEmitter {
     this.radioTransport?.consume(role, mailIds);
     for (const id of mailIds) {
       const message = this.state.radio.find(item => item.id === id);
-      if (message && !mailExpired(message)) {
+      if (message && (message.kind !== 'mission' || !mailExpired(message))) {
         message.delivery ??= { queuedAt: message.sentAt, storedBy: [], bundledBy: [] };
         message.delivery.bundledBy = [...new Set([...message.delivery.bundledBy, role])];
         this.emit('radio-delivery', structuredClone(message));
@@ -524,17 +526,20 @@ export class FleetGame extends EventEmitter {
     }
     inbox.events = inbox.events.map(event => {
       const expiry = event.type === 'radio' ? event.message as RadioMessage : { expiresAt: event.expiresAt as string | undefined, expiresMonotonicMs: event.expiresMonotonicMs as number | undefined };
-      return mailExpired(expiry)
+      return event.type !== 'radio' && mailExpired(expiry)
         ? { cursor: event.cursor, type: 'message_expired', mission: this.droneMissions[role], id: event.type === 'radio' ? (event.message as RadioMessage).id : event.id }
         : event;
     });
     const { sensors, image } = sample;
+    if (this.launchGate?.delivered(role, inbox.events.some(event => event.type === 'player' && event.mission === this.droneMissions[role] && Number(event.mission) > 0))) {
+      for (const member of this.state.drones) this.inboxes[member.id].push({ type: 'launch_ready', mission: this.droneMissions[member.id] });
+    }
     this.deliveredObservationSequences.set(role, [...(this.deliveredObservationSequences.get(role) ?? []), sensors.sequence].slice(-64));
     this.storageStatus(role);
     const original = result.content.find(c => c.type === 'text');
     const value = original?.type === 'text' ? JSON.parse(original.text) : {};
     const feedback = { ...value, protocol: 'fleet-observation/2', sessionId, mission: this.droneMissions[role],
-      stopped: false, ...inbox, currentAction: activityOf(drone),
+      stopped: false, ...inbox, launchReady: this.launchGate?.ready ?? true, currentAction: activityOf(drone),
       sensors,
       currentTelemetry: this.ownTelemetry(role), job: this.jobs.status(role),
       routine: this.routines.get(role)?.status() ?? null,
@@ -623,6 +628,9 @@ export class FleetGame extends EventEmitter {
       }
       if (!createDroneTools(teamRoster(teamForDrone(role)), this.toolCapabilities(role), teamForDrone(role)).some(tool => tool.name === name)) throw new Error('Tool is not available to this drone');
       if (args.mission !== this.droneMissions[role] || !this.droneMissions[role]) throw new Error(`Stale or missing mission; your current mission is ${this.droneMissions[role]}. Read your inbox before acting.`);
+      if (this.launchGate && !this.launchGate.ready && ['act', 'route', 'buy', 'fire', 'rearm', 'routine'].includes(name)) {
+        return textResult({ launchPending: true, instruction: 'Launch is waiting for all six opening-objective bundles. Use wait; movement and purchases are not admitted yet.' });
+      }
       const origin = routineContext?.origin as ObservationOrigin | undefined ?? this.origin(role, args);
       if (name === 'workspace') {
         const workspace = this.onboardWorkspace(role);
@@ -811,6 +819,7 @@ export class FleetGame extends EventEmitter {
   }
 
   tick(dt: number) {
+    if (this.launchGate && !this.launchGate.ready) return;
     if (!this.state.running || !this.connected) return;
     if (!Number.isFinite(dt)) return;
     dt = Math.min(Math.max(dt, 0), 0.25) * this.state.speed;

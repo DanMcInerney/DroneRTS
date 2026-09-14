@@ -16,6 +16,9 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Cargo presentation | `client/combat-view.ts`, `client/drone-model.ts`, `client/drone-visuals.ts` | Authoritative stock, empty pallets, attached cargo and equipment. No fixture-only live state or invisible resource marker. |
 | Vehicle sensing | `server/local-sensors.ts` | Fixed finite proximity/downward coverage, sample identity/time/validity and anonymous distances. No requested-target raycast or classification. |
 | Continuous motion | `server/drone-motion.ts` | Own velocity, acceleration, braking, flight profiles, camera aim and finite-range local hold. No route selection or world-geometry access. |
+| Camera transport | `server/camera-channel.ts`, `server/renderer-identity.ts` | Shared production/trial broker; current source fingerprint, socket-bound capture ownership and acquisition provenance. |
+| Launch readiness | `server/launch-gate.ts` | Actual opening-objective bundle receipt by all six pilots gates initial simulation, movement and spending. |
+| Model observation format | `server/observation-format.ts` | Lossless tabular range encoding at the model boundary; internal telemetry and routine SDK retain named fields. |
 | Optical calibration | `shared/camera-profile.ts` | Actual wide/zoom projection shared by capture/rendering and exposed as own vehicle calibration. |
 | Job lifecycle | `server/command-jobs.ts`, `shared/onboard.ts` | Ordered caller-supplied waypoints, one movement writer, explicit replacement, event/source provenance and locally renewed 500 ms monotonic controller leases. |
 | Game boundary | `server/game.ts` | Authoritative state, simulation ticks, per-drone received objectives, quick admissions, bounded batches, lifecycle cancellation, current own telemetry and fresh aggregate camera/inbox delivery. |
@@ -59,3 +62,5 @@ The viewer interprets recorded rules and geometry. Older cube/miner/jammer recor
 Use focused cargo conservation, observation, local-control, job, workspace/runtime, protocol and runtime-policy tests, then `npm run build`. The broad suite includes actual Zenoh/MAVLink helpers with no model inference. Deterministic browser fixtures inspect acquired camera pixels; they do not establish autonomous recognition, hauling or coordination.
 
 Bounded live evaluation uses Luna/xhigh, an owned isolated server and actual camera browser. Preserve active port 4317 and use another free trial port if 4318 is occupied. Autonomous single-haul/repetition and useful team hauling precede another full battle. [RTS-PLAYTEST.md](RTS-PLAYTEST.md) contains measured evidence and limitations; historical reports do not validate later features.
+
+The downtown extent is centralized in `shared/downtown.json`; generation clips roads, parks and water and leaves all existing building dimensions unchanged. Replay headers retain their own scene bounds, so historical maps stay interpretable. New recordings sample routine poses at 0.5 seconds and force frames at commands/events, with a reserved final outcome summary independent of detailed coverage.
