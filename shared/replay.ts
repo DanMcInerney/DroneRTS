@@ -8,6 +8,7 @@ export interface ReplayHeader {
   type: 'header'; protocol: 'fleet-replay/1'; startedAt: string; sampleInterval: number;
   /** Absent in historical recordings; never apply current rules to those frames. */
   rulesVersion?: string;
+  rendererId?: string;
   roster: readonly FleetMember[];
   scene: { name: string; bounds: { x: [number, number]; z: [number, number] };
     focus: { x: [number, number]; z: [number, number] }; obstacles: Obstacle[];
@@ -47,6 +48,12 @@ export interface ReplayEnd {
 export type ReplayRecord = ReplayHeader | ReplayFrame | ReplayCommand | ReplayObservation | ReplayCombatEvent | ReplayEnd | ReplayScriptSource | ReplayExecution | ReplayCancellation | ReplayRadio;
 export interface ReplayPage {
   available: boolean; records: ReplayRecord[]; next: number; hasMore: boolean; bytes: number;
+  summary?: ReplaySummary;
+}
+export interface ReplaySummary {
+  simTime: number; coveredThrough: number; survivors: string[]; winner: string | null;
+  blueCredits: number; redCredits: number; blueDelivered: number; redDelivered: number;
+  stock: number; aboard: number; lost: number; shots: number;
 }
 
 /** Internal acquisition event; persisted only by the separate bounded replay recorder. */

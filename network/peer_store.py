@@ -26,7 +26,6 @@ MAX_QUEUE = 256
 CONTROL_QUEUE = 16
 MAX_RECORDS = 2048
 MAX_RETRY_SECONDS = 600
-STATUS_SECONDS = 5
 
 
 def encode(value):
@@ -108,14 +107,6 @@ class PeerStore:
                     if name not in present:
                         with self._transaction():
                             self.db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {declaration}")
-                        if name == "status_until":
-                            # A prior-version head has no acquisition deadline.
-                            # Retain its small watermark for one bounded retry
-                            # horizon on migration, never again on ordinary reopen.
-                            for head in self.db.execute(f"SELECT rowid FROM {table} WHERE status_head=1").fetchall():
-                                with self._transaction():
-                                    self.db.execute(f"UPDATE {table} SET status_until=? WHERE rowid=?",
-                                                    (time.monotonic() + STATUS_SECONDS, head["rowid"]))
                 for row in self.db.execute(f"SELECT rowid,message FROM {table} WHERE digest='' AND message<>''").fetchall():
                     message = json.loads(row["message"])
                     with self._transaction():
@@ -167,14 +158,14 @@ class PeerStore:
             raise ValueError("Invalid stored message deadline")
         return body, digest(body)
 
-    def _admit(self, message, body, recipients="[]", replacing=False):
+    def _admit(self, message, body, recipients="[]"):
         reserved = control(message)
         count = self.db.execute("SELECT (SELECT COUNT(*) FROM inbox)+(SELECT COUNT(*) FROM outbox)").fetchone()[0]
         if count >= MAX_RECORDS + (CONTROL_QUEUE if reserved else 0):
             raise ValueError("radio storage-full: deduplication record limit; wait for expiry")
         active = self.db.execute("SELECT (SELECT COUNT(*) FROM inbox WHERE consumed=0) + "
                                  "(SELECT COUNT(*) FROM outbox WHERE status='pending')").fetchone()[0]
-        if active - int(replacing) >= MAX_QUEUE + (CONTROL_QUEUE if reserved else 0):
+        if active >= MAX_QUEUE + (CONTROL_QUEUE if reserved else 0):
             raise ValueError("radio storage-full: durable queue limit; consume mail or wait for expiry")
         pages = self.db.execute("PRAGMA page_count").fetchone()[0]
         free = self.db.execute("PRAGMA freelist_count").fetchone()[0]
@@ -187,7 +178,8 @@ class PeerStore:
             raise ValueError("radio storage-full: mail allocation reserved for objective/control traffic")
 
     def _status_fields(self, message):
-        return (int(message.get("kind") == "status"), str(message.get("bootId", "")),
+        # Legacy column names retain native sender identity; text labels no longer coalesce.
+        return (0, str(message.get("bootId", "")),
                 int(message.get("senderSequence", message.get("sequence", 0))), str(message.get("sentAt", "")))
 
     def sender_binding(self, message_id):
@@ -196,29 +188,12 @@ class PeerStore:
             row = self.db.execute("SELECT status_boot,status_sequence FROM outbox WHERE id=?", (message_id,)).fetchone()
             return {"bootId": row["status_boot"], "senderSequence": row["status_sequence"]} if row else None
 
-    def _previous_status(self, table, message):
-        destination = " AND status_to=?" if table == "outbox" else ""
-        params = (message["from"], message.get("to", "all")) if table == "outbox" else (message["from"],)
-        row = self.db.execute(f"SELECT rowid,* FROM {table} WHERE sender=? AND status_head=1{destination}", params).fetchone()
-        if not row:
-            return None, True
-        _, boot, sequence, sent = self._status_fields(message)
-        newer = sequence > row["status_sequence"] if boot == row["status_boot"] else (sent, sequence) > (row["status_sent"], row["status_sequence"])
-        return row, newer
-
-    @staticmethod
-    def _status_retention(message, prior):
-        # A newer status may have a shorter payload TTL than an unseen older
-        # packet. Keep the ordering watermark through every supported older
-        # retry, independently of whether the current value is still readable.
-        return max(time.monotonic() + STATUS_SECONDS, prior["status_until"] if prior else 0) if message.get("kind") == "status" else 0
-
     @staticmethod
     def _deadline(message, expires):
         now = time.monotonic()
         if expires <= now:
             raise ValueError("Message deadline already expired")
-        return min(expires, now + (STATUS_SECONDS if message.get("kind") == "status" else MAX_RETRY_SECONDS))
+        return min(expires, now + MAX_RETRY_SECONDS)
 
     def queue(self, message, recipients, expires):
         body, checksum = self._message(message, expires)
@@ -233,15 +208,10 @@ class PeerStore:
                 if existing["digest"] != checksum or existing["recipients"] != encoded_recipients:
                     raise ValueError("Message ID already exists with different contents")
                 return
-            prior, newer = self._previous_status("outbox", message) if message.get("kind") == "status" else (None, True)
-            if not newer:
-                return
-            self._admit(message, body, encoded_recipients, prior is not None and prior["status"] == "pending")
+            self._admit(message, body, encoded_recipients)
             with self._transaction():
-                if prior:
-                    self.db.execute("UPDATE outbox SET status='superseded',message='',status_head=0 WHERE rowid=?", (prior["rowid"],))
                 self.db.execute("INSERT INTO outbox(id,message,recipients,expires,digest,kind,reserved,sender,status_head,status_boot,status_sequence,status_sent,status_to,status_until) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (message["id"], body, encoded_recipients, expires, checksum, message.get("kind", "radio"), int(control(message)), message["from"], *self._status_fields(message), message.get("to", "all"), self._status_retention(message, prior)))
+                                (message["id"], body, encoded_recipients, expires, checksum, message.get("kind", "radio"), int(control(message)), message["from"], *self._status_fields(message), message.get("to", "all"), 0))
 
     def accept(self, message, expires):
         body, checksum = self._message(message, expires)
@@ -252,15 +222,10 @@ class PeerStore:
                 if existing["digest"] != checksum:
                     raise ValueError("Conflicting duplicate message")
                 return False
-            prior, newer = self._previous_status("inbox", message) if message.get("kind") == "status" else (None, True)
-            if not newer:
-                return False
-            self._admit(message, body, replacing=prior is not None and not prior["consumed"])
+            self._admit(message, body)
             with self._transaction():
-                if prior:
-                    self.db.execute("UPDATE inbox SET consumed=1,message='',status_head=0 WHERE rowid=?", (prior["rowid"],))
                 self.db.execute("INSERT INTO inbox(sender,id,message,expires,digest,kind,reserved,status_head,status_boot,status_sequence,status_sent,status_until) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (message["from"], message["id"], body, expires, checksum, message.get("kind", "radio"), int(control(message)), *self._status_fields(message), self._status_retention(message, prior)))
+                                (message["from"], message["id"], body, expires, checksum, message.get("kind", "radio"), int(control(message)), *self._status_fields(message), 0))
             return True
 
     def acknowledge(self, message_id, recipient, now):
@@ -281,27 +246,15 @@ class PeerStore:
     def expire(self, now):
         with self.lock:
             expired = []
-            for row in self.db.execute(
-                    "SELECT rowid,* FROM outbox WHERE expires<=? AND "
-                    "(status_head=0 OR status_until<=? OR status<>'expired')", (now, now)).fetchall():
+            for row in self.db.execute("SELECT rowid,* FROM outbox WHERE expires<=?", (now,)).fetchall():
                 if row["status"] == "pending":
                     expired.append({"id": row["id"], "recipients": row["recipients"], "receipts": row["receipts"]})
                 with self._transaction():
-                    if row["status_head"] and row["status_until"] > now:
-                        self.db.execute("UPDATE outbox SET status='expired',message='' WHERE rowid=?", (row["rowid"],))
-                    else:
-                        self.db.execute("DELETE FROM outbox WHERE rowid=?", (row["rowid"],))
-            # Durable unread payloads remain until explicit consume, including
-            # expiry metadata expected by the game. Expired status values clear
-            # immediately; their latest-sequence watermark has its own horizon.
-            for row in self.db.execute(
-                    "SELECT rowid,* FROM inbox WHERE expires<=? AND (consumed=1 OR kind='status') "
-                    "AND (status_head=0 OR status_until<=? OR consumed=0 OR message<>'')", (now, now)).fetchall():
-                with self._transaction():
-                    if row["status_head"] and row["status_until"] > now:
-                        self.db.execute("UPDATE inbox SET consumed=1,message='' WHERE rowid=?", (row["rowid"],))
-                    else:
-                        self.db.execute("DELETE FROM inbox WHERE rowid=?", (row["rowid"],))
+                    self.db.execute("DELETE FROM outbox WHERE rowid=?", (row["rowid"],))
+            # Retry deadlines concern delivery, not the lifetime of received text.
+            # Unread radio consumes bounded storage until explicit consumption.
+            with self._transaction():
+                self.db.execute("DELETE FROM inbox WHERE expires<=? AND consumed=1", (now,))
             # Incremental single-page reclamation avoids unbounded VACUUM scratch
             # files/transactions. Free pages remain reusable even before trimming.
             for _ in range(min(8, self.db.execute("PRAGMA freelist_count").fetchone()[0])):
@@ -325,7 +278,7 @@ class PeerStore:
     def unconsumed(self):
         with self.lock:
             return [(json.loads(row[0]), row[1]) for row in self.db.execute(
-                "SELECT message,expires FROM inbox WHERE consumed=0 AND (kind<>'status' OR expires>?) ORDER BY rowid", (time.monotonic(),))]
+                "SELECT message,expires FROM inbox WHERE consumed=0 ORDER BY rowid")]
 
     def consume(self, ids):
         with self.lock:

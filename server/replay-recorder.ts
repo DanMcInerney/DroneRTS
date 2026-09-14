@@ -4,7 +4,7 @@ import { open, rename, unlink, writeFile, type FileHandle } from 'node:fs/promis
 import { resolve } from 'node:path';
 import type { DroneId, GameState, RadioMessage } from '../shared/types.ts';
 import type { MatchEvent } from '../shared/rts.ts';
-import type { RecordedObservation, ReplayCancellation, ReplayExecution, ReplayEnd, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
+import type { RecordedObservation, ReplayCancellation, ReplayExecution, ReplayEnd, ReplayHeader, ReplayObservation, ReplayRecord, ReplaySummary } from '../shared/replay.ts';
 import { redactDiagnostic } from './diagnostics.ts';
 import { replayDirectory } from './replay-paths.ts';
 
@@ -16,7 +16,8 @@ export const REPLAY_LIMITS: Readonly<ReplayLimits> = Object.freeze({
   dataBytes: 32 * 1024 * 1024, imageBytes: 64 * 1024 * 1024, imageSizeBytes: 512 * 1024,
   queueBytes: 4 * 1024 * 1024, queueRecords: 256, queuedImages: 6,
 });
-const MAX_HEADER = 2 * 1024 * 1024, MAX_RECORD = 1024 * 1024, END_RESERVE = 1024;
+const MAX_HEADER = 2 * 1024 * 1024, MAX_RECORD = 1024 * 1024, END_RESERVE = 2048;
+export const REPLAY_SAMPLE_INTERVAL = 0.5;
 /** Source archives share the bounded replay writer, not actor workspace capacity. */
 export const REPLAY_SOURCE_BYTES = 256 * 1024;
 interface Job { line: Buffer; image?: { id: string; data: Buffer } }
@@ -44,6 +45,7 @@ export class ReplayRecorder {
   private pumping?: Promise<void>;
   private stopping?: Promise<void>;
   private pendingEnd?: ReplayEnd;
+  private shots = 0;
 
   private constructor(private options: RecorderOptions, private replaceStatus = rename) {
     this.limits = { ...REPLAY_LIMITS, ...options.limits };
@@ -70,11 +72,11 @@ export class ReplayRecorder {
   }
 
   private warn(message: string) { try { this.options.onWarning?.(message); } catch { /* Diagnostics cannot break simulation. */ } }
-  private async status(state: 'recording' | 'stopped' | 'limit' | 'error', message?: string) {
+  private async status(state: 'recording' | 'stopped' | 'limit' | 'error', message?: string, summary?: ReplaySummary) {
     if (!this.directory) return;
     const temporary = resolve(this.directory, `status-${randomUUID()}.tmp`);
     try {
-      await writeFile(temporary, JSON.stringify({ state, ...(message ? { message } : {}) }), { flag: 'wx' });
+      await writeFile(temporary, JSON.stringify({ state, ...(message ? { message } : {}), ...(summary ? { summary } : {}) }), { flag: 'wx' });
       // Windows can briefly deny replacement while a reader or scanner holds the
       // destination. Keep the old complete marker available and retry atomically;
       // persistent failures still reach the normal explicit error path.
@@ -117,7 +119,7 @@ export class ReplayRecorder {
   recordCommand(drone: DroneId, name: string, args: Record<string, unknown>, simTime: number) {
     this.enqueue({ type: 'command', simTime, drone, name, args: redactDiagnostic(args) as Record<string, unknown> });
   }
-  recordEvent(event: MatchEvent) { this.enqueue({ type: 'event', simTime: event.simTime, event }); }
+  recordEvent(event: MatchEvent) { if (event.type === 'fired') this.shots++; this.enqueue({ type: 'event', simTime: event.simTime, event }); }
 
   recordScriptSource(value: { drone: DroneId; path: string; version: string | number; source: string; simTime: number }): string {
     const sourceBytes = Buffer.byteLength(value.source, 'utf8');
@@ -162,7 +164,6 @@ export class ReplayRecorder {
 
   private enqueue(record: Exclude<ReplayRecord, ReplayHeader | ReplayEnd>, image?: Job['image']) {
     if (!this.accepting) return;
-    this.lastTime = Math.max(this.lastTime, record.simTime);
     let line: Buffer;
     try { line = Buffer.from(JSON.stringify(record) + '\n'); }
     catch (error) { this.accepting = false; void this.stop(this.lastTime, 'error'); this.warn(`Replay record serialization failed: ${String(error)}`); return; }
@@ -171,6 +172,7 @@ export class ReplayRecorder {
       this.limited = true; this.warn('Replay recording limit reached; the recorded prefix remains available.');
       void this.stop(this.lastTime, 'limit'); return;
     }
+    this.lastTime = Math.max(this.lastTime, record.simTime);
     this.dataBytes += line.length; this.queuedBytes += size;
     if (image) { this.queuedImages++; this.imageBytes += image.data.length; }
     this.queue.push({ line, image });
@@ -195,6 +197,22 @@ export class ReplayRecorder {
         if (job.image) this.queuedImages--;
       }
     } catch (error) { await this.fail(error); }
+  }
+
+  /** A fixed-size final outcome survives an earlier recording cap. The reserved
+   * tail budget includes both the JSONL end and this small status marker. */
+  async finish(state: GameState) {
+    const match = state.match;
+    const summary: ReplaySummary | undefined = match && {
+      simTime: state.simTime, coveredThrough: this.lastTime,
+      survivors: state.drones.filter(drone => drone.alive !== false).map(drone => drone.id), winner: match.winner,
+      blueCredits: match.teams.blue.credits, redCredits: match.teams.red.credits,
+      blueDelivered: match.teams.blue.earned, redDelivered: match.teams.red.earned,
+      stock: match.resources.reduce((sum, node) => sum + node.remaining, 0),
+      aboard: state.drones.reduce((sum, drone) => sum + (drone.cargo?.amount ?? 0), 0), lost: match.salvageLost ?? 0, shots: this.shots,
+    };
+    await this.stop(state.simTime);
+    if (!this.failed) await this.status(this.pendingEnd!.reason, this.pendingEnd!.message, summary).catch(error => this.fail(error));
   }
 
   stop(simTime: number, reason: ReplayEnd['reason'] = 'stopped'): Promise<void> {

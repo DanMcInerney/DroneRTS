@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const root = new URL('../', import.meta.url);
 const source = JSON.parse(await readFile(new URL('city-research.json', root), 'utf8'));
 const riverSource = JSON.parse(await readFile(new URL('riverfront-source.json', root), 'utf8'));
+const bounds = JSON.parse(await readFile(new URL('shared/downtown.json', root), 'utf8'));
 const round = n => Math.round(n * 1000) / 1000;
 const project = p => ({ x: (p.lon - source.origin.lon) * source.projection.metersPerDegreeLongitude * 0.1,
   z: (source.origin.lat - p.lat) * source.projection.metersPerDegreeLatitude * 0.1 });
@@ -57,22 +58,35 @@ for (let i = 0; i < landmarkBoxes.length; i++) {
       localBox(b, 'crown', b.width * 0.48, b.depth * 0.48, 0, 0, crown, base + middle));
   } else buildings.push(b);
 }
-const roads = source.roads.map(road => ({ name: road.name, width: road.widthM * 0.1, points: road.points.map(project) }));
-const parks = source.parks.map(park => ({ name: park.name, points: park.points.map(project), color: park.id === 'fountain-square' ? '#d8d1bb' : '#94ad7b' }));
+const roads = source.roads.flatMap(road => clipRoad(road.points.map(project)).map(points => ({ name: road.name, width: road.widthM * 0.1, points })));
+const parks = source.parks.map(park => ({ name: park.name, points: clipRing(park.points.map(project)), color: park.id === 'fountain-square' ? '#d8d1bb' : '#94ad7b' })).filter(park => park.points.length > 2);
 const northBank = riverSource.northBank.map(project).sort((a, b) => a.x - b.x);
 const blocked = (x, y, z, padding = 0.8) => buildings.some(b => y >= (b.baseY ?? 0) - 0.2 && y < (b.baseY ?? 0) + b.height + 0.2 && inside(x, z, b, padding));
-const cityBoundary = riverSource.cityBoundary.map(ring => ring.map(([lon, lat]) => project({ lon, lat })));
-const cityPoints = cityBoundary.flat();
-const west = Math.floor(Math.min(...cityPoints.map(p => p.x)) / 10) * 10 - 40;
-const east = Math.ceil(Math.max(...cityPoints.map(p => p.x)) / 10) * 10 + 40;
-const south = Math.ceil(Math.max(...cityPoints.map(p => p.z)) / 10) * 10 + 100;
-const north = Math.floor(Math.min(...cityPoints.map(p => p.z)) / 10) * 10 - 40;
-// Follow the municipality's unequal geographic extents. These are distant
-// controller limits; the renderer uses continuous terrain with no cube walls.
-// Below-ground waypoints are accepted so terrain contact can crash a drone.
-const bounds = { x: [west, east], y: [-5, 80], z: [north, south] };
-// Clip distant water geometry at the geographic extent, retaining the winding
-// shore and islands. The southern margin preserves the complete riverfront.
+// Keep only the sourced downtown extract. The rectangle is a flight envelope,
+// not a claim about administrative boundaries or a physical wall.
+const cityBoundary = [];
+function clipRoad(points) {
+  const paths = []; let path = [];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1], b = points[i]; let low = 0, high = 1;
+    for (const axis of ['x', 'z']) {
+      const delta = b[axis] - a[axis];
+      if (delta === 0) { if (a[axis] < bounds[axis][0] || a[axis] > bounds[axis][1]) high = -1; }
+      else {
+        const t = bounds[axis].map(edge => (edge - a[axis]) / delta).sort((x, y) => x - y);
+        low = Math.max(low, t[0]); high = Math.min(high, t[1]);
+      }
+    }
+    if (low > high) { if (path.length > 1) paths.push(path); path = []; continue; }
+    const at = t => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
+    const start = at(low), end = at(high);
+    if (path.length && Math.hypot(path.at(-1).x - start.x, path.at(-1).z - start.z) > 1e-6) { paths.push(path); path = []; }
+    if (!path.length) path.push(start);
+    path.push(end);
+  }
+  if (path.length > 1) paths.push(path);
+  return paths;
+}
 function clipRing(ring) {
   for (const [axis, edge, direction] of [['x', bounds.x[0], 1], ['x', bounds.x[1], -1], ['z', bounds.z[0], 1], ['z', bounds.z[1], -1]]) {
     const result = [];
@@ -123,7 +137,7 @@ const intersections = [...junctions.values()].filter(point => point.streets.size
   .filter((point, index, all) => !all.slice(0, index).some(other => Math.hypot(point.x - other.x, point.z - other.z) < 2.3))
   .map((point, index) => ({ id: `intersection-${index + 1}`, x: point.x, z: point.z, streets: [...point.streets].sort() }));
 if (intersections.length < 12) throw new Error('Need at least twelve safe street intersections to randomize each reset');
-const city = { name: 'Cincinnati · Ohio River', sourceNote: 'OpenStreetMap streets and footprints · CAGIS city boundary and Ohio River · researched skyline heights · simplified terrain and architecture',
+const city = { name: 'Downtown Cincinnati', sourceNote: 'OpenStreetMap downtown streets and footprints · CAGIS Ohio River · researched skyline heights · simplified terrain and architecture',
   bounds, buildings, roads, parks, river, riverHoles, cityBoundary, intersections };
 const json = JSON.stringify(city, (_key, value) => typeof value === 'number' ? round(value) : value);
 await writeFile(new URL('shared/city-data.json', root), json + '\n');

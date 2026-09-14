@@ -1,3 +1,4 @@
+import { compactObservation } from './observation-format.ts';
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -194,7 +195,7 @@ export class CodexFleetRuntime implements AgentBackend {
       call: async (role, name, args) => {
         this.options.onEvent({ type: 'tool', role, name, arguments: args });
         this.toolCalls++;
-        const result = this.catalogBoundary(role, await this.options.toolHandler(role, name, args));
+        const result = this.catalogBoundary(role, compactObservation(await this.options.toolHandler(role, name, args)));
         this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
         return result;
       },

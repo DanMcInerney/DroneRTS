@@ -118,7 +118,10 @@ export class DroneMotion {
       next[axis] = drone[axis] + (before + motion.velocity[axis]) * dt / 2;
     }
     const remaining = target ? Math.hypot(target.x - next.x, target.y - next.y, target.z - next.z) : Infinity;
-    const arrived = !blocked && remaining < 0.004 && length(motion.velocity) < 0.04;
+    // The entire final displacement must fit the low-speed arrival allowance,
+    // including any correction to the exact target. A fixed-distance snap can
+    // exceed the service speed at small physics timesteps.
+    const arrived = !blocked && remaining < 0.004 && length(motion.velocity) < 0.04 && distance <= 0.04 * dt;
     if (arrived) { Object.assign(next, target); motion.velocity = zero(); }
     return { next, arrived, ...(blocked ? { blocked } : {}) };
   }

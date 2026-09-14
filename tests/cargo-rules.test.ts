@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { RtsRules } from '../server/rts.ts';
+import { DroneMotion } from '../server/drone-motion.ts';
+import { LocalSensors } from '../server/local-sensors.ts';
 import { cargoCapacityFor, CARGO_CONFIG, EQUIPMENT_MODULES, RTS_CONFIG, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
 
@@ -29,6 +31,36 @@ function fixture(stock = 60) {
   return { rules, state, drones, drone: drones[0], enemy: drones[3], tick, at, load, conserved,
     match: state.match!, stock: state.match!.resources[0], wallet: state.match!.teams.blue };
 }
+
+for (const dt of [1 / 120, 0.0077957, 0.002]) test(`physical final approach preserves loading and unloading at ${dt}s steps`, () => {
+  const { drone, state, tick, at, conserved, match } = fixture();
+  const motion = new DroneMotion(), sensors = new LocalSensors();
+  at(drone, 16);
+  const travel = (x: number, loaded: boolean) => {
+    drone.action = { id: `approach-${x}`, kind: 'fly_to', target: { x, y: 1.5, z: 0 } };
+    let arrived = false;
+    for (let index = 0; index < Math.ceil(36 / dt); index++) {
+      const previous = { x: drone.x, y: drone.y, z: drone.z };
+      const nowMs = state.simTime * 1000;
+      const step = motion.step(drone, dt, { ranges: sensors.acquire(drone, [], state.drones, state.simTime, nowMs), nowMs, profile: 'precision', loaded });
+      assert.equal(step.blocked, undefined);
+      Object.assign(drone, step.next); drone.velocity = motion.velocity(drone);
+      if (step.arrived) {
+        assert.ok(Math.hypot(drone.x - previous.x, drone.y - previous.y, drone.z - previous.z) / dt <= 0.040001);
+        drone.action = undefined; arrived = true;
+      }
+      tick(dt, new Map([[drone.id, previous]]));
+      assert.equal(conserved(), 60);
+      if (arrived && (loaded ? match.teams.blue.earned === 30 : drone.cargo!.amount === 30)) break;
+    }
+    assert.ok(arrived); assert.equal(drone.x, x);
+  };
+  travel(20, false); assert.equal(drone.cargo!.amount, 30);
+  travel(0, true); assert.equal(match.teams.blue.earned, 30);
+  assert.equal(match.events.filter(event => event.type === 'cargo_loading').length, 1);
+  assert.equal(match.events.filter(event => event.type === 'cargo_unloading').length, 1);
+  assert.equal(match.events.filter(event => event.type === 'cargo_cancelled').length, 0);
+});
 
 test('cargo-v2 opens with 30 shared credits, armor, free grips and only three module choices', () => {
   const { state, drones, wallet } = fixture();

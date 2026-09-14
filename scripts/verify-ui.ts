@@ -1,3 +1,4 @@
+import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Bounded browser/controller verification with no Codex inference or live fleet startup.
  * Serve on FLEET_PORT=4318, then run: node --import tsx scripts/verify-ui.ts
  * Playwright supplies held-key/pointer-lock controls unavailable in sidebar automation.
@@ -29,7 +30,7 @@ let sequence = 0;
 const broadcast = () => transport?.send(JSON.stringify({ type: 'state', state: game.state }));
 await page.routeWebSocket('**/ws', socket => {
   transport = socket; broadcast();
-  socket.onMessage(data => { const result = JSON.parse(String(data)); if (result.type === 'capture-result') captures.get(result.requestId)?.(result.image); });
+  socket.onMessage(data => { const result = JSON.parse(String(data)); if (result.type === 'camera-ready') socket.send(JSON.stringify({ type: 'camera-accepted' })); if (result.type === 'capture-result') captures.get(result.requestId)?.(result.image); });
 });
 await page.route('**/api/state', route => route.fulfill({ json: game.state }));
 await page.route('**/api/start', route => route.fulfill({ status: 409, json: { error: 'Inference disabled in browser verification' } }));
@@ -37,7 +38,7 @@ await page.route('**/api/reset', async route => { game.stop(); game.reset(); bro
 game.capture = (droneId: string, pose: Pose, simTime: number, drones) => new Promise((resolveImage, reject) => {
   const requestId = String(++sequence), deadline = setTimeout(() => { captures.delete(requestId); reject(new Error('Capture timed out')); }, 8000);
   captures.set(requestId, image => { clearTimeout(deadline); captures.delete(requestId); resolveImage(image); });
-  transport!.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones }));
+  transport!.send(JSON.stringify({ type: 'capture', requestId, rendererId: rendererIdentity(process.cwd()), droneId, pose, simTime, drones }));
 });
 const sleep = (ms: number) => new Promise(resolveWait => setTimeout(resolveWait, ms));
 try {

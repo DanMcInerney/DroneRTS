@@ -67,6 +67,7 @@ test('cargo, controller and storage presentation retain actual feedback without 
   assert.equal(own.cargo, 'CARGO 30 / 30'); assert.match(own.logistics!, /UNLOADING · 50% · 1.0s/);
   assert.match(own.job!, /BLOCKED · obstruction/); assert.match(own.storage!, /workspace: 80 B \/ 8.0 KiB/);
   assert.equal(onboardPresentation(actor).cargo, undefined); assert.equal(onboardPresentation(actor).job, undefined);
+  assert.match(onboardPresentation({ ...actor, job: { id: 'completed', kind: 'route', state: 'completed', mission: 1, step: 1, totalSteps: 1 } }).job!, /1\/1$/);
   const modern = recordedOperations({ ...actor, battery: 300 }, { rulesVersion: 'cargo-v1', resources: [], servicePads: [] });
   assert.ok(modern.includes('Battery 100%'));
   const current = recordedOperations({ ...actor, cargo: { amount: 30 } }, { rulesVersion: 'cargo-v2', resources: [], servicePads: [] });

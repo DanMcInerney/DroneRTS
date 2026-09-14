@@ -2,7 +2,7 @@ import { isCargoRules } from '../shared/rts';
 import './replay.css';
 import './onboard.css';
 import type { DroneId } from '../shared/types';
-import type { ReplayPage } from '../shared/replay';
+import type { ReplayPage, ReplaySummary } from '../shared/replay';
 import { ReplayTimeline, type ReplayMoment } from './replay-model';
 import { ReplayPlot, type ReplayExtent } from './replay-plot';
 import { recordedOperations } from './equipment-presentation';
@@ -14,6 +14,7 @@ const clock = (time: number) => `${Math.floor(time / 60).toString().padStart(2, 
 /** Owns replay fetching, transport controls and evidence display for the selected audit session. */
 export class ReplayViewer {
   private model = new ReplayTimeline();
+  private summary?: ReplaySummary;
   private plot: ReplayPlot;
   private session = '';
   private active = false;
@@ -45,7 +46,7 @@ export class ReplayViewer {
         <div id="replay-workspace" hidden>
           <div class="replay-metrics" id="replay-metrics" aria-label="Match totals up to the selected time"></div>
           <div class="replay-layout">
-            <div class="replay-map-panel"><div class="replay-map-top"><span>TACTICAL VIEW <small>· click a drone to inspect</small></span><select id="replay-extent" aria-label="Replay map extent"><option value="battlefield">Battlefield</option><option value="activity">Fit activity</option><option value="city">Entire city</option></select></div><canvas id="replay-canvas" aria-label="Recorded overhead flight paths, projectiles and impacts" role="img"></canvas><div class="replay-legend"><span><i class="replay-blue"></i> Blue</span><span><i class="replay-red"></i> Red</span><span><i class="replay-shot"></i> Sampled shots</span><span>⊗ Impact / loss</span><span>◆ Salvage</span></div></div>
+            <div class="replay-map-panel"><div class="replay-map-top"><span>TACTICAL VIEW <small>· click a drone to inspect</small></span><select id="replay-extent" aria-label="Replay map extent"><option value="battlefield">Battlefield</option><option value="activity">Fit activity</option><option value="city">Recorded map</option></select></div><canvas id="replay-canvas" aria-label="Recorded overhead flight paths, projectiles and impacts" role="img"></canvas><div class="replay-legend"><span><i class="replay-blue"></i> Blue</span><span><i class="replay-red"></i> Red</span><span><i class="replay-shot"></i> Sampled shots</span><span>⊗ Impact / loss</span><span>◆ Salvage</span></div></div>
             <aside class="replay-inspector" aria-label="Selected drone recorded evidence"><div class="replay-inspector-top"><label for="replay-actor">DRONE INSPECTOR</label><select id="replay-actor" aria-label="Replay drone"></select></div><div class="replay-camera-wrap"><img id="replay-camera" alt="Selected drone's actual recorded camera observation" hidden /><div id="replay-camera-empty">No camera observation acquired by this time.</div><span>RECORDED CAMERA</span></div><p id="replay-camera-time" class="replay-camera-time"></p><div id="replay-drone-state" class="replay-drone-state"></div></aside>
           </div>
           <div class="replay-transport"><div class="replay-controls"><button id="replay-previous" class="admin-button" type="button" aria-label="Previous recorded event">Ⅰ◀</button><button id="replay-play" class="admin-button replay-play" type="button" aria-label="Play replay">▶ Play</button><button id="replay-next" class="admin-button" type="button" aria-label="Next recorded event">▶Ⅰ</button><select id="replay-speed" aria-label="Replay speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option><option value="8">8×</option></select></div><label class="replay-scrubber"><span class="replay-time" id="replay-time">00:00.0 / 00:00.0</span><input type="range" id="replay-scrub" aria-label="Replay simulation time" min="0" max="1" step="0.01" value="0" /></label><button id="replay-latest" class="admin-text-button" type="button">Last frame ↗</button></div>
@@ -86,6 +87,7 @@ export class ReplayViewer {
     this.generation++; this.controller?.abort(); this.controller = undefined; clearTimeout(this.timer); this.setPlaying(false); this.clearImage();
     this.session = session; this.model = new ReplayTimeline(); this.next = 0; this.time = 0; this.actor = undefined;
     this.available = false; this.capped = false; this.eventKey = ''; this.el('replay-events').replaceChildren();
+    this.summary = undefined;
     this.message = session ? 'Loading recorded evidence…' : 'Select a session to inspect recorded flight paths and camera observations.';
     this.render(); void this.load();
   }
@@ -96,7 +98,7 @@ export class ReplayViewer {
   }
 
   private async load() {
-    if (!this.visible || !this.session || this.controller || this.capped || this.model.end) return;
+    if (!this.visible || !this.session || this.controller || this.capped || this.model.end && (!this.active || this.summary)) return;
     const controller = new AbortController(), generation = this.generation; this.controller = controller;
     try {
       let more = true;
@@ -105,7 +107,7 @@ export class ReplayViewer {
         if (!response.ok) throw new Error(`Replay request failed (${response.status}).`);
         const page = await response.json() as ReplayPage;
         if (generation !== this.generation || !this.visible) return;
-        this.available = page.available;
+        this.available = page.available; this.summary = page.summary;
         if (!page.available) { this.message = 'Replay is unavailable for this session. Older audit logs contain no recorded world frames or camera images.'; break; }
         if (this.model.count + page.records.length > MAX_RECORDS || page.next > MAX_BYTES) {
           this.capped = true; this.message = 'Replay viewer limit reached (60,000 records / 64 MB). The loaded interval remains available.'; break;
@@ -122,7 +124,7 @@ export class ReplayViewer {
     } finally {
       if (generation === this.generation) {
         this.controller = undefined; this.render();
-        if (this.visible && this.active && !this.capped && !this.model.end) this.timer = setTimeout(() => void this.load(), 2000);
+        if (this.visible && this.active && !this.capped && (!this.model.end || !this.summary)) this.timer = setTimeout(() => void this.load(), 2000);
       }
     }
   }
@@ -145,8 +147,9 @@ export class ReplayViewer {
 
   private render() {
     const end = this.model.end;
+    const summaryText = this.summary ? ` Final outcome at ${clock(this.summary.simTime)}: blue delivered ${this.summary.blueDelivered}, red ${this.summary.redDelivered}; ${this.summary.survivors.length} survivors, ${this.summary.shots} shots. Recorded coverage through ${clock(this.summary.coveredThrough)}${this.summary.simTime > this.summary.coveredThrough + 0.5 ? '; later camera and pose evidence is missing' : ''}.` : '';
     const endText = end ? `${end.reason === 'stopped' ? 'Recording complete.' : end.reason === 'limit' ? 'Recording limit reached.' : 'Recording stopped with an error.'}${end.message ? ` ${end.message}` : ''}${end.omittedImages ? ` ${end.omittedImages} camera images omitted.` : ''}` : '';
-    this.el('replay-status').textContent = this.message || endText || `${this.model.count.toLocaleString()} records loaded${this.active ? ' · recording updates every 2 seconds' : ''}.`;
+    this.el('replay-status').textContent = this.message || (endText + summaryText) || `${this.model.count.toLocaleString()} records loaded${this.active ? ' · recording updates every 2 seconds' : ''}.`;
     this.el('replay-badge').textContent = `${this.capped || end?.reason === 'limit' ? 'BOUNDED RECORDING' : this.active && !end ? 'RECORDING SESSION' : 'RECORDED EVIDENCE'} · ${this.model.header?.rulesVersion ?? 'HISTORICAL RULES'}`;
     this.el('replay-workspace').hidden = !this.available || !this.model.frames.length;
     if (!this.available || !this.model.frames.length || !this.visible) return;

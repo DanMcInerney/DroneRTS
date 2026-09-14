@@ -1,5 +1,6 @@
 import type { DroneId, Pose } from './types';
 import type { ResourceNode, ServicePad } from './rts';
+import downtown from './downtown.json';
 
 // Simulator and player-renderer data. Never import this module into drone tools
 // or put battlefield coordinates or route information in actor prompts.
@@ -44,5 +45,5 @@ export const BATTLEFIELD = {
     deposit('salvage-fountain', -3, 35, 4, 600),
   ] satisfies ResourceNode[],
   // An initial player camera composition, not a wall or an agent observation.
-  focus: { x: [-112, 112], z: [-90, 95] } as { x: [number, number]; z: [number, number] },
+  focus: { x: downtown.x, z: downtown.z } as { x: [number, number]; z: [number, number] },
 };

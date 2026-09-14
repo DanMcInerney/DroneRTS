@@ -15,4 +15,5 @@ export interface CityWorld {
 }
 
 // Rebuild with node scripts/build-city.mjs; geographic sources stay out of the model runtime.
-export const CITY = { ...cityData, spawns: Object.values(BATTLEFIELD.spawns) } as CityWorld;
+export const CITY: CityWorld = { ...cityData, spawns: Object.values(BATTLEFIELD.spawns),
+  bounds: { x: [cityData.bounds.x[0], cityData.bounds.x[1]], y: [cityData.bounds.y[0], cityData.bounds.y[1]], z: [cityData.bounds.z[0], cityData.bounds.z[1]] } };
