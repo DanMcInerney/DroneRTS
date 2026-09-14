@@ -126,3 +126,66 @@ The replay repair is confined to `server/replay-recorder.ts`. It retries atomic 
 The deterministic baseline passed 34 fixtures and 48 existing game/RTS tests. After the replay repair, 25 replay tests passed, including new transient replacement, permanent denial, nonretryable error and concurrent real-reader coverage. Two analyzer regressions passed for historical calibration protection and pre-shot camera ordering. TypeScript and the production build passed; the existing Vite bundle-size advisory remains. The trial runner also rejected a nonfinite duration and refused an occupied port 4318 without affecting the active full match (`artifacts/focused-trial-guards.json`).
 
 The final `node --import tsx scripts/verify-replay.ts` browser check passed without inference against an owned idle production server on port 4318. Its 245 records verified live append, scrubbing, playback, event seeking, all six actors, physical shot/impact correlation, byte-for-byte camera evidence, replay/live sensor isolation, unavailable legacy evidence and responsive layout, with no browser errors. Evidence is in `artifacts/replay-ui/result.json` and `store-80f0bdd9-24a9-4c67-8796-67fb49ffef87/`. That server and its browser were closed afterward. The reviewer completed the same review after the full-match evidence arrived and reported no additional high-impact findings; the repair checks above were performed by the implementer.
+
+## Encounter, latency and acquisition evaluation — September 14, 2026
+
+This follow-up starts from merged PR #5, `681c6d09b03b0091fb98af9d2917bcd050e0083d`. The user authorized stopping port 4317 and requested watchable tests in the Codex browser. Port 4317 was stopped before this evaluation. All live runs below use the same Codex browser tab on an owned port-4318 host, six fresh native Luna/xhigh drone actors, two mechanical parents and actual Zenoh/MAVLink transports. Raw records remain local under ignored `artifacts/focused-trials/`; each run has a source manifest, result, audit, actual camera replay and offline analyses.
+
+### What the previous evidence actually establishes
+
+`scripts/analyze-engagement.ts` now separates camera acquisition/delivery from the subsequent command interval and measures team proximity and camera opportunities. It uses recorded optics and buildings, verifies the relevant geometry/renderer source hashes, preserves acquisition-time observer poses and uses preceding sampled opponent poses. The projection is a body-center frustum/building-occlusion proxy; it does not establish that a silhouette was recognizable. Frame age and excluded effects such as fog, JPEG loss and partial silhouettes are explicit.
+
+Reanalysis of the previous normal match (`2026-09-14T12-31-40-795Z-match`) corrects an overly broad interpretation that the teams never met. Blue 3 and Red 1 approached within **18.18 local units** at 244.53 s; some opposing pair was within 40 units for **120.46 sampled seconds**. However, only **four of 458 delivered images** had a clear opponent-center projection within 40 units, and none had one within 20. Across 168 images, 365 clear observer-target projections had a median range of 90.66 units. Blue 3 traveled 484.3 sampled units while red actors traveled 23.4, 85.5 and 43.1; actual red radio describes holding depleted-resource overwatch, scanning and uncertain colored specks. The evidence points to limited useful acquisition and recognition, not simply lack of geographic proximity.
+
+The actual camera `482e151f-721c-4d1d-b8c6-febef95e553f.jpg` at 237.74 s shows pale armor rings near the lower edge where the offline projection places two red drones. The associated colors and bodies are difficult to distinguish. Red 1 reported a completed scan with no cyan contact at 243.71 s. These are evidence about those observations, not a general claim that every nearby opponent is invisible.
+
+| Recorded run | Delivered observations | Acquisition → server delivery, median / maximum | Server delivery → next tool, median / p95 |
+| --- | ---: | ---: | ---: |
+| Previous normal match | 458 | 10 / 44 ms | 3.889 / 9.938 s |
+| Previous moving-target fixture | 281 | 10 / 103 ms | 3.535 / 8.369 s |
+| First new encounter | 60 | 12 / 52 ms | 4.843 / 8.556 s |
+
+The multi-second interval is predominantly after server delivery. It includes native response processing, model decisions and tool dispatch; these logs do not isolate private reasoning or the moment a model reads an image. Deliberate waits are measured after their result returns. No slow camera-transport defect was demonstrated, and no change to camera freshness, asynchronous movement or gameplay model/effort was justified.
+
+### Symmetric encounters and resolution comparison
+
+`encounter` positions three opposing pairs above the city, gives both teams guns and equal camera offsets, and sends both teams the same combat objective. Drones choose their own movement and aim. `encounter-reversed` swaps the starting positions and directions. These are combat fixtures, not normal resource matches. Neither baseline run included translation; the resolution candidate did include autonomous movement, with Blue 2, Red 1 and Red 2 traveling 19.85, 11.71 and 32.04 sampled units respectively. Its only bullet kill still hit a stationary target.
+
+| Trial | Camera | Simulation seconds | Images / peer messages | Shots and outcome |
+| --- | --- | ---: | ---: | --- |
+| Encounter | 512×288 | 79.29 | 60 / 14 | 9 shots, 3 stationary bullet kills, 6 expired; natural blue victory. |
+| Reversed encounter | 512×288 | 239.59 | 139 / 25 | 23 shots, 3 stationary bullet kills, 1 terrain impact, 19 expired; three survivors, no winner. |
+| Reversed encounter, resolution candidate | 1024×576 | 239.88 | 158 / 24 | 21 shots, 1 stationary bullet kill, 19 expired, 1 unresolved at stop; five survivors, no winner. |
+
+The first encounter's red actors received 8, 6 and 4 images containing clear opponent-center projections but never fired. Their radio reported no confirmed enemies; the saved first red image `9ec806d6-3539-45a3-b133-69fec0ac2a5f.jpg` shows the paired blue drone as a thin dark/cyan mark at 14 units. Reversing positions produced kills by both teams, so one run did not establish a general team-color disadvantage.
+
+The resolution candidate changed only camera width/height, retaining the same aspect, FOV, scene, rules, objectives and Luna/xhigh settings. Its images show more shape detail, but the paired encounter did not demonstrate improved combat. Median camera delivery rose from 13 to 21 ms, while median post-delivery time was 4.193 versus 4.467 s. The replay images occupied 1.89 versus 5.68 MiB (139 versus 158 images); these are observed storage totals, not a billing comparison. One independent model run per arrangement is insufficient to estimate a reliable performance effect.
+
+All three runs have zero runtime/tool errors, replay warnings and missing camera images. Their local directories and launch manifest fingerprints are:
+
+- `2026-09-14T13-14-28-970Z-encounter` — `2de6a93e707542eb8b2135aa86afbcc86faaa10fc5e5c279eb87e97437e58d70`.
+- `2026-09-14T13-17-52-808Z-encounter-reversed` — `70ecf00e1bccc3ce5ab0683b3d0d3dd22d540b995db8fc803034d3d5b7ea64e5`.
+- `2026-09-14T13-22-33-424Z-encounter-reversed` — `7bea11691af992c5e5fa494f714f56970986d2a590a1277fca7d4545a481eb94`.
+
+### Moving-target resolution trial and disposition
+
+The candidate then repeated the original moving-target objective for 239.79 simulation seconds. Its 176 delivered images and ten shots produced **zero projectile contacts**; all ten shots expired. Red 1 chose a route through stationary Blue 1 and both were destroyed by a ram at 50.02 s. Red 2 continued a lateral patrol and Red 3 chose a vertical patrol; four drones survived the time limit. Only one shot had its closest angular live opponent moving above 0.1 units/s at firing, and it missed. This is a diagnostic opponent selection, not a statement about the actor's intended target.
+
+Median capture/delivery was 18 ms and post-delivery/next-call time was 3.856 s. No runtime/tool errors, replay warnings or missing camera images were recorded. Evidence is `2026-09-14T13-27-02-283Z-aim-moving/`. The earlier 512×288 trial's one paused-target hit and this trial's zero hits do not establish a reliable moving-target benefit. The larger images remain historical experimental evidence; the candidate was **rejected and 512×288 restored** before the first normal-match follow-up. Flight, combat, economy, camera timing semantics and FOV remain unchanged; the subsequent prompt reminder is described below.
+
+
+### Normal-match follow-up and interrupted reminder trial
+
+The normal opening in `2026-09-14T13-31-46-536Z-match` ran to its eight-minute wall limit: 479.97 simulation seconds, 331 camera observations, 54 drone-sent radio messages (56 total entries including player goals), five survivors and no winner. Each team earned 80 credits from its opening deposit. No shots were fired. A blue teammate collision destroyed Blue 3 and consumed Blue 2's armor at 259.28 s; another teammate collision consumed Red 1 and Red 2's armor at 423.11 s. Its manifest is `93409d21d996baf7133c0a66c908e34ee0221ed86c2b7e981057869bb13daea0`. No runtime/tool failures or replay warnings were recorded.
+
+Those contacts motivated a general drone-prompt reminder to treat a teammate's reported position as occupied, select a separate vantage from its own observations, and coordinate its route over radio. It supplies no map, calibration, coordinates or assigned route. Trial `2026-09-14T13-40-33-325Z-match`, manifest `2294b7fdf2636649e3d209df0dd5bcf4f3ee503eff2491db0200f60732409a0c`, was stopped when the user requested the UI change. It ended after 67.70 simulation seconds with 40 observations, all six drones alive, no recorded runtime/tool failures or replay warnings, and `external-stop` as its recorded end reason. This is an incomplete trial, not evidence of better collision avoidance or match completion. The reminder remains in the final prompt; its gameplay benefit has not been established.
+
+## Camera-first UI verification — September 14, 2026
+
+The dashboard now has one compact desktop header, outgoing radio transcripts under each drone feed, and the overhead map at the bottom. Each transcript follows new messages until the reader scrolls back; **Latest** resumes following. Rules and network inspection remain expandable below mission control.
+
+Verified interactively in the Codex in-app browser with an isolated, inference-free fixture on port 4318 using recorded radio traffic from `2026-09-14T13-31-46-536Z-match`. Checked six sender-specific transcripts, direct-recipient labels, literal HTML-like message text, pause/resume on new messages, reset to six empty logs, camera capture for all six drones, and God view from the relocated map. Camera capture also succeeded while God view was open. Desktop (1280px), tablet (768px iframe), and phone (390px iframe) layouts were visually checked. Browser error/warning log was empty during the interaction checks.
+
+`npm run build` passed, with the existing bundle-size advisory. All 23 tests in `tests/game.test.ts` and `tests/rts-game.test.ts` passed. No new live gameplay inference was launched for these UI checks. This validates the presentation change; it does not establish improved agent combat performance.
+
+Before PR merge, the full automated suite passed all 149 tests, including real Zenoh and MAVLink integration checks. The production build passed with the existing bundle-size advisory. The watchable UI checks above used the same final client code.
