@@ -1,5 +1,11 @@
 # RTS verification — September 14, 2026
 
+## Watchable battle launch — September 15, 2026, 03:09 UTC
+
+The user requested a normal watchable battle while the QA fixes were prepared for PR/merge. The initial launch on commit `930ed16` and manifest `8133a701c6053b8a156069687f92dd5887c8d5c08cd432b85f8b042e64ac3e30` stopped at **sim 0**, before any acquisition, movement, purchase or combat. The native red parent received **“Selected model is at capacity”** on its initial turn and both bounded resume attempts. The runtime then stopped the whole fleet because the red relay could not remain active. Luna/xhigh was retained; no fallback model was used.
+
+Run `2026-09-15T03-09-53-231Z-focused-match-43927374` completed cleanup and all four offline analyzers. All 840 salvage remained in stock, all six drones survived, and there were no replay warnings. This is a backend startup failure and supplies no gameplay evidence. The sidebar camera connected successfully. A fresh launch can retry after capacity recovers.
+
 ## QA investigation and fresh hauling — September 15, 2026 UTC
 
 The [investigation report](QA-INVESTIGATION-2026-09-15.md) records repairs to trial cockpit integration and eliminated-airframe rendering, original battle context measurements, and three fresh Luna/xhigh logistics trials. All used normal stock/equipment, camera discovery, actual peer messages and fixed 1×; red held a stationary trial objective. Production/trials share one cockpit adapter. Live cockpit images/output worked; deterministic acquired images prove that an eliminated target disappears while a living unarmored airframe remains team-colored.
