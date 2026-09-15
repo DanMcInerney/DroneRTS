@@ -67,6 +67,25 @@ try {
     assert.equal(body(observed).sensors.camera.available, true);
     await imageFile(`${id}-initial.jpg`, observed);
   }
+  // Same physical camera/target pose across armor loss and elimination.
+  // Prescribed pixels validate rendering, not autonomous recognition.
+  const openingDrones = structuredClone(game.state.drones);
+  try {
+    const observer = game.state.drones.find(drone => drone.id === 'drone-1')!;
+    const target = game.state.drones.find(drone => drone.id === 'drone-4')!;
+    Object.assign(observer, { x: 0, y: 65, z: 20, yaw: 0, pitch: 0 });
+    Object.assign(target, { x: 0, y: 65, z: 9, yaw: 180, pitch: 0 });
+    const pixels = (result: ToolResult) => result.content.find(part => part.type === 'image')!;
+    const armored = await game.tool('drone-1', 'observe'); await imageFile('target-armored.jpg', armored);
+    target.equipment!.armor = false;
+    const unarmored = await game.tool('drone-1', 'observe'); await imageFile('target-unarmored.jpg', unarmored);
+    target.alive = false;
+    const destroyed = await game.tool('drone-1', 'observe'); await imageFile('target-destroyed.jpg', destroyed);
+    assert.notDeepEqual(pixels(unarmored), pixels(destroyed), 'elimination must remove the live silhouette');
+    game.state.drones = game.state.drones.filter(drone => drone.id !== target.id);
+    const absent = await game.tool('drone-1', 'observe');
+    assert.deepEqual(pixels(destroyed), pixels(absent), 'a dead target must render exactly like an absent target');
+  } finally { game.state.drones = openingDrones; }
   assert.equal(game.state.match!.teams.blue.credits, RTS_CONFIG.startingCredits);
   assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' })).equipped, 'optics');
   assert.equal(body(await game.tool('drone-2', 'buy', { mission: 1, item: 'armor' })).rejected, true);

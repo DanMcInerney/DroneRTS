@@ -65,7 +65,7 @@ export function positionDrone(mesh: THREE.Group, drone: Drone) {
   mesh.userData.drone = drone;
   const hauling = drone.cargo !== undefined;
   mesh.position.set(drone.x, drone.y - (hauling ? 0 : 0.14), drone.z);
-  mesh.rotation.set(0, THREE.MathUtils.degToRad(drone.yaw), drone.alive === false ? 1.1 : 0);
+  mesh.rotation.set(0, THREE.MathUtils.degToRad(drone.yaw), 0);
   const gun = mesh.getObjectByName('gun')!; gun.visible = Boolean(drone.equipment?.gun); gun.rotation.x = THREE.MathUtils.degToRad(drone.pitch); gun.position.y = hauling ? 0.04 : 0.14;
   mesh.getObjectByName('armor')!.visible = !hauling && drone.alive !== false && Boolean(drone.equipment?.armor);
   mesh.getObjectByName('armor-plates')!.visible = hauling && drone.alive !== false && Boolean(drone.equipment?.armor);
@@ -84,6 +84,4 @@ export function positionDrone(mesh: THREE.Group, drone: Drone) {
     crate.visible = fraction > 0; crate.scale.y = fraction;
     crate.position.set(amount > CARGO_CONFIG.crateValue ? index ? 0.12 : -0.12 : 0, -0.25, 0);
   });
-  const body = mesh.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>;
-  body.material.color.set(drone.alive === false ? '#363b3f' : dronePresentation(drone.id).color);
 }

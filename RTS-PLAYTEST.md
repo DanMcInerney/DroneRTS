@@ -1,5 +1,37 @@
 # RTS verification — September 14, 2026
 
+## Watchable battle launch — September 15, 2026, 03:09 UTC
+
+The user requested a normal watchable battle while the QA fixes were prepared for PR/merge. The initial launch on commit `930ed16` and manifest `8133a701c6053b8a156069687f92dd5887c8d5c08cd432b85f8b042e64ac3e30` stopped at **sim 0**, before any acquisition, movement, purchase or combat. The native red parent received **“Selected model is at capacity”** on its initial turn and both bounded resume attempts. The runtime then stopped the whole fleet because the red relay could not remain active. Luna/xhigh was retained; no fallback model was used.
+
+Run `2026-09-15T03-09-53-231Z-focused-match-43927374` completed cleanup and all four offline analyzers. All 840 salvage remained in stock, all six drones survived, and there were no replay warnings. This is a backend startup failure and supplies no gameplay evidence. The sidebar camera connected successfully. A fresh launch can retry after capacity recovers.
+
+## QA investigation and fresh hauling — September 15, 2026 UTC
+
+The [investigation report](QA-INVESTIGATION-2026-09-15.md) records repairs to trial cockpit integration and eliminated-airframe rendering, original battle context measurements, and three fresh Luna/xhigh logistics trials. All used normal stock/equipment, camera discovery, actual peer messages and fixed 1×; red held a stationary trial objective. Production/trials share one cockpit adapter. Live cockpit images/output worked; deterministic acquired images prove that an eliminated target disappears while a living unarmored airframe remains team-colored.
+
+| Trial | Delivered | First delivery, sim seconds | End state |
+| --- | ---: | ---: | --- |
+| Single haul | 60 | 181.102 | All six alive/armored; no collisions or lost cargo |
+| Fresh single-haul repeat | 60 | 396.574 | All six alive/armored; different cache; no collisions or lost cargo |
+| Team haul | 120 | 268.552 | All three blue pilots delivered; 60 still aboard; all six alive; Blue 1/2 lost armor in one collision |
+
+The team run reached sim **567.283** under its 600-wall-second ceiling. Conservation ended **660 stock + 60 aboard + 120 delivered = 840**. All four analyzers passed for each run; all **83 / 195 / 231** acquired images were present and relevant loading/return views were inspected. There were no runtime failures or replay warnings. No authored routines or code transfers occurred. These establish two independent hauling loops and useful contributions from all three pilots, with repeated complete cycles and battle logistics still unproven.
+
+The team collision at sim **392.331** is newly reproducible without inference: `scripts/reproduce-closing-contact.ts` produces opposing vertical contact at both tested physics timesteps despite both jobs blocking first. The controller's current own-stopping calculation does not protect against the other body's continued approach. This remains open; no speculative controller repair or further battle was included.
+
+The original 42–49-second compactions remain unexplained by exact duplicate state alone (6.9–8.6% of tool text). Fresh hauling trials had no compaction, but completed-tool gaps still reached **26.502 s**. No model/context/observation policy changed. Tests **421/421**, build and deterministic browser checks passed on source manifest **`2bf300245ad0a486afabb22833533d1896a2d699433e8733135e7baa638b5093`**, also used by all three live trials. Final UI-label and offline reproducer checks are separately documented in the investigation. All owned processes/tabs stopped; ports 4317/4318 were unavailable before these runs. Raw run identities and image evidence are recorded in the investigation; managed retention prunes prior completed runs after offline analysis. Earlier reports below preserve their original results.
+
+## Current landmark-core battle — September 14, 2026, 21:09 EDT
+
+The user-requested normal battle on clean commit `458f3b72fccfa2825bc25348b6e8003e8baccb3f` ran for the 600-wall-second budget at fixed 1× with all six Luna/xhigh pilots. It reached **577.324 simulation seconds** before cleanup, with **no winner, blue 3/3 and red 2/3 surviving**. Blue 2 fired 12 rounds, scored four stationary-target hits and killed Red 3; red fired one missed shot. Overall: four drone hits, one terrain impact and eight expirations. No moving-target hit or collision occurred.
+
+Neither team loaded or delivered salvage. Both spent their opening 30 on one gun, leaving zero credits; blue exhausted its magazine. All **840 salvage** remained in caches, with conservation passing across **1,399 replay frames**. All **422 delivered camera images** and all **156 peer-message copies addressed to living drones** were retained. Eleven later copies addressed the destroyed Red 3. There were no tool exceptions, transport errors, runner failures or replay warnings. Two blocked jobs, 13 failed waypoint jobs and seven recovered provenance rejections are recorded separately.
+
+Three completed compactions lasted **48.555 / 47.894 / 42.059 seconds**; the longest completed-tool-to-next-call gap was **54.425 seconds**. Local work continued through part of one compaction. Live Luna emitted **361 readable summary records** (360 complete, one explicitly incomplete), with no recorded raw reasoning text. The trial cockpit UI failed because `scripts/trial-host.ts` omits its API, while current production port 4317 returned valid cockpit JSON. An inspected post-kill image also exposed a dark airborne wreck that prompted an extra shot.
+
+See the [full QA report](QA-REPORT-2026-09-14.md) for prioritized findings, camera evidence, timing tables and acceptance limits. All four offline analyzers and supplementary source/conservation/mail checks completed. The **182-file** source manifest is `1dc1b9a5645cad3d6794d5a7b9daac544e9308687a40f836e8a60ad6157941fa`; raw evidence is in `artifacts/test-runs/2026-09-15T01-09-43-410Z-focused-match-a40c6cfc/`. All owned processes and the camera tab were stopped; 4319 closed, and existing idle 4317/4318 services were preserved. No implementation changes or fresh deterministic suite/build runs were made. Historical sections below retain their original scope.
+
 ## Cockpit integration with current main — September 14, 2026, evening
 
 Integrated the cockpit and readable-reasoning work with `main` at `90d2584`, preserving its cargo-v2 mechanics, five-cache downtown layout, camera renderer handshake, onboard scripting and launch gate. The compact actor prefix includes current compute limits and appends the unchanged common commander briefing. The workspace card now inspects real virtual files through a pure read-only API, with session/version/hash checks and no script execution or transfer expiry caused by inspection.

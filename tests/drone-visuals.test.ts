@@ -6,6 +6,34 @@ import type { Drone } from '../client/types.ts';
 
 const drone = (id: Drone['id'], x: number): Drone => ({ id, x, y: 10, z: 0, yaw: 0, pitch: 0, online: true, status: '', observations: 0 });
 
+test('elimination removes the visible target while older acquisitions and reset retain their own alive state', () => {
+  const scene = new THREE.Scene(), visuals = new DroneVisuals(scene);
+  const alive = { ...drone('drone-4', 4), alive: true, cargo: { amount: 0 }, equipment: { gun: true, armor: true, miner: false } };
+  visuals.reconcile([alive]);
+  const mesh = scene.getObjectByName(alive.id)!;
+  const color = (mesh.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>).material.color.getHex();
+  const unarmored = { ...alive, equipment: { ...alive.equipment, armor: false } };
+  visuals.pose([unarmored]);
+  assert.equal(mesh.visible, true);
+  assert.equal(mesh.getObjectByName('armor-plates')!.visible, false);
+  assert.equal((mesh.children[0] as THREE.Mesh<THREE.BoxGeometry, THREE.MeshLambertMaterial>).material.color.getHex(), color);
+  const dead = { ...unarmored, alive: false };
+  visuals.pose([dead]);
+  for (const observer of [undefined, 'drone-1', 'drone-4']) {
+    visuals.hideObserver(observer); assert.equal(mesh.visible, false);
+  }
+  visuals.withSnapshot('drone-1', [alive], () => assert.equal(mesh.visible, true));
+  assert.equal(mesh.visible, false);
+  visuals.reconcile([alive]); assert.equal(mesh.visible, true);
+  assert.throws(() => visuals.withSnapshot('drone-1', [dead, { ...drone('drone-6', 6), alive: false }], () => {
+    assert.equal(mesh.visible, false);
+    assert.equal(scene.getObjectByName('drone-6')!.visible, false);
+    throw new Error('capture failed');
+  }), /capture failed/);
+  assert.equal(mesh.visible, true); assert.equal(scene.getObjectByName('drone-6'), undefined);
+  visuals.dispose();
+});
+
 test('visual identity survives reordering and removed mesh resources are disposed once', () => {
   const scene = new THREE.Scene(), visuals = new DroneVisuals(scene);
   visuals.reconcile([drone('drone-1', 1), drone('drone-2', 2), drone('drone-3', 3), drone('drone-4', 4)]);
