@@ -76,7 +76,7 @@ export class CombatView {
   update(match?: MatchState) {
     this.current = match;
     const hauling = isCargoRules(match?.rulesVersion);
-    const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, kind]) ?? []]);
+    const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind]) ?? []]);
     if (signature !== this.signature) {
       this.signature = signature; disposeGroup(this.resources); this.resourceMeshes.clear();
       for (const node of match?.resources ?? []) { const mesh = hauling ? cargoResourceProp(node) : resourceProp(node); this.resourceMeshes.set(node.id, mesh); this.resources.add(mesh); }

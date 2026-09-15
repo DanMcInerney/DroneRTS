@@ -8,7 +8,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | --- | --- | --- |
 | Membership | `shared/fleet.ts` | Explicit blue/red rosters and unique vehicle IDs. `MATCH_FLEET`/`MATCH_DRONE_IDS` cover six; default exports remain the three-member transport roster. |
 | Sourced geography | `shared/city.ts`, generated `shared/city-data.json`, `scripts/build-city.mjs` | Cincinnati buildings, roads, parks and river; no geometry enters the actor interface. |
-| Layout | `shared/battlefield.ts` | Spawns, base aprons, four outer caches, central depot and spectator focus. |
+| Layout | `shared/battlefield.ts` | Opposite rooftop spawns/base aprons, two halfway caches, one central intersection cache and spectator focus. |
 | Rules/contracts | `shared/rts.ts` | Current cargo contracts and historical cube interpretation, equipment, finite economy, shared service bands and physical tuning. |
 | Common briefing | `shared/mission.ts` | Objective, recognition, rules, vehicle calibration and general cooperation. Actual replies must establish opening agreement. No assigned strategy or battlefield locations. |
 | Economy/combat | `server/rts.ts` | Cargo stock reservations, pickup/deposit/drop/loss, atomic team purchases, slots/ammunition/armor, rearming and last-team-standing resolution. |
@@ -38,6 +38,7 @@ A match has two teams of three drones, two mechanical native parents and one aut
 | Cockpit host integration | `server/cockpit-session.ts` | Shared production/trial router and session-bound evidence callbacks; streaming output stays in the cockpit, completed/partial output enters the audit. |
 | Cockpit page/cards | `client/cockpit.ts`, `client/cockpit-cards.ts`, `client/cockpit-model.ts`, `client/cockpit.css` | Modular card registry, event aggregation and hash-route lifecycle; the live camera service stays mounted. |
 | Browser composition | `client/scene.ts`, `client/city-scene.ts` | Six feeds, actual timestamped captures and shared visual/collision geography. Presentation interpolation never changes acquired frames. |
+| Blender graphics | `scripts/build-graphics.py`, `client/graphics-assets.ts`, `client/daylight.ts`, `assets/blender/` | Original editable models, baked PBR materials and compressed GLBs; source-matched city geometry, asset readiness before camera ownership, shared daylight and static building shadows. See `GRAPHICS.md`. |
 | Player UI | `client/match-panel.ts`, `client/overhead-map.ts`, `client/fleet-panels.ts`, `client/drone-radio.ts`, `client/explorer.ts` | Spectator state, ordinary blue commander chat and an invisible observer; none is an extra actor observation. |
 | Audit/replay | `server/diagnostics.ts`, `shared/diagnostics.ts`, `shared/replay.ts`, `server/replay-recorder.ts` | Bounded player-only evidence, source hashes/versions, actual SDK/radio/cargo/jobs and acquired images. Never supplies archived knowledge to actors. |
 | Replay access/view | `server/replay-store.ts`, `server/replay-paths.ts`, `client/replay*.ts` | Validated byte cursors and image paths, recorded-version interpretation, stale/missing evidence labels and inert source display. Archived routines never execute. |

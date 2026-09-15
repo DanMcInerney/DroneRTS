@@ -1,6 +1,6 @@
 # Drone prompt
 
-The cargo-v2/onboard prompt composes 293 words of role, compute and sensor-encoding instructions with the unchanged common commander briefing from shared/mission.ts. The default blue drone receives 1095 whitespace-separated words in total. The original 182-word mining prompt is superseded.
+The cargo-v3/onboard prompt combines role, compute and sensor-encoding instructions with the common vehicle briefing from shared/mission.ts. Both teams also receive the same terse opening commander order through the existing six-pilot launch gate. The original mining prompt is superseded.
 
 ## Exact role and encoding prefix
 
@@ -24,6 +24,6 @@ Sensor encoding (fleet-observation/5): directions:"xyz26" enumerates [-1,0,1] tr
 - Application storage is 16 MiB: runtime/SDK 8, workspace 2, radio 4, staging 1, logs/cache 1. Logs/cache splits into 512 KiB unread local events and 512 KiB rotating diagnostics. Files, metadata, staging and retained source versions are charged.
 - QuickJS limits come from the runtime profile: 32 MiB heap, 20 ms CPU per slice, 250 ms CPU per wall second, 64 SDK calls per second, eight pending calls, two seconds per host operation and 120 seconds per routine. Inference hardware/weights are separately exempt.
 - Actual observation slices remain bounded to 128 KiB, with hasMore preserving unread events. The direction codebook and same-bundle sensor references preserve exact values and acquisition provenance.
-- Current matches use cargo-v2 with finite hauling, free initial armor and no flight endurance limit. Historical layouts and rules are preserved only in their own recordings.
+- Current matches use cargo-v3 with finite hauling, zero opening salvage, unarmored drones, gun/cargo modules, team-colored lights and no flight endurance limit. Historical layouts and rules are preserved only in their own recordings.
 
 See [ONBOARD.md](ONBOARD.md) for accounting, SDK syntax and the measured package manifest, and [COCKPIT.md](COCKPIT.md) for read-only player inspection.

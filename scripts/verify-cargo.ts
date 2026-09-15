@@ -20,31 +20,19 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 const clear = (a: Point, b: Point, margin = RTS_CONFIG.droneRadius + .15) =>
   !CITY.buildings.some(building => intersectsBuilding(a, b, building, margin));
 
-/** A test-only visibility graph, never supplied to gameplay actors or the SDK. */
+/** Developer-authored vertical/overhead/vertical fixture, never an actor route. */
 function prescribedRoute(start: Point, end: Point, obstructions: Point[] = []): Point[] {
-  const serviceApproaches = BATTLEFIELD.servicePads.flatMap(p => [-4, -2, 0, 2, 4].flatMap(x => [-4, -2, 0, 2, 4]
-    .map(z => ({ x: p.x + x, y: start.y, z: p.z + z }))));
-  const points = [start, end, ...serviceApproaches, ...CITY.intersections.map(p => ({ ...p, y: start.y }))];
-  const avoidsDrones = (a: Point, b: Point) => obstructions.every(drone => {
-    const span = distance(a, b), fraction = span ? Math.max(0, Math.min(1,
-      ((drone.x - a.x) * (b.x - a.x) + (drone.y - a.y) * (b.y - a.y) + (drone.z - a.z) * (b.z - a.z)) / span ** 2)) : 0;
-    return distance(drone, { x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction, z: a.z + (b.z - a.z) * fraction }) > 1.05;
-  });
-  const distances = points.map(() => Infinity), previous = points.map(() => -1), pending = new Set(points.map((_, i) => i));
-  distances[0] = 0;
-  while (pending.size) {
-    let nearest = -1;
-    for (const i of pending) if (nearest < 0 || distances[i] < distances[nearest]) nearest = i;
-    if (nearest === 1 || !Number.isFinite(distances[nearest])) break;
-    pending.delete(nearest);
-    for (const i of pending) {
-      const span = distance(points[nearest], points[i]);
-      if (span > 25 || distances[nearest] + span >= distances[i] || !clear(points[nearest], points[i]) || !avoidsDrones(points[nearest], points[i])) continue;
-      distances[i] = distances[nearest] + span; previous[i] = nearest;
+  const altitude = Math.max(start.y, end.y, ...CITY.buildings.map(b => (b.baseY ?? 0) + b.height)) + 2;
+  const route = [{ ...start, y: altitude }, { ...end, y: altitude }, end];
+  for (const [index, point] of route.entries()) {
+    const from = index ? route[index - 1] : start;
+    assert.ok(clear(from, point), 'Prescribed segment clears the sourced city');
+    for (const drone of obstructions) {
+      const span = distance(from, point), t = span ? Math.max(0, Math.min(1,
+        ((drone.x - from.x) * (point.x - from.x) + (drone.y - from.y) * (point.y - from.y) + (drone.z - from.z) * (point.z - from.z)) / span ** 2)) : 0;
+      assert.ok(distance(drone, { x: from.x + (point.x - from.x) * t, y: from.y + (point.y - from.y) * t, z: from.z + (point.z - from.z) * t }) > 1.05);
     }
   }
-  assert.ok(Number.isFinite(distances[1]), 'Prescribed collision-clear route exists');
-  const route: Point[] = []; for (let i = 1; i !== 0; i = previous[i]) route.unshift(points[i]);
   return route;
 }
 
@@ -53,7 +41,7 @@ async function fresh() {
   game.capture = async () => 'data:image/jpeg;base64,AQID';
   for (const id of MATCH_DRONE_IDS) await game.tool(id, 'observe');
   await game.forwardTeam('blue'); await game.forwardTeam('red');
-  assert.equal(game.state.match!.rulesVersion, 'cargo-v2');
+  assert.equal(game.state.match!.rulesVersion, 'cargo-v3');
   return game;
 }
 const events: unknown[] = [], samples: unknown[] = [];
@@ -80,14 +68,14 @@ const fly = async (route: Point[]) => {
       if (carrier.job?.state === 'blocked') throw new Error(`Prescribed route blocked: ${carrier.job.reason} to ${JSON.stringify(target)}`);
     }
     assert.equal(carrier.alive, true); assert.ok(distance(carrier, target) < .05, `Arrival at ${JSON.stringify(target)}, actual ${JSON.stringify({ x: carrier.x, y: carrier.y, z: carrier.z })}`);
-    assert.equal(carrier.equipment!.armor, true, 'No protected collision on prescribed route');
+    assert.equal(carrier.equipment!.armor, false, 'Unarmored flight completes without contact');
     conservation(); samples.push(structuredClone({ simTime: game.state.simTime, drone: carrier, bank }));
   }
 };
 try {
   const start = { x: carrier.x, y: carrier.y, z: carrier.z };
   const stationaryDrones = game.state.drones.slice(1);
-  const routes = game.state.match!.resources.map(node => ({ node, route: prescribedRoute(start, { x: node.x, y: start.y, z: node.z }, stationaryDrones) }));
+  const routes = game.state.match!.resources.map(node => ({ node, route: prescribedRoute(start, { x: node.x, y: node.y + 1.5, z: node.z }, stationaryDrones) }));
   const length = (start: Point, route: Point[]) => route.reduce((sum, point, i) => sum + distance(i ? route[i - 1] : start, point), 0);
   routes.sort((a, b) => length(start, a.route) - length(start, b.route));
   const chosen = routes[0];
@@ -103,7 +91,7 @@ try {
   assert.equal(carrier.cargo!.amount, 0); conservation();
   const depositedAt = game.state.simTime;
   const routesByBase = BATTLEFIELD.servicePads.map(base => ({ team: base.team, resources: BATTLEFIELD.resources.map(node => {
-    const start = { ...base, y: 1.8 }, route = prescribedRoute(start, { ...node, y: 1.8 });
+    const start = { ...base, y: base.y + 1.8 }, route = prescribedRoute(start, { ...node, y: node.y + 1.5 });
     return { id: node.id, length: length(start, route), route };
   }) }));
   // Three bodies on the authoritative marks share one actual depot; fixture pose

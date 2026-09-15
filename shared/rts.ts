@@ -1,7 +1,8 @@
 import type { DroneId } from './fleet.ts';
 
 export type TeamId = 'blue' | 'red';
-export const EQUIPMENT_MODULES = ['gun', 'cargo', 'optics'] as const;
+export const EQUIPMENT_MODULES = ['gun', 'cargo'] as const;
+export const CARGO_V2_EQUIPMENT_MODULES = ['gun', 'cargo', 'optics'] as const;
 export const CARGO_V1_EQUIPMENT_MODULES = ['gun', 'cargo', 'optics', 'battery'] as const;
 /** Retained only for interpreting recordings and explicitly historical rules fixtures. */
 export const LEGACY_EQUIPMENT_MODULES = ['gun', 'miner', 'optics', 'battery', 'jammer'] as const;
@@ -11,8 +12,8 @@ export interface Equipment { gun: boolean; armor: boolean; miner: boolean; cargo
 export type CameraMode = 'wide' | 'zoom';
 export interface Point { x: number; y: number; z: number }
 /** XYZ is the apron surface center. Remaining includes stock reserved by incomplete loads. */
-export interface ResourceNode extends Point { id: string; remaining: number; capacity: number; reserved?: number; kind?: 'cache' | 'dropped'; extractionMultiplier?: number; zoneSize?: number }
-export interface ServicePad extends Point { id: string; team: TeamId; zoneSize?: number }
+export interface ResourceNode extends Point { id: string; remaining: number; capacity: number; reserved?: number; kind?: 'cache' | 'dropped'; extractionMultiplier?: number; zoneSize?: number; rotation?: number }
+export interface ServicePad extends Point { id: string; team: TeamId; zoneSize?: number; rotation?: number; serviceHeight?: number }
 export interface CargoState { amount: number }
 export type CargoInactiveReason = 'outside_apron' | 'above_hover_band' | 'below_hover_band' | 'moving_too_fast'
   | 'cargo_full' | 'stock_empty' | 'stock_reserved' | 'no_cargo' | 'cancelled' | 'destroyed' | 'stopped' | 'refitted'
@@ -32,7 +33,7 @@ export interface MatchEvent extends Partial<Point> {
   projectileId?: string; cause?: 'terrain' | 'ram' | 'bullet' | 'expired' | 'power';
 }
 export interface MatchState {
-  rulesVersion?: 'cube-v1' | 'cargo-v1' | 'cargo-v2'; salvageLost?: number;
+  rulesVersion?: 'cube-v1' | 'cargo-v1' | 'cargo-v2' | 'cargo-v3'; salvageLost?: number;
   phase: 'ready' | 'active' | 'finished'; winner: TeamId | 'draw' | null;
   teams: Record<TeamId, TeamEconomy>; resources: ResourceNode[]; projectiles: Projectile[]; events: MatchEvent[];
   servicePads?: ServicePad[];
@@ -40,7 +41,7 @@ export interface MatchState {
 
 /** Simulator/player calibration. Item prices and own equipment receipts are allowed interaction feedback. */
 export const RTS_CONFIG = Object.freeze({
-  startingCredits: 30, moduleSlots: 2,
+  startingCredits: 0, moduleSlots: 2,
   prices: Object.freeze({ gun: 30, armor: 20, cargo: 30, miner: 30, optics: 30, miner_upgrade: 60, battery: 30, jammer: 45 }),
   miningRate: 0.5, minerRate: 1, upgradedMinerRate: 1.5,
   magazineSize: 12, rearmCost: 10, serviceDuration: 8,
@@ -54,9 +55,9 @@ export const RTS_CONFIG = Object.freeze({
 });
 
 export const emptyEquipment = (): Equipment => ({ gun: false, armor: false, cargo: false, miner: false, optics: false, minerUpgrade: false, battery: false, jammer: false });
-export const startingEquipment = (): Equipment => ({ gun: false, armor: true, cargo: false, miner: false, optics: false, minerUpgrade: false, jammer: false });
-export const isCargoRules = (version?: string): boolean => version === 'cargo-v1' || version === 'cargo-v2';
-export const hasBatteries = (version?: string): boolean => version !== 'cargo-v2';
+export const startingEquipment = (): Equipment => ({ gun: false, armor: false, cargo: false, miner: false, optics: false, minerUpgrade: false, jammer: false });
+export const isCargoRules = (version?: string): boolean => version === 'cargo-v1' || version === 'cargo-v2' || version === 'cargo-v3';
+export const hasBatteries = (version?: string): boolean => version !== 'cargo-v2' && version !== 'cargo-v3';
 export const batteryCapacityFor = (drone: { equipment?: Equipment }): number => drone.equipment?.battery ? RTS_CONFIG.extendedBatteryCapacity : RTS_CONFIG.batteryCapacity;
 
 /** Shared vehicle/apron calibration; lengths and speeds are simulator units and units/second. */
@@ -67,19 +68,25 @@ export const CARGO_CONFIG = Object.freeze({
 });
 export const cargoCapacityFor = (drone: { equipment?: Equipment }): number => drone.equipment?.cargo ? CARGO_CONFIG.moduleCapacity : CARGO_CONFIG.gripCapacity;
 /** Three separated loading marks, identical for simulation fixtures and rendering. */
-export const apronServicePositions = (apron: Point, size: number): Point[] =>
-  [[-0.32, -0.25], [0.32, -0.25], [0, 0.32]].map(([x, z]) => ({
-    x: apron.x + x * size, y: apron.y + (CARGO_CONFIG.hoverMin + CARGO_CONFIG.hoverMax) / 2, z: apron.z + z * size,
-  }));
-export function insideApron(point: Point, apron: Point, size: number): boolean {
-  return Math.abs(point.x - apron.x) <= size / 2 && Math.abs(point.z - apron.z) <= size / 2;
+type Apron = Point & { rotation?: number; serviceHeight?: number };
+export function apronPoint(apron: Apron, x: number, z: number, height = 0): Point {
+  const angle = (apron.rotation ?? 0) * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
+  return { x: apron.x + c * x + s * z, y: apron.y + height, z: apron.z - s * x + c * z };
+}
+export const apronServicePositions = (apron: Apron, size: number): Point[] => {
+  const spread = Math.min(size * 0.32, size / 2 - RTS_CONFIG.droneRadius - 0.06);
+  return [[-spread, -spread * 0.78], [spread, -spread * 0.78], [0, spread]].map(([x, z]) =>
+    apronPoint(apron, x, z, (CARGO_CONFIG.hoverMin + CARGO_CONFIG.hoverMax) / 2));
+};
+export function insideApron(point: Point, apron: Apron, size: number): boolean {
+  const angle = (apron.rotation ?? 0) * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
+  const dx = point.x - apron.x, dz = point.z - apron.z;
+  return Math.abs(c * dx - s * dz) <= size / 2 && Math.abs(s * dx + c * dz) <= size / 2;
 }
 
 export const resourceZoneSize = (node: ResourceNode): number => node.zoneSize ?? RTS_CONFIG.resourceZoneSize;
 export const serviceZoneSize = (pad: ServicePad): number => pad.zoneSize ?? RTS_CONFIG.serviceZoneSize;
 /** Visible volume and interaction volume share these exact bounds. */
-export function insideZone(point: Point, zone: Point, size: number): boolean {
-  const half = size / 2;
-  return Math.abs(point.x - zone.x) <= half && Math.abs(point.z - zone.z) <= half
-    && point.y >= zone.y && point.y <= zone.y + size;
+export function insideZone(point: Point, zone: Apron, size: number): boolean {
+  return insideApron(point, zone, size) && point.y >= zone.y && point.y <= zone.y + (zone.serviceHeight ?? size);
 }

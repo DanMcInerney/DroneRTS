@@ -36,7 +36,7 @@ test('the complete production opening reaches all six actors through native team
     assert.deepEqual(bundle.events.filter((event: any) => event.type === 'player').map((event: any) => event.text), [RTS_MISSION]);
   }
   const opening = game.state.radio.find(message => message.kind === 'mission' && message.data?.team === 'blue')!;
-  assert.ok(RTS_MISSION.length > 4000, 'exercise the full briefing, not the shorter hauling fixture objective');
+  assert.ok(RTS_MISSION.length < 700, 'production opening is a terse order, with calibration in pilot instructions');
   await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-objective', text: 'x'.repeat(6001) }), /Invalid message text/);
   await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-utf8', text: '🙂'.repeat(3000) }), /8192 UTF-8 bytes/);
   await assert.rejects(session.radio.sendTeam('blue', { ...opening, id: 'oversize-chat', kind: 'chat', text: 'x'.repeat(1201) }), /Invalid message text/);

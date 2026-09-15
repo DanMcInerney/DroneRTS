@@ -17,6 +17,7 @@ function fixture() {
       [{ id: 'pad', team: 'blue', x: 0, y: 0, z: 0 }]),
   };
   rules.begin(state); state.match!.rulesVersion = 'cube-v1';
+  for (const wallet of Object.values(state.match!.teams)) wallet.credits = 30;
   const drone = drones[0], wallet = state.match!.teams.blue;
   const tick = (dt: number, previous?: Map<DroneId, Point>) => { state.simTime += dt; rules.step(state, dt, previous); };
   return { rules, state, drones, drone, wallet, tick };

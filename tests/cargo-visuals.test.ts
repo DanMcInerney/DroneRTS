@@ -101,3 +101,28 @@ test('attached one/two-crate cargo is bounded by the collision sphere and follow
   drone.cargo!.amount = 15; visuals.pose([drone]); assert.equal(cargo.children[0].scale.y, 0.5); assert.equal(cargo.children[1].visible, false);
   drone.alive = false; visuals.pose([drone]); assert.equal(cargo.visible, false); visuals.dispose();
 });
+
+test('rotated rooftop and compact intersection marks follow authority across snapshot restoration', () => {
+  const scene = new THREE.Scene(), view = new CombatView(scene), state = match();
+  state.rulesVersion = 'cargo-v3';
+  Object.assign(state.resources[0], { zoneSize: 2, rotation: 11 });
+  Object.assign(state.servicePads![0], { y: 8, zoneSize: 5.6, rotation: 22, serviceHeight: 6 });
+  view.update(state); scene.updateMatrixWorld(true);
+  for (const node of [state.resources[0], state.servicePads![0]]) {
+    const mesh = scene.getObjectByName(node.id)!;
+    assert.equal(mesh.rotation.y, node.rotation! * Math.PI / 180);
+    apronServicePositions(node, node.zoneSize!).forEach((point, index) => {
+      const mark = mesh.getObjectByName('service-positions')!.children[index].getWorldPosition(new THREE.Vector3());
+      assert.ok(Math.hypot(point.x - mark.x, point.z - mark.z) < 1e-8);
+    });
+  }
+  const depot = scene.getObjectByName('depot')!, stock = depot.getObjectByName('stock')!;
+  assert.equal(depot.getObjectByName('pallets')!.children.length, 10);
+  assert.ok(stock.children[1].position.y > stock.children[0].position.y);
+  state.resources[0].remaining = 570; view.update(state);
+  assert.equal(stock.children[19].visible, false); assert.equal(stock.children[18].visible, true);
+  const prior = structuredClone(state); prior.resources[0].rotation = 0;
+  view.withSnapshot(prior, () => assert.equal(scene.getObjectByName('depot')!.rotation.y, 0));
+  assert.equal(scene.getObjectByName('depot')!.rotation.y, 11 * Math.PI / 180);
+  view.dispose();
+});

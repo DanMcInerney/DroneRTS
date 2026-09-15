@@ -125,7 +125,7 @@ test('enemy pads cannot charge; zero-power and dead actors cannot use compatibil
   drone.x = 0; drone.battery = 0;
   assert.throws(() => rules.recharge(state, drone), /No battery charge/);
   tick(1); assert.equal(drone.alive, false); assert.equal(drone.battery, 0);
-  assert.throws(() => rules.recharge(state, drone), /destroyed/); assert.equal(wallet.credits, 30);
+  assert.throws(() => rules.recharge(state, drone), /destroyed/); assert.equal(wallet.credits, 0);
 });
 
 test('battery warnings occur once per drain crossing and adapt after pad charging and capacity removal', () => {

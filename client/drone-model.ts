@@ -3,8 +3,26 @@ import type { Drone } from './types';
 import { dronePresentation } from './drone-presentation';
 import { CARGO_CONFIG } from '../shared/rts';
 import { salvageCrate } from './salvage-model';
+import { graphicsAsset } from './graphics-assets';
+import { disposeGroup } from './city-scene';
 
 export function makeDrone(id: string) {
+  const color = dronePresentation(id).color;
+  const airframe = graphicsAsset('airframe', color);
+  if (!airframe) return makeLegacyDrone(id);
+  const group = new THREE.Group(); group.name = id; group.userData.blender = true;
+  group.add(airframe);
+  for (const name of ['gun', 'optics', 'armor-plates', 'cargo-grip', 'cargo-module']) group.add(graphicsAsset(name, color)!);
+  // Archived equipment retains its original interpretation and appearance.
+  const legacy = makeLegacyDrone(id);
+  for (const name of ['armor', 'miner', 'battery', 'jammer']) group.add(legacy.getObjectByName(name)!);
+  disposeGroup(legacy);
+  const cargo = new THREE.Group(); cargo.name = 'carried-cargo';
+  for (let i = 0; i < 2; i++) { const crate = salvageCrate(); crate.name = `carried-crate-${i}`; cargo.add(crate); }
+  group.add(cargo); return group;
+}
+
+function makeLegacyDrone(id: string) {
   const group = new THREE.Group(); group.name = id;
   const material = new THREE.MeshLambertMaterial({ color: dronePresentation(id).color });
   const dark = new THREE.MeshLambertMaterial({ color: '#283640' });
@@ -66,7 +84,7 @@ export function positionDrone(mesh: THREE.Group, drone: Drone) {
   const hauling = drone.cargo !== undefined;
   mesh.position.set(drone.x, drone.y - (hauling ? 0 : 0.14), drone.z);
   mesh.rotation.set(0, THREE.MathUtils.degToRad(drone.yaw), 0);
-  const gun = mesh.getObjectByName('gun')!; gun.visible = Boolean(drone.equipment?.gun); gun.rotation.x = THREE.MathUtils.degToRad(drone.pitch); gun.position.y = hauling ? 0.04 : 0.14;
+  const gun = mesh.getObjectByName('gun')!; gun.visible = Boolean(drone.equipment?.gun); gun.rotation.x = THREE.MathUtils.degToRad(drone.pitch); gun.position.y = mesh.userData.blender ? 0 : hauling ? 0.04 : 0.14;
   mesh.getObjectByName('armor')!.visible = !hauling && drone.alive !== false && Boolean(drone.equipment?.armor);
   mesh.getObjectByName('armor-plates')!.visible = hauling && drone.alive !== false && Boolean(drone.equipment?.armor);
   mesh.getObjectByName('miner')!.visible = Boolean(drone.equipment?.miner);

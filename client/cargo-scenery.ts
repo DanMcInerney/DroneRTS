@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { apronServicePositions, CARGO_CONFIG, resourceZoneSize, serviceZoneSize, type ResourceNode, type ServicePad } from '../shared/rts';
 import { cargoSymbol, salvageCrate, salvagePallet, SALVAGE_VISUAL } from './salvage-model';
+import { graphicsAsset } from './graphics-assets';
 
 const paint = (color: THREE.ColorRepresentation) => new THREE.MeshLambertMaterial({ color });
 
@@ -20,7 +21,7 @@ function apron(id: string, x: number, y: number, z: number, size: number, color:
   for (const point of apronServicePositions({ x: 0, y: 0, z: 0 }, size)) {
     const mark = new THREE.Group(); mark.name = 'service-position'; mark.position.set(point.x, 0, point.z);
     const radius = Math.min(0.4, size * 0.155);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.04, radius, 16), paint(service ? '#dce5dc' : '#bda766'));
+    const ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.04, radius, 64), paint(service ? '#dce5dc' : '#bda766'));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.068; mark.add(ring);
     const symbol = cargoSymbol(radius * 1.1, service ? '#dce5dc' : '#bda766');
     symbol.rotation.x = -Math.PI / 2; symbol.position.y = 0.069; mark.add(symbol); positions.add(mark);
@@ -45,13 +46,21 @@ function stockPositions(count: number, size: number) {
 export function cargoResourceProp(node: ResourceNode) {
   const size = resourceZoneSize(node);
   const group = apron(node.id, node.x, node.y, node.z, size, SALVAGE_VISUAL.ochre, false);
+  group.rotation.y = THREE.MathUtils.degToRad(node.rotation ?? 0);
   const pallets = new THREE.Group(); pallets.name = 'pallets';
   const stock = new THREE.Group(); stock.name = 'stock';
   const count = Math.ceil(node.capacity / CARGO_CONFIG.crateValue);
-  for (const [index, point] of stockPositions(count, size).entries()) {
-    const pallet = salvagePallet(); pallet.position.x = point.x; pallet.position.z = point.z; pallet.position.y += 0.066; pallets.add(pallet);
+  const slots = stockPositions(size < 2.2 ? Math.ceil(count / 2) : count, size);
+  for (let index = 0; index < count; index++) {
+    const stacked = slots.length < count;
+    const point = slots[stacked ? Math.floor(index / 2) : index];
+    // Higher stock indices disappear first; keep each upper crate after its support.
+    const layer = stacked ? index % 2 : 0;
+    if (layer === 0) {
+      const pallet = salvagePallet(); pallet.position.set(point.x, 0.066, point.z); pallets.add(pallet);
+    }
     const crate = salvageCrate(); crate.name = `stock-crate-${index}`;
-    crate.position.set(point.x, 0.088, point.z); stock.add(crate);
+    crate.position.set(point.x, 0.088 + layer * 0.125, point.z); stock.add(crate);
   }
   group.add(pallets, stock); return group;
 }
@@ -70,6 +79,9 @@ export function updateCargoStock(group: THREE.Group, node: ResourceNode) {
 export function cargoServiceProp(pad: ServicePad) {
   const size = serviceZoneSize(pad), color = pad.team === 'blue' ? '#2799ba' : '#bc5147';
   const group = apron(pad.id, pad.x, pad.y, pad.z, size, color, true);
+  group.rotation.y = THREE.MathUtils.degToRad(pad.rotation ?? 0);
+  const asset = graphicsAsset('service-cabinet', color);
+  if (asset) { asset.position.set(size * 0.35, 0.067, size * 0.4); group.add(asset); return group; }
   // A low service cabinet is a non-solid interaction prop, below even the lowest
   // service-hover body envelope. It adds no obstacle or approach restriction.
   const cabinet = new THREE.Group(); cabinet.name = 'service-cabinet'; cabinet.position.set(size * 0.35, 0.067, size * 0.4);

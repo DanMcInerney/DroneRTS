@@ -417,7 +417,7 @@ export class FleetGame extends EventEmitter {
     const drone = this.state.drones.find(d => d.id === role);
     return { alive: Boolean(drone && drone.alive !== false && this.state.running),
       onboard: true,
-      shop: Boolean(drone && this.state.match?.teams[teamForDrone(drone.id)].shopUnlocked), gun: Boolean(drone?.equipment?.gun), optics: Boolean(drone?.equipment?.optics), jammer: Boolean(drone?.equipment?.jammer) };
+      shop: Boolean(drone && this.state.match?.teams[teamForDrone(drone.id)].shopUnlocked), gun: Boolean(drone?.equipment?.gun), optics: this.state.match?.rulesVersion !== 'cargo-v3' && Boolean(drone?.equipment?.optics), jammer: Boolean(drone?.equipment?.jammer) };
   }
 
   async tool(role: Role, name: string, args: Record<string, unknown> = {}): Promise<ToolResult> {

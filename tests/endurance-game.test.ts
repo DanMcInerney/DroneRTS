@@ -39,7 +39,7 @@ function legacyInterference(game: FleetGame, enabled: boolean) {
 
 test('current drones expose calibrated telemetry without battery fields, equipment or recharge tools', async t => {
   const game = await ready(); t.after(() => game.stop());
-  assert.equal(game.state.match!.rulesVersion, 'cargo-v2');
+  assert.equal(game.state.match!.rulesVersion, 'cargo-v3');
   for (const id of MATCH_DRONE_IDS) {
     const observed = body(await game.tool(id, 'observe'));
     assert.equal(observed.battery, undefined); assert.equal(observed.charging, undefined);
@@ -49,7 +49,7 @@ test('current drones expose calibrated telemetry without battery fields, equipme
     assertPrivate(observed);
   }
   for (const name of ['jam', 'mine', 'recharge']) assert.equal((await game.tool('drone-1', name, { mission: 1, enabled: true })).isError, true);
-  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery']) {
+  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery', 'optics']) {
     const rejected = body(await game.tool('drone-1', 'buy', { mission: 1, item }));
     assert.equal(rejected.accepted, false); assertPrivate(rejected);
   }

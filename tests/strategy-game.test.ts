@@ -23,6 +23,7 @@ function advance(game: FleetGame, seconds: number) {
 }
 async function armed() {
   const game = await ready();
+  game.state.match!.teams.blue.credits = 30; // Earlier-delivery fixture funds the gun.
   await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' });
   await game.tool('drone-1', 'fire', { mission: 1 });
   game.state.match!.teams.blue.credits = 100;
@@ -36,49 +37,52 @@ function assertPrivate(result: any) {
   }
 }
 
-test('the shared opening wallet funds exactly one of three simultaneous module choices', async () => {
-  const game = await ready();
-  const purchases = await Promise.all(['gun', 'cargo', 'optics'].map((item, index) => game.tool(MATCH_DRONE_IDS[index], 'buy', { mission: 1, item })));
-  assert.equal(purchases.map(body).filter(result => result.equipped).length, 1);
+test('zero opening wallet rejects purchases; one delivered grip funds one atomic module purchase', async t => {
+  const game = await ready(); t.after(() => game.stop());
+  for (const item of ['gun', 'cargo', 'armor', 'optics']) {
+    const result = body(await game.tool('drone-1', 'buy', { mission: 1, item }));
+    assert.equal(result.rejected, true); assertPrivate(result);
+  }
   assert.equal(game.state.match!.teams.blue.credits, 0);
-  assert.equal(game.state.match!.teams.blue.earned, 0);
+  const drone = game.state.drones[0];
+  game.state.match!.resources = [{ id: 'test-stock', x: drone.x, y: 0, z: drone.z, capacity: 30, remaining: 30, zoneSize: 2.5 }];
+  game.state.match!.servicePads = game.state.match!.servicePads!.filter(p => p.team === 'red');
+  advance(game, 3.1); assert.equal(drone.cargo!.amount, 30); assert.equal(game.state.match!.teams.blue.credits, 0);
+  game.state.match!.servicePads!.push({ id: 'test-base', team: 'blue', x: drone.x, y: 0, z: drone.z, zoneSize: 6 });
+  advance(game, 2.1); assert.equal(game.state.match!.teams.blue.credits, 30);
+  // Bring a teammate into the same base without collision; no simulation tick needed.
+  Object.assign(game.state.drones[1], { x: drone.x + 2, y: drone.y, z: drone.z });
+  const purchases = await Promise.all(['gun', 'cargo'].map((item, index) => game.tool(MATCH_DRONE_IDS[index], 'buy', { mission: 1, item })));
+  assert.equal(purchases.map(body).filter(result => result.equipped).length, 1);
+  assert.equal(game.state.match!.teams.blue.credits, 0); assert.equal(game.state.match!.teams.blue.earned, 30);
   assert.equal(game.state.match!.teams.red.credits, RTS_CONFIG.startingCredits);
   for (const result of purchases.map(body)) assertPrivate(result);
-  game.stop();
 });
 
-test('refitting revokes removed equipment tools and returns fresh own status without hidden world data', async () => {
-  const game = await ready(), drone = game.state.drones[0];
+test('refitting revokes removed gun tools and rejects optics without spending or hidden world data', async t => {
+  const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
   game.state.match!.teams.blue.credits = 300;
   await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' });
-  const optics = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' }));
-  assert.ok(optics.availableTools.includes('fire')); assert.ok(optics.availableTools.includes('rearm')); assert.ok(optics.availableTools.includes('camera'));
-  await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' });
-  const miner = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'gun' }));
-  assert.equal(miner.ammo, 0); assert.equal(miner.cameraMode, 'zoom');
-  assert.equal(miner.availableTools.includes('fire'), false); assert.equal(miner.availableTools.includes('rearm'), false);
-  for (const tool of ['fire', 'rearm']) {
-    const rejected = await game.tool('drone-1', tool, { mission: 1 });
+  const denied = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' }));
+  assert.equal(denied.rejected, true); assert.equal(game.state.match!.teams.blue.credits, 270);
+  const cargo = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'gun' }));
+  assert.equal(cargo.ammo, 0); assert.equal(cargo.cameraMode, 'wide');
+  for (const tool of ['fire', 'rearm', 'camera']) {
+    assert.equal(cargo.availableTools.includes(tool), false);
+    const rejected = await game.tool('drone-1', tool, { mission: 1, mode: 'zoom' });
     assert.equal(rejected.isError, true); assertPrivate(body(rejected));
   }
-  const gun = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun', replace: 'optics' }));
-  assert.equal(gun.cameraMode, 'wide'); assert.equal(gun.ammo, 0, 'Refitting a previously purchased gun creates no ammunition');
-  assert.equal(gun.availableTools.includes('camera'), false);
-  const denied = await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' });
-  assert.equal(denied.isError, true); assert.equal(drone.cameraMode, 'wide');
-  assertPrivate(gun); assertPrivate(body(denied)); game.stop();
+  const gun = body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun', replace: 'cargo' }));
+  assert.equal(gun.ammo, 0, 'Refitting a previously purchased gun creates no ammunition');
+  assert.equal(drone.cameraMode, 'wide'); assertPrivate(gun);
 });
 
-test('camera and rearming enforce per-drone mission versions without spending or changing camera mode', async () => {
-  const game = await armed(), drone = game.state.drones[0];
-  await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' });
+test('rearming enforces per-drone mission versions without spending', async t => {
+  const game = await armed(), drone = game.state.drones[0]; t.after(() => game.stop());
   const balance = game.state.match!.teams.blue.credits;
-  for (const [name, args] of [['camera', { mode: 'zoom' }], ['rearm', {}]] as const) {
-    const rejected = await game.tool('drone-1', name, { ...args, mission: 2 });
-    assert.equal(rejected.isError, true); assert.match(body(rejected).error, /mission/); assertPrivate(body(rejected));
-  }
-  assert.equal(drone.cameraMode, 'wide'); assert.equal(drone.servicing, undefined);
-  assert.equal(game.state.match!.teams.blue.credits, balance); game.stop();
+  const rejected = await game.tool('drone-1', 'rearm', { mission: 2 });
+  assert.equal(rejected.isError, true); assert.match(body(rejected).error, /mission/); assertPrivate(body(rejected));
+  assert.equal(drone.servicing, undefined); assert.equal(game.state.match!.teams.blue.credits, balance);
 });
 
 test('rearming stops residual flight, permits looking and radio, and completion wakes wait with fresh sensors', async () => {

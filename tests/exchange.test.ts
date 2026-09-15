@@ -33,7 +33,7 @@ test('a later rejected side effect does not roll back earlier accepted movement'
   assert.equal(result.outcomes[0].result.accepted, true);
   assert.equal(result.outcomes[1].result.rejected, true);
   assert.equal(drone.job?.state, 'running'); assert.ok(drone.action);
-  assert.equal(game.state.match!.teams.blue.credits, 30);
+  assert.equal(game.state.match!.teams.blue.credits, 0);
 });
 test('oversize batches and competing movement writers are rejected before admission', async t => {
   const { game } = await fresh(t);
@@ -45,6 +45,7 @@ test('oversize batches and competing movement writers are rejected before admiss
 });
 test('batch admission does not grant a later operation a capability acquired inside that batch', async t => {
   const { game } = await fresh(t);
+  game.state.match!.teams.blue.credits = 30; // Fund this purchase fixture.
   const result = value(await game.tool('drone-1', 'exchange', { mission: 1, operations: [
     { id: 'fit', tool: 'buy', args: { item: 'gun' } }, { id: 'shot', tool: 'fire', args: {} },
   ] }));

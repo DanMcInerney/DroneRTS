@@ -17,6 +17,8 @@ function fixture(historical = false) {
     match: rules.newMatch([{ id: 'salvage', x: 0, y: 0, z: 0, capacity: 1000, remaining: 1000, zoneSize: 3 }], pads),
   };
   rules.begin(state);
+  // Seed a funded purchase fixture; new-match/reset assertions below still require zero.
+  for (const wallet of Object.values(state.match!.teams)) wallet.credits = 30;
   if (historical) state.match!.rulesVersion = 'cube-v1';
   // Equipment purchase fixtures exercise replacement after starting armor is lost.
   for (const drone of drones) drone.equipment = emptyEquipment();
@@ -201,7 +203,7 @@ test('successful refit can spend its own reserved refund, while invalid transact
   const { rules, state, drone, wallet, readyToRearm, buy } = fixture(); readyToRearm();
   wallet.credits = 19;
   const reservation = structuredClone(drone.servicing), gear = structuredClone(drone.equipment);
-  assert.throws(() => rules.buy(state, drone, 'optics', 'gun'), /Insufficient/);
+  assert.throws(() => rules.buy(state, drone, 'cargo', 'gun'), /Insufficient/);
   assert.deepEqual(drone.equipment, gear); assert.deepEqual(drone.servicing, reservation); assert.equal(wallet.credits, 19);
   buy('armor');
   assert.equal(wallet.credits, 9); assert.equal(drone.equipment!.armor, true); assert.equal(drone.servicing, undefined);
@@ -210,7 +212,7 @@ test('successful refit can spend its own reserved refund, while invalid transact
 
 test('removing a gun during refit cancels rearm and discards ammunition', () => {
   const { rules, state, drone, wallet, readyToRearm, tick } = fixture(); readyToRearm();
-  rules.buy(state, drone, 'optics', 'gun');
+  rules.buy(state, drone, 'cargo', 'gun');
   assert.equal(drone.equipment!.gun, false); assert.equal(drone.ammo, 0); assert.equal(wallet.credits, 70);
   assert.equal(drone.servicing, undefined); tick(20); assert.equal(drone.ammo, 0);
 });
@@ -221,11 +223,11 @@ test('begin refunds the old wallet once, preserves pads and installs a clean ope
   const pads = structuredClone(match.servicePads);
   rules.begin(state);
   assert.equal(wallet.credits, 100);
-  assert.deepEqual(state.match!.teams.blue, { credits: 30, earned: 0, shopUnlocked: true });
+  assert.deepEqual(state.match!.teams.blue, { credits: 0, earned: 0, shopUnlocked: true });
   assert.deepEqual(state.match!.servicePads, pads);
   assert.deepEqual(drone.equipment, startingEquipment()); assert.equal(drone.servicing, undefined);
   assert.equal(drone.ammo, 0); assert.equal(drone.cameraMode, 'wide');
-  rules.cancelService(state, drone); assert.equal(state.match!.teams.blue.credits, 30);
+  rules.cancelService(state, drone); assert.equal(state.match!.teams.blue.credits, 0);
 });
 
 test('match victory cancels survivor servicing and refunds the unfinished magazine', () => {

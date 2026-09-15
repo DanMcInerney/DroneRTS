@@ -89,6 +89,7 @@ test('destruction terminates the worker and revokes its workspace while other dr
   const workspace = game.onboardWorkspace('drone-1');
   await game.tool('drone-1', 'routine', { mission: 1, op: 'start', path: 'entry.js' });
   const drone = game.state.drones[0]; drone.equipment!.armor = false;
+  game.state.drones[1].equipment!.armor = true; // Isolate destruction to the worker under test.
   Object.assign(game.state.drones[1], { x: drone.x, y: drone.y, z: drone.z });
   game.tick(0.05); assert.equal(drone.alive, false); assert.equal(drone.job?.state, 'cancelled');
   assert.equal(workspace.status().revoked, true); assert.throws(() => workspace.read('entry.js'), /revoked/);

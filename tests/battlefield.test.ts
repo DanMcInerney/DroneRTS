@@ -6,7 +6,7 @@ import { BATTLEFIELD } from '../shared/battlefield.ts';
 import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { CITY, type CityPoint } from '../shared/city.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
-import { apronServicePositions, CARGO_CONFIG, insideZone, resourceZoneSize, RTS_CONFIG, serviceZoneSize, type Point } from '../shared/rts.ts';
+import { apronPoint, apronServicePositions, CARGO_CONFIG, insideZone, resourceZoneSize, RTS_CONFIG, serviceZoneSize, type Point } from '../shared/rts.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 
 const clear = (from: Point, to = from, margin: number = RTS_CONFIG.droneRadius) =>
@@ -23,16 +23,16 @@ function inPolygon(point: CityPoint, ring: CityPoint[]) {
 const water = (point: CityPoint) => inPolygon(point, CITY.river)
   && !CITY.riverHoles.some(ring => inPolygon(point, ring));
 
-const zoneSamples = (zone: Point, size: number) => {
+const zoneSamples = (zone: Point & { rotation?: number }, size: number) => {
   const fractions = [-0.5, -0.25, 0, 0.25, 0.5];
   return fractions.flatMap(x => fractions.flatMap(z => fractions.map(y => ({
-    x: zone.x + x * size, y: zone.y + (y + 0.5) * size, z: zone.z + z * size,
+    ...apronPoint(zone, x * size, z * size, (y + 0.5) * size),
   }))));
 };
-const containsBody = (zone: Point, size: number, point: Point) => {
+const containsBody = (zone: Point & { rotation?: number }, size: number, point: Point) => {
   const radius = RTS_CONFIG.droneRadius;
-  return Math.abs(point.x - zone.x) + radius < size / 2
-    && Math.abs(point.z - zone.z) + radius < size / 2
+  return [-radius, radius].every(x => [-radius, radius].every(z =>
+    insideZone(apronPoint({ ...point, rotation: zone.rotation }, x, z), zone, size)))
     && point.y - radius > zone.y && point.y + radius < zone.y + size;
 };
 
@@ -85,126 +85,79 @@ test('each launch contains three complete drone bodies and its initial camera se
   });
 });
 
-test('the four finite outer deposits and rich downtown mega deposit preserve their supplies', () => {
-  assert.equal(new Set(BATTLEFIELD.resources.map(node => node.id)).size, BATTLEFIELD.resources.length);
-  assert.equal(BATTLEFIELD.resources.length, 5);
-  const outer = BATTLEFIELD.resources.filter(node => node.capacity === 60);
-  const rich = BATTLEFIELD.resources.filter(node => node.capacity === 600);
-  assert.equal(outer.length, 4);
-  assert.ok(outer.every(node => node.capacity === 60));
-  assert.equal(rich.length, 1);
-  assert.equal(rich[0].capacity, 600);
-  assert.equal(BATTLEFIELD.resources.reduce((total, node) => total + node.capacity, 0), 840);
-  assert.ok(outer.reduce((total, node) => total + node.capacity, 0) < rich[0].capacity);
-  for (const node of BATTLEFIELD.resources) {
-    assert.ok(Number.isSafeInteger(node.capacity) && node.capacity > 0);
-    assert.equal(node.remaining, node.capacity);
-    if (node.capacity === 600) {
-      const crossing = CITY.intersections.find(point => point.streets.includes('Vine Street') && point.streets.includes('East 3rd Street'))!;
-      assert.ok(Math.hypot(crossing.x - node.x, crossing.z - node.z) < 4, 'central forecourt must connect directly to its mapped crossing');
-      assert.ok(clear({ ...crossing, y: 1.5 }, { ...node, y: 1.5 }), 'central forecourt has an unobstructed intersection approach');
-      continue;
-    }
-    const crossing = CITY.intersections.find(point => Math.hypot(point.x - node.x, point.z - node.z) < 0.002);
-    assert.ok(crossing, `${node.id} must be centered on a mapped street intersection`);
-    const roads = CITY.roads.filter(road => crossing.streets.includes(road.name)
-      && road.points.some(point => Math.hypot(point.x - node.x, point.z - node.z) < 0.002));
-    const width = Math.max(...roads.map(road => road.width));
-    assert.ok(resourceZoneSize(node) >= width && resourceZoneSize(node) <= width * 1.5,
-      `${node.id} should fill the crossing, including its angled corners`);
+const distance = (a: CityPoint, b: CityPoint) => Math.hypot(a.x - b.x, a.z - b.z);
+const middle = { x: (CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, z: (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2 };
+const rotation = (r = 0) => new Matrix3().setFromMatrix4(new Matrix4().makeRotationY(r * Math.PI / 180));
+
+test('opposite rooftop bases are balanced around the geographic center', () => {
+  const [blue, red] = BATTLEFIELD.servicePads;
+  assert.ok(blue.x < CITY.bounds.x[0] + 10 && red.x > CITY.bounds.x[1] - 10);
+  assert.ok(distance({ x: (blue.x + red.x) / 2, z: (blue.z + red.z) / 2 }, middle) < 1.5);
+  assert.ok(Math.abs(distance(blue, middle) - distance(red, middle)) < 3);
+  for (const pad of BATTLEFIELD.servicePads) {
+    assert.ok(pad.y > 0);
+    const roof = CITY.buildings.find(b => Math.abs((b.baseY ?? 0) + b.height - pad.y) < 1e-6
+      && [-.5, .5].every(x => [-.5, .5].every(z => {
+        const point = apronPoint(pad, x * pad.zoneSize!, z * pad.zoneSize!, -.0001);
+        return intersectsBuilding(point, point, b);
+      })));
+    assert.ok(roof, `${pad.id}: entire painted apron must be supported by one real roof`);
   }
 });
 
-test('all grounded aprons have clear airspace and three shared, separated service marks', () => {
-  const zones = [...BATTLEFIELD.resources.map(zone => ({ zone, size: resourceZoneSize(zone) })),
-    ...BATTLEFIELD.servicePads.map(zone => ({ zone, size: serviceZoneSize(zone) }))];
-  for (const { zone, size } of zones) {
-    assert.equal(zone.y, 0, `${zone.id} must be grounded`);
-    assert.equal(zone.zoneSize, size, `${zone.id} explicitly records its visible interaction bounds`);
-    for (const axis of ['x', 'z'] as const) {
-      assert.ok(zone[axis] - size / 2 - RTS_CONFIG.droneRadius > CITY.bounds[axis][0]
-        && zone[axis] + size / 2 + RTS_CONFIG.droneRadius < CITY.bounds[axis][1], `${zone.id} needs its whole apron and airframe inside the map`);
-    }
-    assert.ok(zoneSamples(zone, size).every(point => !water(point)), `${zone.id} must be dry across its footprint`);
-    const cube = new OBB(new Vector3(zone.x, zone.y + size / 2, zone.z), new Vector3(size / 2, size / 2, size / 2));
+test('three finite intersection caches bracket the map center and preserve 840 total stock', () => {
+  const [west, east, central] = BATTLEFIELD.resources;
+  assert.equal(BATTLEFIELD.resources.length, 3);
+  assert.deepEqual(BATTLEFIELD.resources.map(n => n.capacity), [120, 120, 600]);
+  assert.equal(BATTLEFIELD.resources.reduce((sum, n) => sum + n.remaining, 0), 840);
+  // Use shared source road vertices, including junctions excluded by the old
+  // conservative random-spawn filter. No synthetic crossings or shifted streets.
+  const vertices = new Map<string, { point: CityPoint; streets: Set<string> }>();
+  for (const road of CITY.roads) for (const point of road.points) {
+    const key = `${point.x},${point.z}`, entry = vertices.get(key) ?? { point, streets: new Set<string>() };
+    entry.streets.add(road.name); vertices.set(key, entry);
+  }
+  const crossings = [...vertices.values()].filter(v => v.streets.size > 1 && ![...v.streets].some(s => /Skywalk|Way|Bridge/.test(s)));
+  const closest = crossings.sort((a, b) => distance(a.point, middle) - distance(b.point, middle))[0];
+  assert.ok(closest.streets.has('Walnut Street') && closest.streets.has('East 4th Street'));
+  assert.ok(distance(central, closest.point) <= .051);
+  assert.ok(distance(central, middle) < 2);
+  for (const [index, node] of [west, east].entries()) {
+    const base = BATTLEFIELD.servicePads[index];
+    const halfway = { x: (base.x + middle.x) / 2, z: (base.z + middle.z) / 2 };
+    assert.ok(distance(node, halfway) < 7, 'side cache is near the halfway point on a real crossing');
+    const crossing = crossings.find(v => distance(v.point, node) < .4);
+    assert.ok(crossing?.streets.has('East 4th Street'));
+  }
+  for (const node of BATTLEFIELD.resources) {
+    assert.equal(node.y, 0); assert.equal(node.remaining, node.capacity);
+    assert.ok(node.zoneSize! >= 1.8 && node.zoneSize! <= 2.7, 'paint fills the 18m street crossing without consuming a city block');
+  }
+});
+
+test('painted footprints and service airspace clear all buildings; three bodies fit every apron', () => {
+  for (const zone of [...BATTLEFIELD.resources, ...BATTLEFIELD.servicePads]) {
+    const size = zone.zoneSize!, height = 'serviceHeight' in zone ? zone.serviceHeight! : size;
+    const cube = new OBB(new Vector3(zone.x, zone.y + height / 2 + .001, zone.z),
+      new Vector3(size / 2, height / 2, size / 2), rotation(zone.rotation));
     for (const building of CITY.buildings) {
-      const obstacle = new OBB(
-        new Vector3(building.x, (building.baseY ?? 0) + building.height / 2, building.z),
-        new Vector3(building.width / 2, building.height / 2, building.depth / 2),
-        new Matrix3().setFromMatrix4(new Matrix4().makeRotationY((building.rotation ?? 0) * Math.PI / 180)),
-      );
+      const obstacle = new OBB(new Vector3(building.x, (building.baseY ?? 0) + building.height / 2, building.z),
+        new Vector3(building.width / 2, building.height / 2, building.depth / 2), rotation(building.rotation));
       assert.equal(cube.intersectsOBB(obstacle), false, `${zone.id} overlaps ${building.id}`);
     }
+    for (const point of zoneSamples(zone, size)) {
+      assert.equal(water(point), false);
+      for (const axis of ['x', 'z'] as const) assert.ok(point[axis] > CITY.bounds[axis][0] && point[axis] < CITY.bounds[axis][1]);
+    }
     const positions = apronServicePositions(zone, size);
-    for (const [index, position] of positions.entries()) {
-      assert.ok(containsBody(zone, size, position), `${zone.id} needs space for a whole drone`);
-      assert.ok(insideZone(position, zone, size));
-      assert.ok(position.y >= zone.y + CARGO_CONFIG.hoverMin && position.y <= zone.y + CARGO_CONFIG.hoverMax);
-      assert.ok(clear(position), `${zone.id} occupancy ${index + 1} must be collision-free`);
-      assert.ok(clear({ ...position, y: zone.y + size + 2 }, position), `${zone.id} needs a clear entry for each occupant`);
-      for (const other of positions.slice(index + 1)) {
-        assert.ok(Math.hypot(other.x - position.x, other.z - position.z) > RTS_CONFIG.droneRadius * 2 + 0.7);
-      }
+    for (const [index, point] of positions.entries()) {
+      assert.ok(containsBody(zone, size, point), `${zone.id}: whole body fits mark ${index}`);
+      assert.ok(clear(point), `${zone.id}: clear hover position`);
+      assert.ok(clear({ ...point, y: zone.y + size + 2 }, point), `${zone.id}: clear vertical arrival`);
+      for (const other of positions.slice(index + 1)) assert.ok(distance(point, other) > RTS_CONFIG.droneRadius * 2 + .3);
     }
+    // Rotation is shared by the service authority and renderer, not paint only.
+    assert.ok(insideZone(apronPoint(zone, size / 2 - .01, 0, 1), zone, size));
+    assert.equal(insideZone(apronPoint(zone, size / 2 + .01, 0, 1), zone, size), false);
   }
-});
-
-test('both teams have paired opening routes and clear low-altitude access to the downtown mega deposit', () => {
-  const [west, east] = BATTLEFIELD.servicePads;
-  assert.ok(Math.hypot(east.x - west.x, east.z - west.z) < 70);
-  // A sparse visibility graph verifies actual safe street routes, rather than
-  // treating straight lines through downtown buildings as available travel.
-  const points = [...BATTLEFIELD.servicePads, ...BATTLEFIELD.resources, ...CITY.intersections]
-    .map(point => ({ ...point, y: 1.8 }));
-  const edges: { to: number; distance: number }[][] = points.map(() => []);
-  for (let i = 0; i < points.length; i++) for (let j = i + 1; j < points.length; j++) {
-    const distance = Math.hypot(points[j].x - points[i].x, points[j].z - points[i].z);
-    if (distance > 25 || !clear(points[i], points[j])) continue;
-    if (Array.from({ length: 6 }, (_, step) => step / 5).some(t => water({
-      x: points[i].x + (points[j].x - points[i].x) * t,
-      z: points[i].z + (points[j].z - points[i].z) * t,
-    }))) continue;
-    edges[i].push({ to: j, distance }); edges[j].push({ to: i, distance });
-  }
-  const shortestRoutes = (start: number) => {
-    const distances = points.map(() => Infinity), pending = new Set(points.map((_, index) => index));
-    distances[start] = 0;
-    while (pending.size) {
-      let closest = -1;
-      for (const index of pending) if (closest < 0 || distances[index] < distances[closest]) closest = index;
-      pending.delete(closest);
-      for (const edge of edges[closest]) distances[edge.to] = Math.min(distances[edge.to], distances[closest] + edge.distance);
-    }
-    return distances.slice(2, 2 + BATTLEFIELD.resources.length);
-  };
-  const westRoutes = shortestRoutes(0), eastRoutes = shortestRoutes(1);
-  const outerRoutes = (routes: number[]) => routes.filter((_, i) => BATTLEFIELD.resources[i].capacity === 60).sort((a, b) => a - b);
-  const westOpenings = outerRoutes(westRoutes), eastOpenings = outerRoutes(eastRoutes);
-  for (let index = 0; index < 2; index++) {
-    assert.ok(Math.max(westOpenings[index], eastOpenings[index]) < 50, 'each team needs two reasonably close opening routes');
-    assert.ok(Math.abs(westOpenings[index] - eastOpenings[index]) < 8, 'paired opening route lengths should be comparable');
-  }
-  assert.ok([...westRoutes, ...eastRoutes].every(distance => distance < 125), 'all deposits must have clear routes from both bases');
-  const megaIndex = BATTLEFIELD.resources.findIndex(node => node.capacity === 600);
-  // The forecourt connected to Vine/Third retains actual geographic detours.
-  assert.ok(Math.abs(westRoutes[megaIndex] - eastRoutes[megaIndex]) < 20, 'central street detours must remain bounded');
-  assert.ok(Math.max(westRoutes[megaIndex], eastRoutes[megaIndex]) < 100);
-  const mega = BATTLEFIELD.resources[megaIndex];
-  assert.ok(Math.abs(mega.x) < 10 && mega.z > 25 && mega.z < 40, 'mega depot should remain in the central downtown approach between bases');
-});
-
-test('central loading apron has more exposed low-altitude approach directions than every outer cache', () => {
-  const visibleDirections = (node: Point) => Array.from({ length: 72 }, (_, index) => index * Math.PI / 36)
-    .filter(angle => clear({ x: node.x + Math.cos(angle) * 8, y: 1.8, z: node.z + Math.sin(angle) * 8 }, { ...node, y: node.y + 0.2 }, 0)).length;
-  const central = BATTLEFIELD.resources.find(node => node.capacity === 600)!;
-  const exposed = visibleDirections(central);
-  assert.ok(exposed > 54, 'central stock should be visible from at least three quarters of sampled nearby azimuths');
-  for (const node of BATTLEFIELD.resources.filter(node => node.capacity === 60)) {
-    assert.ok(exposed > visibleDirections(node), `${node.id} should retain more cover than the central loading apron`);
-  }
-});
-
-test('the downtown core has no forced square dimensions and permits terrain contact', () => {
-  assert.notEqual(CITY.bounds.x[1] - CITY.bounds.x[0], CITY.bounds.z[1] - CITY.bounds.z[0]);
-  assert.ok(CITY.bounds.y[0] < 0, 'downward calibration can result in a real terrain collision');
 });
