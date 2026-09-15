@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest, type Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { FleetRole } from './runtime-tools.ts';
 import type { ToolResult } from '../shared/types.ts';
+import type { CockpitToolEvidence } from '../shared/cockpit.ts';
 
 type Connection = { role: FleetRole; server: Server; transport: StreamableHTTPServerTransport; catalog: string };
 const errorResult = (message: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: JSON.stringify({ error: message }) }] });
@@ -23,6 +24,7 @@ export class FleetMcpServer {
     policy: (event: unknown) => unknown;
     onEvent: (event: unknown) => void;
     onToolsListed?: (role: FleetRole, tools: Tool[]) => void;
+    onToolEvidence?: (event: CockpitToolEvidence) => void;
   }) {}
 
   async start() {
@@ -55,21 +57,24 @@ export class FleetMcpServer {
             return { tools };
           });
           server.setRequestHandler(CallToolRequestSchema, async request => {
-            if (!this.options.active()) return errorResult('The simulation has stopped.');
-            const catalog = this.options.tools(role);
-            if (!catalog.some(tool => tool.name === request.params.name)) {
-              // Rejected guessed capabilities still provide the actor's own fresh decision bundle.
-              if (catalog.some(tool => tool.name === 'observe')) {
-                const observation = await this.options.call(role, 'observe', {});
-                return { ...observation, isError: true, content: [...errorResult('This tool is unavailable for this actor.').content, ...observation.content] };
-              }
-              return errorResult('This tool is unavailable for this actor.');
-            }
+            const name = request.params.name, args = request.params.arguments ?? {};
+            this.evidence({ type: 'call', role, name, arguments: args });
+            let result: ToolResult;
             try {
-              const result = await this.options.call(role, request.params.name, request.params.arguments ?? {});
-              await this.refreshTools();
-              return result;
-            } catch (error) { return errorResult(error instanceof Error ? error.message : String(error)); }
+              const catalog = this.options.tools(role);
+              if (!this.options.active()) result = errorResult('The simulation has stopped.');
+              else if (!catalog.some(tool => tool.name === name)) {
+                // Rejected guesses still deliver the actor's fresh decision bundle.
+                const observation = catalog.some(tool => tool.name === 'observe') ? await this.options.call(role, 'observe', {}) : { content: [] };
+                result = { ...observation, isError: true, content: [...errorResult('This tool is unavailable for this actor.').content, ...observation.content] };
+              } else {
+                result = await this.options.call(role, name, args);
+                await this.refreshTools();
+              }
+            } catch (error) { result = errorResult(error instanceof Error ? error.message : String(error)); }
+            // Capture the final MCP result, including error wrappers and controller refreshes.
+            this.evidence({ type: 'delivery', role, name, result });
+            return result;
           });
           await server.connect(transport);
         }
@@ -85,6 +90,11 @@ export class FleetMcpServer {
     const address = this.http.address();
     if (!address || typeof address === 'string') throw new Error('Cannot bind local MCP server.');
     return { port: address.port, tokens, policyToken };
+  }
+
+  private evidence(event: CockpitToolEvidence) {
+    try { this.options.onToolEvidence?.(event); }
+    catch { this.options.onEvent({ type: 'player-evidence-error', role: event.role }); }
   }
 
   async refreshTools() {

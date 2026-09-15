@@ -35,7 +35,7 @@ export function mountAdmin() {
         <div class="admin-timeline" id="admin-timeline" aria-label="Recorded session events"></div>
         <div class="admin-console-footer"><button id="admin-older" class="admin-button" type="button" disabled>↑ Load earlier events</button><span id="admin-window">Up to 600 events in this view</span><button id="admin-export-view" class="admin-text-button" type="button">Export visible JSONL</button></div>
       </section>
-      <footer class="admin-footnote"><span><b>What is captured</b> Zenoh application envelopes and acknowledgements; sampled, CRC-validated MAVLink packet hex and decoded fields; tool calls, results and runtime-provided reasoning summaries. New sessions also record bounded match replays and acquired camera images.</span><span><b>What is unavailable</b> Hidden model reasoning is not exposed. Older sessions may lack replay, summaries or packet bytes. Credentials and inline audit images are omitted. Peer payloads are not a TCP packet capture. Recording and sampling limits appear beside the evidence.</span></footer>
+      <footer class="admin-footnote"><span><b>What is captured</b> Zenoh application envelopes and acknowledgements; sampled, CRC-validated MAVLink packet hex and decoded fields; tool calls, results, readable native reasoning and reasoning summaries emitted by the runtime. New sessions also record bounded match replays and acquired camera images.</span><span><b>Availability & limits</b> Reasoning availability varies; encrypted content is unreadable. Older sessions may lack readable reasoning, replay or packet bytes. Credentials and inline audit images are omitted. Peer payloads are not a TCP packet capture. Recording and sampling limits appear beside the evidence.</span></footer>
     </div>`;
   document.body.append(panel);
   const el = <T extends HTMLElement = HTMLElement>(id: string) => panel.querySelector<T>(`#${id}`)!;
@@ -43,7 +43,7 @@ export function mountAdmin() {
   const timeline = el('admin-timeline'), follow = el<HTMLButtonElement>('admin-follow');
   let visible = false, live = true, busy = false, generation = 0, category = 'all', events: Event[] = [], next = 0, before = 0, hasOlder = false;
   let sessions: Session[] = [], activeSession: string | null = null, sessionRefresh = 0, timer: ReturnType<typeof setTimeout> | undefined, debounce: ReturnType<typeof setTimeout> | undefined;
-  let restoreFocus: HTMLElement | null = null, previousOverflow = '', previousHash = '';
+  let restoreFocus: HTMLElement | null = null, previousOverflow = '';
   const opened = new Set<number>();
   const replay = new ReplayViewer(el('admin-replay-host'));
   let requests = new AbortController();
@@ -62,6 +62,7 @@ export function mountAdmin() {
   function preview(event: Event) {
     const value = event.value as Record<string, unknown> | null;
     if (!value || typeof value !== 'object') return String(value ?? '');
+    if (typeof value.text === 'string' && value.text) return value.text;
     if (Array.isArray(value.summary)) return value.summary.join(' ') || String(value.availability ?? 'No summary recorded.');
     if (value.type === 'recorded-reasoning-summary') return String(value.availability ?? 'No summary recorded.');
     for (const key of ['text', 'message', 'reason', 'error', 'availability']) if (typeof value[key] === 'string') return value[key] as string;
@@ -191,7 +192,7 @@ export function mountAdmin() {
   function filters() {
     requests.abort(); requests = new AbortController();
     generation++; events = []; next = 0; before = 0; hasOlder = false;
-    const notes: Record<string, string> = { network: 'Zenoh application payloads, durable receipts, link changes and retries. Open payload records for topics and envelopes. This is not a TCP packet capture.', mavlink: 'Actual received MAVLink 2 datagrams with CRC validation, hexadecimal bytes and decoded fields. Telemetry and burst logging are sampled; records state their limits.', agents: 'Recorded agent messages, runtime events and runtime-provided reasoning summaries. Hidden reasoning is unavailable; older sessions may have no summaries.' };
+    const notes: Record<string, string> = { network: 'Zenoh application payloads, durable receipts, link changes and retries. Open payload records for topics and envelopes. This is not a TCP packet capture.', mavlink: 'Actual received MAVLink 2 datagrams with CRC validation, hexadecimal bytes and decoded fields. Telemetry and burst logging are sampled; records state their limits.', agents: 'Recorded agent messages, runtime events, readable native reasoning and reasoning summaries emitted by the runtime. Availability varies; encrypted content is unreadable. Older sessions may lack reasoning records.' };
     el('admin-evidence-note').textContent = notes[category] ?? 'Events are recorded evidence. Expand a row for the redacted source JSON. Opening a row pauses the feed.';
     renderEvents(); void latestWhenReady();
   }
@@ -212,7 +213,7 @@ export function mountAdmin() {
     catch (failure) { error(failure instanceof Error ? failure.message : 'Export failed.'); }
     finally { button.disabled = false; button.textContent = '↓ Export log'; }
   });
-  function close() { location.hash = previousHash; }
+  function close() { location.hash = ''; }
   el('admin-back').addEventListener('click', event => { event.preventDefault(); close(); });
   panel.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
@@ -230,11 +231,12 @@ export function mountAdmin() {
     const app = document.querySelector<HTMLElement>('#app'); if (app) app.inert = open;
     clearTimeout(timer);
     if (open) {
-      restoreFocus = document.activeElement as HTMLElement; previousOverflow = document.body.style.overflow;
+      restoreFocus = document.activeElement as HTMLElement;
+      previousOverflow = document.querySelector<HTMLElement>('.cockpit-page:not([hidden])')?.dataset.backgroundOverflow ?? document.body.style.overflow;
       document.body.style.overflow = 'hidden'; el('admin-back').focus(); sessionRefresh = 0;
       void refresh('latest').then(() => { if (visible) timer = setTimeout(() => void poll(), 1500); });
-    } else { document.body.style.overflow = previousOverflow; restoreFocus?.focus(); previousHash = location.hash; }
+    } else { document.body.style.overflow = previousOverflow; restoreFocus?.focus(); }
   }
-  window.addEventListener('hashchange', route); if (location.hash !== '#admin') previousHash = location.hash; route();
+  window.addEventListener('hashchange', route); route();
   return { open: () => { location.hash = 'admin'; }, close };
 }

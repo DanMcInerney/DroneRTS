@@ -9,10 +9,12 @@ import { MATCH_DRONE_IDS } from '../shared/fleet';
 import { FleetPanels } from './fleet-panels';
 import { layout } from './layout';
 import { MatchPanel } from './match-panel';
+import { mountCockpit } from './cockpit';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = layout;
 mountAdmin();
+const cockpit = mountCockpit(MATCH_DRONE_IDS);
 
 function element<T extends HTMLElement = HTMLElement>(id: string): T { return document.getElementById(id) as T; }
 const startButton = element<HTMLButtonElement>('start');
@@ -52,6 +54,7 @@ function setConnection(value: boolean) { connected = value; element('connection-
 
 function renderState(next: WorldState) {
   state = next;
+  cockpit.setDrones(next.drones.map(drone => drone.id));
   const views = panels.reconcile(next.drones.map(drone => drone.id));
   if (views) scene?.setViews(views);
   scene?.update(next);
@@ -120,4 +123,4 @@ function connect() {
 }
 connect();
 fetch('/api/state').then(response => { if (!response.ok) throw new Error('Simulator state unavailable.'); return response.json(); }).then(renderState).catch(() => {});
-window.addEventListener('pagehide', () => { if (reconnectTimeout) clearTimeout(reconnectTimeout); scene?.dispose(); socket?.close(); });
+window.addEventListener('pagehide', () => { if (reconnectTimeout) clearTimeout(reconnectTimeout); cockpit.dispose(); scene?.dispose(); socket?.close(); });

@@ -36,15 +36,15 @@ test('six starting positions are distinct, dry and safely clear of terrain', () 
   }
 });
 
-test('each initial camera directly sees its nearby starter salvage and can safely approach it', () => {
+test('each initial camera faces its halfway cargo along a clear approach', () => {
   Object.values(BATTLEFIELD.spawns).forEach((spawn, index) => {
-    const node = BATTLEFIELD.resources[Math.floor(index / 3)];
+    const node = BATTLEFIELD.resources[index < 3 ? 0 : 2];
     const dx = node.x - spawn.x, dy = node.y + 0.65 - spawn.y, dz = node.z - spawn.z;
     const distance = Math.hypot(dx, dy, dz);
     const yaw = spawn.yaw * Math.PI / 180, pitch = spawn.pitch * Math.PI / 180;
     const forward = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
     assert.ok((dx * forward.x + dy * forward.y + dz * forward.z) / distance > 0.9999);
-    assert.ok(distance < RTS_CONFIG.miningRange, 'initial interaction can teach mining without a blind flight');
+    assert.ok(distance > RTS_CONFIG.miningRange, 'halfway cargo requires travel from the base');
     assert.ok(clear(spawn, node, 0), `initial view ${index + 1} is occluded`);
     const approach = { x: node.x - dx / distance * 1.8, y: spawn.y, z: node.z - dz / distance * 1.8 };
     assert.ok(clear(spawn, approach), `initial mining approach ${index + 1} is blocked`);
@@ -53,14 +53,15 @@ test('each initial camera directly sees its nearby starter salvage and can safel
 });
 
 test('finite deposits sit on dry, reachable intersections with multiple mining positions', () => {
+  assert.equal(BATTLEFIELD.resources.length, 3);
   assert.equal(new Set(BATTLEFIELD.resources.map(node => node.id)).size, BATTLEFIELD.resources.length);
-  assert.equal(BATTLEFIELD.resources[0].capacity, BATTLEFIELD.resources[1].capacity);
-  assert.ok(BATTLEFIELD.resources.slice(2).every(node => node.capacity > BATTLEFIELD.resources[0].capacity));
+  assert.equal(BATTLEFIELD.resources[0].capacity, BATTLEFIELD.resources[2].capacity);
+  assert.ok(BATTLEFIELD.resources[1].capacity >= BATTLEFIELD.resources[0].capacity * 3);
   for (const node of BATTLEFIELD.resources) {
     assert.ok(Number.isSafeInteger(node.capacity) && node.capacity > 0);
     assert.equal(node.remaining, node.capacity);
     assert.equal(water(node), false, node.id);
-    assert.ok(clear(node, node, 0.6), `${node.id} is inside a building`);
+    assert.ok(clear(node, node, node.id === 'salvage-center' ? 2.4 : 1.6), `${node.id} cargo footprint intersects a building`);
     const positions = Array.from({ length: 12 }, (_, index) => ({
       x: node.x + Math.cos(index * Math.PI / 6) * 1.6,
       y: 1.8,
@@ -70,15 +71,22 @@ test('finite deposits sit on dry, reachable intersections with multiple mining p
   }
 });
 
-test('the compact match has balanced access while the wider city has no forced square dimensions', () => {
-  const [west, east] = BATTLEFIELD.resources;
-  assert.ok(Math.hypot(east.x - west.x, east.z - west.z) < 110);
-  for (const node of BATTLEFIELD.resources.slice(2)) {
-    const westDistance = Math.hypot(node.x - west.x, node.z - west.z);
-    const eastDistance = Math.hypot(node.x - east.x, node.z - east.z);
-    assert.ok(Math.abs(westDistance - eastDistance) < 15, `${node.id} access is imbalanced`);
-    assert.ok(Math.max(westDistance, eastDistance) < 95, `${node.id} is too far from the match`);
+test('cargo lies at the battlefield center and exactly halfway from each base', () => {
+  const [west, center, east] = BATTLEFIELD.resources;
+  assert.deepEqual({ x: center.x, z: center.z }, BATTLEFIELD.center);
+  for (const [index, node] of [west, east].entries()) {
+    const base = BATTLEFIELD.bases[index];
+    assert.equal(node.x, (base.x + center.x) / 2);
+    assert.equal(node.z, (base.z + center.z) / 2);
   }
+  const distances = BATTLEFIELD.bases.map(base => Math.hypot(base.x - center.x, base.z - center.z));
+  assert.ok(Math.abs(distances[0] - distances[1]) < 1, 'central cargo is comparably accessible from both bases');
+  for (const axis of ['x', 'z'] as const) {
+    assert.ok(Math.abs((BATTLEFIELD.focus[axis][0] + BATTLEFIELD.focus[axis][1]) / 2 - center[axis]) < 1e-9);
+  }
+});
+
+test('the wider city has no forced square dimensions or artificial altitude floor', () => {
   assert.notEqual(CITY.bounds.x[1] - CITY.bounds.x[0], CITY.bounds.z[1] - CITY.bounds.z[0]);
   assert.ok(CITY.bounds.y[0] < 0, 'downward calibration can result in a real terrain collision');
 });

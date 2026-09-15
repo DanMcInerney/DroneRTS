@@ -1,5 +1,25 @@
 # RTS verification — September 14, 2026
 
+## Readable reasoning capture — September 14, 2026, evening
+
+The working tree now captures native readable reasoning and summaries separately, requests automatic summaries, and shows streaming/completed/unavailable states. `npm test` passed **170/170** tests, including multipart ordering, completion replacement, empty/opaque responses, interruption flushing, capture bounds and per-thread isolation. `npm run build` passed with the existing Vite bundle-size advisory. The real Codex 0.144.0 preflight accepted `model_reasoning_summary="auto"`, `show_raw_agent_reasoning=true`, and `hide_agent_reasoning=false`; Luna/xhigh remained selected and the MCP call succeeded. This preflight started **no inference**.
+
+The sidebar browser verified the ephemeral no-inference fixture's native reasoning and summary labels, cumulative streaming, completion without duplicate text, explicit unavailable state, and pause/resume. Desktop and 390-pixel mobile layouts had no horizontal overflow. Screenshots are local in `artifacts/reasoning-ui/desktop.png` and `mobile.png`. The fixture was stopped and the idle production service on port 4317 was refreshed; port 4318 was untouched. Live Luna emission remains unverified: these checks prove config acceptance and protocol/UI handling, not that Luna returns raw text or a full internal reasoning trace.
+
+The earlier cargo/cockpit report below describes its own preceding working-tree revision.
+
+## Cargo and cockpit update — September 14, 2026, evening
+
+Validated the working tree based on `d4a11e5` after the compact prompt, three-cargo layout and drone cockpit changes. `npm test` passed **161/161** tests, including real Zenoh/MAVLink helpers and the new cockpit MCP, redaction, image, cursor and frontend feed tests. `npm run build` passed; Vite retains its large-bundle advisory.
+
+The Codex sidebar browser exercised `scripts/cockpit-fixture.ts` on an ephemeral loopback port with **no model inference**. It verified actual 512×288 camera responses while the cockpit remained open; all seven cards; emitted fixture text and explicitly synthetic reasoning summaries; pause/resume; drone switching; empty/reset evidence; camera failure retaining a clearly marked previous frame; viewport-card clicks; keyboard link activation and Escape; and cockpit → Admin → flight deck navigation with scrolling restored. Desktop and 390-pixel mobile views had no horizontal overflow. Each of the three cargo props was inspected in an actual camera image; SALVAGE labels are readable at the fixture's seven-unit approach, with a visibly larger central crate. This is visual/interface evidence, not a claim that an autonomous model recognized cargo or won a match.
+
+Local evidence is in `artifacts/cockpit-ui/`: `desktop.png`, `mobile.png`, `central-cargo.jpg`, `cargo-0.jpg`, `cargo-2.jpg`, and `source-manifest.json` (SHA-256 `e7254cef77133d9deed4197cc7f7ce0037ea1eddf11bbcf7a0874f42202ccf30`). The isolated fixture was stopped; the existing service on port 4318 was preserved. The updated production app was started idle on the previously unused port 4317. No gameplay actors were launched.
+
+The historical report below applies to its original tested revision and opening layout.
+
+## Historical RTS verification
+
 This report covers the working implementation on `codex/cincinnati-rts`, based on merged PR #3 (`7e664d6`, God view and Admin). Testing used Windows, the installed Codex CLI 0.144.0, real local Zenoh/MAVLink helpers and the Codex sidebar browser. All inference actors used **gpt-5.6-luna / xhigh**. The original idle service on port 4317 was preserved during development; live trials used port 4318.
 
 The exact 86-file source manifest is saved locally in `artifacts/rts-source-manifest.json` (SHA-256 `ada03f9e189945bc69848ec1ae05c93e96d18ffbd456abb9ba1851a9d63fb8ad`). It covers code, styles, HTML, configuration and data used for the final checks, excluding prose reports and local session artifacts.

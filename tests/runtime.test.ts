@@ -10,15 +10,18 @@ function fixture(roster?: FleetRoster) {
   return { runtime, internal: runtime as any, events };
 }
 
-test('runtime records only provided reasoning summaries, never hidden reasoning contents', () => {
+test('runtime routes readable native reasoning and summaries, omitting encrypted payloads', () => {
   const { internal, events } = fixture();
   internal.roles.set('thread-drone', 'drone-1');
-  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'summary-item', summary: ['Visible runtime summary'], content: ['hidden model reasoning'], encryptedContent: 'ciphertext' } } });
-  assert.equal(events.at(-1).type, 'recorded-reasoning-summary');
-  assert.deepEqual(events.at(-1).summary, ['Visible runtime summary']);
-  assert.ok(!JSON.stringify(events).includes('hidden model reasoning')); assert.ok(!JSON.stringify(events).includes('ciphertext'));
-  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', summary: [] } } });
-  assert.match(events.at(-1).availability, /No reasoning summary/);
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'summary-item', summary: ['Visible runtime summary'], content: ['Readable native reasoning'], encryptedContent: 'ciphertext' } } });
+  assert.equal(events.find(event => event.type === 'recorded-reasoning').text, 'Readable native reasoning');
+  assert.equal(events.find(event => event.type === 'recorded-reasoning-summary').text, 'Visible runtime summary');
+  assert.ok(events.every(event => event.role === 'drone-1'));
+  assert.equal(events.at(-1).availability, 'both');
+  assert.ok(!JSON.stringify(events).includes('ciphertext'));
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'empty', summary: [] } } });
+  assert.equal(events.at(-1).availability, 'unavailable');
+  assert.match(events.at(-1).text, /No readable reasoning/);
 });
 
 test('runtime prompts, permissions and readiness use the configured roster without leaking wire metadata', () => {
@@ -132,6 +135,7 @@ test('an early child completion resumes the same actor with fixed model and no n
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(requests.length, 1); assert.equal(requests[0].method, 'turn/start');
   assert.equal(requests[0].params.threadId, 'child'); assert.equal(requests[0].params.model, MODEL); assert.equal(requests[0].params.effort, EFFORT);
+  assert.equal(requests[0].params.summary, 'auto');
   assert.doesNotMatch(requests[0].params.input[0].text, /Cincinnati|resource|enemy|sector/);
   assert.equal(events.some(event => event.status === 'error'), false);
 });

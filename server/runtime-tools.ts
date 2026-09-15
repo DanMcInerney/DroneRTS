@@ -2,9 +2,9 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { DEFAULT_FLEET, DRONE_IDS, droneAgentType, type FleetRoster } from '../shared/fleet.ts';
 import type { Role } from '../shared/types.ts';
 import { RTS_CONFIG } from '../shared/rts.ts';
+import { ACTOR_MODEL as MODEL, ACTOR_EFFORT as EFFORT, DRONE_HOST_LIBRARIES } from '../shared/actor-environment.ts';
 
-export const MODEL = 'gpt-5.6-luna';
-export const EFFORT = 'xhigh';
+export { MODEL, EFFORT };
 export const RTS_MISSION = 'Eliminate the enemy team. Your team wins if at least one of you survives and every enemy drone is destroyed. Resources exist somewhere in this world; find and gather them. Coordinate with your teammates and learn from your own observations. Touching terrain, buildings or other drones can destroy you.';
 export type FleetRole = Role;
 export const DRONES = DRONE_IDS;
@@ -30,13 +30,12 @@ export function createDroneTools(roster: FleetRoster = DEFAULT_FLEET, capabiliti
 export const droneTools = createDroneTools();
 
 export function droneInstructions(role: FleetRole, roster: FleetRoster = DEFAULT_FLEET, team?: 'blue' | 'red') {
-  return `You are ${role}, an autonomous drone. Your teammates are ${roster.map(member => member.id).join(', ')}.${team ? ` You belong to the ${team} team. Blue/cyan and red are opposing teams.` : ''} Your team must eliminate the enemy team. Resources exist somewhere; you can gather them. Contact with terrain, buildings or other drones is fatal while unequipped. You begin with no learned world knowledge.
-Use only your currently available fleet MCP tools. No filesystem, shell, web, native agent messages or spawning. Your only observations are your own camera image, local XYZ position, heading in degrees, acquisition timestamp, your discovered equipment/account state, and received team messages. Positions are local sensor readings, not latitude/longitude; there is no tilt sensor.
-Tool descriptions explain available interactions. Try interactions, observe their results and learn. No map, axis directions, movement scale, speed, resource appearance/locations or camera calibration is supplied. Do not treat general knowledge or guesses as observations. Compare successive images and readings; share useful measurements and uncertainty over radio. You and your teammates choose your own coordination and roles.
-Treat a teammate's reported position as occupied. Use your own observations to choose a separate vantage point when checking the same area, and coordinate your route over radio.
-Call wait for your initial mission. Use one tool at a time and read the fresh sensors and unread events in every result before deciding. Movement and mining are asynchronous and continue between calls. Use wait while moving or idle. Incoming mail is queued until your next tool result; private reasoning cannot be interrupted. If the camera is unavailable, wait for a fresh image instead of inventing observations.
-Commands requiring a mission must use the version you actually received. A newly delivered mission cancels your old movement and mining. Respect rejection feedback and expired messages. Use send for actual teammate communication; no hidden planner assigns work. Keep messages concise. Continue using your tools until stopped or destroyed, then finish.
-Exception: if a controller tool result says tool_catalog_changed, read its complete sensor/event bundle and finish this turn immediately with a brief acknowledgement and no further tools. Your same drone session will resume automatically with refreshed callable tools and the same mission/history. This controller interface refresh is the only permitted temporary yield during an active match.`;
+  return `${role}, autonomous drone.${team ? ` ${team} team; blue/cyan opposes red.` : ''} Team roster: ${roster.map(member => member.id).join(', ')}.
+Objective: gather resources, coordinate, eliminate every enemy while one of us survives. Collisions can be fatal.
+Inputs: own camera, local XYZ (not latitude/longitude), heading degrees, acquisition timestamp, received mail, unlocked equipment/balance. No roll/pitch sensor. World/controls start uncalibrated: experiment, compare observations, distinguish guesses, share measurements/uncertainty. Keep clear of reported teammate positions.
+Compute: ${MODEL}/${EFFORT}; current fleet MCP tools only, one call at a time. Host libraries: ${DRONE_HOST_LIBRARIES.map(library => `${library.name} for ${library.purpose}`).join(', ')}. No direct library access, code execution, shell, filesystem, web, spawning or native agent messages.
+Loop: wait for initial mission; read every result's fresh sensors/events before deciding. Movement/mining continue during reasoning; mail waits for tool results. Use wait while moving/idle or camera unavailable. Use send to coordinate roles/intentions. Keep reasoning/radio concise. Use only the received mission version; newly delivered missions cancel old movement/mining. Respect rejections/message expiry. Continue until stopped/destroyed.
+On tool_catalog_changed, read the complete result, then finish this turn immediately with a brief acknowledgement and no further tools; the same actor resumes with refreshed tools and preserved mission/history.`;
 }
 
 export const BOOTSTRAP_MESSAGE = 'Begin your drone event loop. Wait for the player mission, then coordinate with your peers using only your fleet tools.';

@@ -6,6 +6,7 @@ import { MavlinkAdapter } from './mavlink.ts';
 import type { FleetGame } from './game.ts';
 import { MATCH_FLEET, teamForDrone, teamRoster, type DroneId, type TeamId } from '../shared/fleet.ts';
 import type { NetworkState, RadioMessage, RuntimeState } from '../shared/types.ts';
+import type { CockpitToolEvidence } from '../shared/cockpit.ts';
 
 const TEAMS: TeamId[] = ['blue', 'red'];
 type RuntimeActor = Pick<CodexFleetRuntime, 'start' | 'stop' | 'retireDrone' | 'refreshTools'>;
@@ -38,7 +39,7 @@ export class TeamSession {
     consume: (id: DroneId, ids: string[]) => this.networkFor(teamForDrone(id)).consume(id, ids),
   };
 
-  constructor(private options: { projectDir: string; game: FleetGame; onStatus: (status: RuntimeState) => void; onNetwork: (state: NetworkState) => void; onEvent: (type: string, event: unknown) => void; onFailure: (message: string) => void }, dependencies: Dependencies = {}) {
+  constructor(private options: { projectDir: string; game: FleetGame; onStatus: (status: RuntimeState) => void; onNetwork: (state: NetworkState) => void; onEvent: (type: string, event: unknown) => void; onToolEvidence?: (event: CockpitToolEvidence) => void; onFailure: (message: string) => void }, dependencies: Dependencies = {}) {
     for (const team of TEAMS) {
       this.runtimeStates.set(team, { status: 'starting', message: `${team} team connecting`, model: MODEL, effort: EFFORT, children: [], usage: 0 });
       const network = (dependencies.network ?? (config => new FleetNetwork(config)))({ projectDir: options.projectDir, sessionId: options.game.sessionIdentity,
@@ -62,6 +63,7 @@ export class TeamSession {
           if (status.status === 'error') this.fail(`${team} runtime: ${String(status.message)}`);
         },
         onEvent: event => options.onEvent('agent', { team, ...event }),
+        onToolEvidence: event => options.onToolEvidence?.(event),
       });
       this.runtimes.set(team, runtime);
     }

@@ -7,7 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FleetGame } from './game.ts';
 import { TeamSession } from './team-session.ts';
-import { MODEL, EFFORT } from './runtime-tools.ts';
+import { MODEL, EFFORT, createDroneTools } from './runtime-tools.ts';
+import { CockpitStore, cockpitRouter } from './cockpit.ts';
 import { diagnosticsRouter, redactDiagnostic } from './diagnostics.ts';
 import type { DroneId, Pose } from '../shared/types.ts';
 import { MATCH_FLEET, MATCH_DRONE_IDS } from '../shared/fleet.ts';
@@ -25,6 +26,7 @@ const app = express();
 const server = createServer(app);
 const sockets = new WebSocketServer({ noServer: true, maxPayload: 3_000_000 });
 const game = new FleetGame();
+const cockpit = new CockpitStore();
 let runtime: TeamSession | undefined;
 let starting = false, stopping = false;
 let stopPromise: Promise<void> | undefined;
@@ -81,12 +83,14 @@ app.use('/api', (req, res, next) => {
 });
 app.use(express.json({ limit: '16kb' }));
 app.get('/api/state', (_req, res) => res.json(game.state));
+app.use('/api/cockpit', cockpitRouter({ store: cockpit, state: () => game.state,
+  tools: id => createDroneTools(undefined, game.toolCapabilities(id)).map(tool => tool.name) }));
 app.use('/api/diagnostics', diagnosticsRouter({ directory: resolve(projectDir, 'artifacts'), roster: MATCH_FLEET, state: () => game.state, activeSession: () => activeSessionLog }));
 app.use('/api/diagnostics', replayRouter({ directory: resolve(projectDir, 'artifacts') }));
 app.post('/api/start', async (_req, res) => {
   if (runtime || starting || stopping || game.state.running) { res.status(409).json({ error: 'Fleet is already running or changing state' }); return; }
   try {
-    game.start(); starting = true;
+    game.start(); cockpit.reset(game.sessionIdentity); starting = true;
     mkdirSync(resolve(projectDir, 'artifacts'), { recursive: true });
     activeSessionLog = `session-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
     sessionLog = createWriteStream(resolve(projectDir, 'artifacts', activeSessionLog));
@@ -112,10 +116,18 @@ app.post('/api/start', async (_req, res) => {
     for (const event of game.state.match?.events ?? []) replay?.recordEvent(event);
     delete game.state.runtime.threadId; game.state.runtime.children = []; game.state.runtime.usage = 0;
     setRuntime({ status: 'starting', message: `Verifying Luna / xhigh and creating ${MATCH_DRONE_IDS.length} native drone agents`, model: MODEL, effort: EFFORT });
+    const evidenceSession = game.sessionIdentity;
     const activeRuntime = new TeamSession({ projectDir, game,
       onStatus: status => { if (runtime === activeRuntime) setRuntime(status); },
       onNetwork: state => { if (runtime === activeRuntime) { game.state.network = state; broadcast(); } },
-      onEvent: audit,
+      onEvent: (type, event) => {
+        if (type === 'agent') cockpit.recordRuntime(evidenceSession, event);
+        // Streaming text is kept in the bounded cockpit; completed items own the audit record.
+        if (type === 'agent' && (event as { streaming?: boolean })?.streaming) return;
+        if (type === 'agent' && ['actor-message-delta', 'reasoning-summary-delta', 'reasoning-text-delta'].includes(String((event as { type?: unknown })?.type))) return;
+        audit(type, event);
+      },
+      onToolEvidence: event => cockpit.recordTool(evidenceSession, event),
       onFailure: message => {
         if (runtime !== activeRuntime || stopping) return;
         void stopFleet(message).then(() => { if (!runtime) setRuntime({ status: 'error', message }); });
@@ -134,7 +146,7 @@ app.post('/api/start', async (_req, res) => {
 });
 app.post('/api/stop', async (_req, res) => { await stopFleet(); res.json({ stopped: true }); });
 app.post('/api/reset', (_req, res) => {
-  try { if (starting || stopping) throw new Error('Wait for the current start/stop to finish'); game.reset(); res.json(game.state); }
+  try { if (starting || stopping) throw new Error('Wait for the current start/stop to finish'); game.reset(); cockpit.reset(null); res.json(game.state); }
   catch (error) { res.status(409).json({ error: String(error) }); }
 });
 app.post('/api/mission', (req, res) => {
