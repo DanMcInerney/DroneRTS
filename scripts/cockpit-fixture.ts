@@ -4,7 +4,6 @@
  */
 import express from 'express';
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createServer as createViteServer } from 'vite';
@@ -15,22 +14,29 @@ import { FleetMcpServer } from '../server/runtime-mcp.ts';
 import { createDroneTools } from '../server/runtime-tools.ts';
 import { CockpitStore, cockpitRouter } from '../server/cockpit.ts';
 import { RuntimeReasoning } from '../server/runtime-reasoning.ts';
+import { CameraChannel } from '../server/camera-channel.ts';
+import { rendererIdentity } from '../server/renderer-identity.ts';
+import { compactObservation } from '../server/observation-format.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 import { MATCH_DRONE_IDS, teamRoster } from '../shared/fleet.ts';
 import type { DroneId, ToolResult } from '../shared/types.ts';
 
 const game = new FleetGame(), store = new CockpitStore();
+const run = createArtifactRun('cockpit-ui');
 const reasoning = new RuntimeReasoning(event => store.recordRuntime(game.sessionIdentity, { ...event, role: event.threadId }));
 const app = express(), server = createServer(app);
 const sockets = new WebSocketServer({ noServer: true });
 const clients = new Map<DroneId, Client>();
-const captures = new Map<string, { resolve: (image: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+const cameras = new CameraChannel(rendererIdentity(resolve('.')), ready => game.setConnected(ready));
 let cameraUnavailable = false, shuttingDown = false;
-game.setConnected(true); game.start(); store.reset(game.sessionIdentity);
+// Seed this no-inference fixture before its browser connects; actual captures
+// still require a matching renderer handshake through CameraChannel.
+game.setConnected(true); game.start(); game.setConnected(false); store.reset(game.sessionIdentity);
 game.state.runtime.message = 'Deterministic cockpit fixture — no model inference';
-const toolsFor = (id: DroneId) => createDroneTools(teamRoster(id === 'drone-1' ? 'blue' : 'red'), game.toolCapabilities(id));
+const toolsFor = (id: DroneId) => createDroneTools(teamRoster(id === 'drone-1' ? 'blue' : 'red'), game.toolCapabilities(id), id === 'drone-1' ? 'blue' : 'red');
 const mcp = new FleetMcpServer({ roles: ['drone-1', 'drone-4'], active: () => !shuttingDown,
   tools: role => role === 'parent' ? [] : toolsFor(role),
-  call: (role, name, args) => game.tool(role, name, args), policy: () => ({}), onEvent: () => {},
+  call: async (role, name, args) => compactObservation(await game.tool(role, name, args)), policy: () => ({}), onEvent: () => {},
   onToolEvidence: evidence => store.recordTool(game.sessionIdentity, evidence),
 });
 const endpoint = await mcp.start();
@@ -46,30 +52,17 @@ server.on('upgrade', (request, socket, head) => {
   if (request.url === '/ws') sockets.handleUpgrade(request, socket, head, ws => sockets.emit('connection', ws));
 });
 sockets.on('connection', socket => {
-  broadcast(); socket.on('message', bytes => {
-    const packet = JSON.parse(String(bytes));
-    const capture = captures.get(packet.requestId);
-    if (packet.type === 'capture-result' && capture) {
-      captures.delete(packet.requestId); clearTimeout(capture.timer);
-      if (typeof packet.image === 'string') capture.resolve(packet.image);
-      else capture.reject(new Error('Fixture capture unavailable'));
-    }
-  });
+  cameras.attach(socket); broadcast();
+  socket.on('message', bytes => { try { cameras.receive(socket, JSON.parse(String(bytes))); } catch { /* Invalid fixture input. */ } });
+  socket.on('close', () => cameras.detach(socket));
 });
 game.capture = (droneId, pose, simTime, drones, match) => {
   if (cameraUnavailable) return Promise.reject(new Error('Intentional fixture camera failure'));
-  const socket = [...sockets.clients].find(item => item.readyState === WebSocket.OPEN);
-  if (!socket) return Promise.reject(new Error('Open the fixture browser first'));
-  return new Promise((resolveImage, reject) => {
-    const requestId = randomUUID();
-    const timer = setTimeout(() => { captures.delete(requestId); reject(new Error('Fixture camera timeout')); }, 8000);
-    captures.set(requestId, { resolve: resolveImage, reject, timer });
-    socket.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones, match }));
-  });
+  return cameras.capture(droneId, pose, simTime, drones, match);
 };
 app.use(express.json());
 app.get('/api/state', (_req, res) => res.json(game.state));
-app.use('/api/cockpit', cockpitRouter({ store, state: () => game.state, tools: id => toolsFor(id).map(tool => tool.name) }));
+app.use('/api/cockpit', cockpitRouter({ store, state: () => game.state, tools: id => toolsFor(id).map(tool => tool.name), onboard: id => game.existingOnboardWorkspace(id) }));
 app.post('/api/start', (_req, res) => { res.status(409).json({ error: 'Model inference is disabled in this fixture.' }); });
 app.post('/api/stop', (_req, res) => { game.stop(); broadcast(); res.json({ stopped: true }); });
 app.post('/api/fixture', async (req, res) => {
@@ -86,6 +79,9 @@ app.post('/api/fixture', async (req, res) => {
         break;
       case 'camera-off': cameraUnavailable = true; break;
       case 'camera-on': cameraUnavailable = false; break;
+      case 'workspace':
+        await client.callTool({ name: 'workspace', arguments: { mission: game.receivedMission(id), op: 'write', path: 'automation/inspect.js', content: '// Synthetic fixture script; not run.\nconst sample = await drone.telemetry();\nawait drone.files.write("sample.json", JSON.stringify(sample));\n' } });
+        break;
       case 'output':
         store.recordRuntime(game.sessionIdentity, { type: 'actor-message', role: id, itemId: 'fixture-output', text: 'Fixture output: observing the cargo and sharing the result.' });
         reasoning.accept('item/started', { threadId: id, item: { type: 'reasoning', id: 'fixture-reasoning' } });
@@ -98,7 +94,8 @@ app.post('/api/fixture', async (req, res) => {
         reasoning.accept('item/completed', { threadId: id, item: { type: 'reasoning', id: 'fixture-unavailable', content: [], summary: [], encryptedContent: 'synthetic opaque fixture content' } });
         break;
       case 'cargo': {
-        const node = game.state.match!.resources[req.body.index === 1 ? 1 : req.body.index === 2 ? 2 : 0];
+        const resources = game.state.match!.resources;
+        const node = resources[Number.isInteger(req.body.index) && req.body.index >= 0 && req.body.index < resources.length ? req.body.index : 0];
         const drone = game.state.drones.find(drone => drone.id === id)!;
         // Developer-controlled viewpoint to verify real 512×288 resource pixels.
         Object.assign(drone, { x: node.x, y: 3.2, z: node.z + 7, yaw: 0, pitch: -17 });
@@ -123,14 +120,13 @@ app.use(vite.middlewares);
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
 const address = server.address();
 if (!address || typeof address === 'string') throw new Error('Fixture failed to bind');
-console.log(JSON.stringify({ url: `http://127.0.0.1:${address.port}`, inference: false, drones: MATCH_DRONE_IDS, expiresInMinutes: 10 }));
+console.log(JSON.stringify({ url: `http://127.0.0.1:${address.port}`, inference: false, drones: MATCH_DRONE_IDS, expiresInMinutes: 10, artifacts: run.directory }));
 const broadcastTimer = setInterval(broadcast, 500);
 const deadline = setTimeout(() => { void shutdown(); }, 600_000);
 async function shutdown() {
   if (shuttingDown) return; shuttingDown = true;
   clearInterval(broadcastTimer); clearTimeout(deadline); game.stop();
-  for (const capture of captures.values()) { clearTimeout(capture.timer); capture.reject(new Error('Fixture stopped')); }
-  captures.clear();
+  cameras.cancel('Fixture stopped');
   for (const socket of sockets.clients) socket.close();
   await Promise.allSettled([...clients.values()].map(client => client.close()));
   await mcp.stop(); await vite.close();

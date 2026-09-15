@@ -1,42 +1,49 @@
 import type { DroneId, Pose } from './types';
-import type { ResourceNode } from './rts';
+import type { ResourceNode, ServicePad } from './rts';
+import downtown from './downtown.json';
 
 // Simulator and player-renderer data. Never import this module into drone tools
-// or put these coordinates, distances, or camera calibration in actor prompts.
-const bases = [
-  { x: -44.7, z: 39.3 }, // West 3rd / Plum: covered access to downtown.
-  { x: 53.4, z: 20.7 }, // East 3rd / Broadway: beside the Lytle Park approach.
+// or put battlefield coordinates or route information in actor prompts.
+const launchSites = [
+  { x: -27, z: 39.2 }, // West Third Street forecourt, west of Race.
+  { x: 40, z: 30.2 }, // East Third Street forecourt, south of the tower cluster.
 ];
-// The geographic origin is inside Fifth Third Center. This open Third Street
-// center is 1.1 units from the bases' geometric midpoint and fits all three cargo
-// footprints without moving the sourced city geometry.
-const center = { x: 4.4, z: 31.1 };
-const halfway = bases.map(base => ({ x: (base.x + center.x) / 2, z: (base.z + center.z) / 2 }));
+// Broad Third Street verges leave the entire six-unit service volume clear.
+const serviceSites = [{ x: -27, z: 41 }, { x: 40, z: 32 }];
 const offsets = [{ x: -1.8, z: 1.2 }, { x: 0, z: 2.1 }, { x: 1.8, z: 0.8 }];
 const ids: DroneId[] = ['drone-1', 'drone-2', 'drone-3', 'drone-4', 'drone-5', 'drone-6'];
 const spawns = Object.fromEntries(ids.map((id, index) => {
-  const site = bases[Math.floor(index / 3)], target = halfway[Math.floor(index / 3)], offset = offsets[index % 3];
+  const site = launchSites[Math.floor(index / 3)], offset = offsets[index % 3];
   const x = site.x + offset.x, z = site.z + offset.z, y = 1.8;
-  const dx = target.x - x, dz = target.z - z;
+  const service = serviceSites[Math.floor(index / 3)];
+  const dx = service.x - x, dz = service.z - z;
   return [id, { x, y, z,
     yaw: Math.atan2(-dx, -dz) * 180 / Math.PI,
-    pitch: Math.atan2(1.1 - y, Math.hypot(dx, dz)) * 180 / Math.PI,
+    pitch: -55, // Look into the visible marked base apron before exploring.
   } satisfies Pose];
 })) as Record<DroneId, Pose>;
 
-const deposit = (id: string, x: number, z: number, capacity: number): ResourceNode =>
-  ({ id, x, y: 0.45, z, remaining: capacity, capacity });
+const deposit = (id: string, x: number, z: number, zoneSize: number, capacity: number, extractionMultiplier = 1): ResourceNode =>
+  ({ id, x, y: 0, z, zoneSize, kind: 'cache', reserved: 0, remaining: capacity, capacity, extractionMultiplier });
 
-/** Three finite cargo placements along the two bases' approaches to the center. */
+/** Paired exploration opportunities around a rich central contest; no launch-site salvage. */
 export const BATTLEFIELD = {
-  bases,
-  center,
   spawns,
+  servicePads: [
+    { id: 'service-blue', team: 'blue', ...serviceSites[0], y: 0, zoneSize: 6 },
+    { id: 'service-red', team: 'red', ...serviceSites[1], y: 0, zoneSize: 6 },
+  ] satisfies ServicePad[],
   resources: [
-    deposit('salvage-west', halfway[0].x, halfway[0].z, 120),
-    deposit('salvage-center', center.x, center.z, 480),
-    deposit('salvage-east', halfway[1].x, halfway[1].z, 120),
+    // Mapped intersection centers, with edges sized to fill each crossing while
+    // clearing the corner buildings. Keep stable IDs for recordings and fixtures.
+    deposit('salvage-race-third', -17.07, 33.978, 3, 60), // Race / Third.
+    deposit('salvage-vine-fourth', -5.854, 17.161, 2.5, 60), // Vine / Fourth.
+    deposit('salvage-main-second', 26.366, 34, 3, 60), // Main / Second.
+    deposit('salvage-sycamore-fifth', 33.356, -4.393, 2.5, 60), // Sycamore / Fifth.
+    // Broad open forecourt immediately south of Vine / Third. The stable ID
+    // remains for recordings; this rules revision intentionally moves the depot.
+    deposit('salvage-fountain', -3, 35, 4, 600),
   ] satisfies ResourceNode[],
   // An initial player camera composition, not a wall or an agent observation.
-  focus: { x: [center.x - 112, center.x + 112], z: [center.z - 92.5, center.z + 92.5] } as { x: [number, number]; z: [number, number] },
+  focus: { x: downtown.x, z: downtown.z } as { x: [number, number]; z: [number, number] },
 };

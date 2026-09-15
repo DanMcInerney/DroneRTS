@@ -2,16 +2,15 @@ import { chromium, type Page } from '@playwright/test';
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const projectDir = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const url = 'http://127.0.0.1:4318';
-const runName = `run-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-const artifactsDir = join(projectDir, 'artifacts', 'playtest-city', runName);
+const artifacts = createArtifactRun('playtest-city'), artifactsDir = artifacts.directory;
 const startupTimeoutMs = 120_000;
 const trialTimeoutMs = 150_000;
 const missionText = 'Find the treasure chests scattered around the city. Fly close enough to inspect each chest with your camera, then report it to the fleet using a found radio message. Share discoveries and coordinate your search.';
 const droneIds = ['drone-1', 'drone-2', 'drone-3'];
-const previousRun = 'run-2026-09-14T03-11-15-324Z';
 type Drone = { id: string; x: number; y: number; z: number; yaw: number; pitch: number; status: string; online: boolean; observations: number; action?: unknown };
 type Radio = { id: string; from: string; to: string; kind: string; text: string; mission: number; simTime: number; protocol?: string; sessionId?: string; sequence?: number; sentAt?: string };
 type WorldState = { simTime: number; mission: number; running: boolean; completed: boolean; drones: Drone[]; treasures: Array<{ id: string; found: boolean; foundBy?: string; foundAt?: number }>; radio: Radio[]; runtime: Record<string, any>; network?: { status: string; peers: Array<{ id: string; online: boolean; peers: number; pending: number; inbox: number }> } };
@@ -33,7 +32,7 @@ async function post(path: string) {
   if (!response.ok) throw new Error(value.error ?? `POST /api/${path} failed (${response.status})`);
   return value;
 }
-async function capture(page: Page, name: string) { await page.screenshot({ path: join(artifactsDir, name), fullPage: false }); result.screenshots.push(join('artifacts', 'playtest-city', runName, name)); }
+async function capture(page: Page, name: string) { await page.screenshot({ path: join(artifactsDir, name), fullPage: false }); result.screenshots.push(join(artifactsDir, name)); }
 async function captureProbe(page: Page, poses: any[]) {
   const ids = droneIds.map((id, index) => `probe-${Date.now()}-${index}-${id}`);
   const sentAt = await page.evaluate(({ poses, ids }) => {
@@ -141,9 +140,13 @@ try {
   try { await post('stop'); } catch (error) { result.failures.push(`4318 cleanup request failed: ${error instanceof Error ? error.message : String(error)}`); }
   try { const stopped = await waitFor(page, v => !v.running && v.runtime.status === 'stopped', 30_000, '4318 fleet stop'); result.checks.stop = { running: stopped.running, runtimeStatus: stopped.runtime.status, dronesOffline: stopped.drones.every(drone => !drone.online) }; await record(page, 'stopped'); await capture(page, 'stopped.png'); } catch (error) { result.failures.push(`Stop verification failed: ${error instanceof Error ? error.message : String(error)}`); }
   await inspectSession(beforeSessions);
-  try { const previous = JSON.parse(await readFile(join(projectDir, 'artifacts', 'playtest-city', previousRun, 'playtest-result.json'), 'utf8')); result.checks.cameraComparison = { previousRun, previous: previous.checks?.sessionAudit?.sensorByDrone ?? null, current: result.checks.sessionAudit?.sensorByDrone ?? null }; } catch (error) { result.failures.push(`Could not load prior camera evidence: ${error instanceof Error ? error.message : String(error)}`); }
+  result.checks.cameraComparison = { historicalReport: 'CITY-PLAYTEST.md', current: result.checks.sessionAudit?.sensorByDrone ?? null };
   result.checks.browserErrors = result.console.filter((item: { type: string }) => item.type === 'error' || item.type === 'pageerror');
   if (result.checks.browserErrors.length) result.failures.push(`Browser reported ${result.checks.browserErrors.length} console/page errors.`);
+  if (result.checks.stop?.running === false && result.checks.sessionFile) {
+    const name = result.checks.sessionFile.split(/[\\/]/).at(-1); artifacts.collectSession(name);
+    result.checks.sessionFile = join(artifactsDir, name);
+  }
   result.finishedAt = new Date().toISOString(); await writeFile(join(artifactsDir, 'playtest-result.json'), JSON.stringify(result, null, 2) + '\n'); await browser.close();
 }
 console.log(JSON.stringify({ artifact: join(artifactsDir, 'playtest-result.json'), failures: result.failures, checks: result.checks }, null, 2));

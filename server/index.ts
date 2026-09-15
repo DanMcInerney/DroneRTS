@@ -1,18 +1,18 @@
+import { CameraChannel } from './camera-channel.ts';
+import { rendererIdentity } from './renderer-identity.ts';
 import express from 'express';
 import { createServer } from 'node:http';
 import { mkdirSync, createWriteStream } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { FleetGame } from './game.ts';
 import { TeamSession } from './team-session.ts';
 import { MODEL, EFFORT, createDroneTools } from './runtime-tools.ts';
 import { CockpitStore, cockpitRouter } from './cockpit.ts';
 import { diagnosticsRouter, redactDiagnostic } from './diagnostics.ts';
-import type { DroneId, Pose } from '../shared/types.ts';
 import { MATCH_FLEET, MATCH_DRONE_IDS } from '../shared/fleet.ts';
-import { ReplayRecorder } from './replay-recorder.ts';
+import { ReplayRecorder, REPLAY_SAMPLE_INTERVAL } from './replay-recorder.ts';
 import { replayRouter } from './replay-store.ts';
 import { CITY } from '../shared/city.ts';
 import { BATTLEFIELD } from '../shared/battlefield.ts';
@@ -35,7 +35,10 @@ let sessionLog: ReturnType<typeof createWriteStream> | undefined;
 let activeSessionLog: string | undefined;
 let replay: ReplayRecorder | undefined;
 let replayCreation: Promise<ReplayRecorder> | undefined;
-const captures = new Map<string, { socket: WebSocket; resolve: (image: string) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+const cameras = new CameraChannel(rendererIdentity(projectDir), ready => {
+  clearTimeout(disconnectedTimer); game.setConnected(ready); broadcast();
+  if (!ready && game.state.running) disconnectedTimer = setTimeout(() => { void stopFleet('No current camera renderer; fleet stopped'); }, 10_000);
+}, record => audit('camera', record));
 
 function audit(type: string, value: unknown) {
   if (!sessionLog) return;
@@ -58,10 +61,10 @@ function stopFleet(message = 'Fleet stopped'): Promise<void> {
   replay?.recordFrame(game.state, true);
   const closingReplay = replay, pendingReplay = replayCreation;
   replay = undefined;
-  for (const [id, pending] of captures) { clearTimeout(pending.timer); pending.reject(new Error('Fleet stopped')); captures.delete(id); }
+  cameras.cancel();
   stopPromise = (async () => {
     try {
-      const results = await Promise.allSettled([runtime?.stop(), closingReplay?.stop(game.state.simTime), pendingReplay?.then(recording => recording.stop(game.state.simTime))]);
+      const results = await Promise.allSettled([runtime?.stop(), closingReplay?.finish(game.state), pendingReplay?.then(recording => recording.finish(game.state))]);
       if (results[0].status === 'rejected') throw results[0].reason;
     }
     finally {
@@ -84,19 +87,21 @@ app.use('/api', (req, res, next) => {
 app.use(express.json({ limit: '16kb' }));
 app.get('/api/state', (_req, res) => res.json(game.state));
 app.use('/api/cockpit', cockpitRouter({ store: cockpit, state: () => game.state,
+  onboard: id => game.existingOnboardWorkspace(id),
   tools: id => createDroneTools(undefined, game.toolCapabilities(id)).map(tool => tool.name) }));
 app.use('/api/diagnostics', diagnosticsRouter({ directory: resolve(projectDir, 'artifacts'), roster: MATCH_FLEET, state: () => game.state, activeSession: () => activeSessionLog }));
 app.use('/api/diagnostics', replayRouter({ directory: resolve(projectDir, 'artifacts') }));
 app.post('/api/start', async (_req, res) => {
   if (runtime || starting || stopping || game.state.running) { res.status(409).json({ error: 'Fleet is already running or changing state' }); return; }
   try {
-    game.start(); cockpit.reset(game.sessionIdentity); starting = true;
+    game.start(); game.awaitFleetLaunch(); cockpit.reset(game.sessionIdentity); starting = true;
     mkdirSync(resolve(projectDir, 'artifacts'), { recursive: true });
     activeSessionLog = `session-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`;
     sessionLog = createWriteStream(resolve(projectDir, 'artifacts', activeSessionLog));
     const logId = activeSessionLog;
     const header: ReplayHeader = {
-      type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: 0.1,
+      type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: REPLAY_SAMPLE_INTERVAL,
+      rulesVersion: game.state.match?.rulesVersion, rendererId: cameras.rendererId,
       roster: MATCH_FLEET, scene: { name: CITY.name, bounds: { x: CITY.bounds.x, z: CITY.bounds.z },
         focus: BATTLEFIELD.focus, obstacles: game.state.obstacles, roads: CITY.roads, river: CITY.river },
       camera: { width: DRONE_CAMERA.width, height: DRONE_CAMERA.height },
@@ -153,6 +158,10 @@ app.post('/api/mission', (req, res) => {
   try { const result = game.queueMission(req.body.text); audit('player-queued', req.body); broadcast(); res.json(result); }
   catch (error) { res.status(400).json({ error: String(error) }); }
 });
+app.post('/api/chat', async (req, res) => {
+  try { const result = await game.sendPlayerChat(req.body.text, req.body.to); audit('player-chat-queued', req.body); broadcast(); res.json(result); }
+  catch (error) { res.status(400).json({ error: String(error) }); }
+});
 app.post('/api/speed', (req, res) => {
   try { game.setSpeed(req.body.speed); res.json({ speed: game.state.speed }); }
   catch (error) { res.status(400).json({ error: String(error) }); }
@@ -172,43 +181,29 @@ server.on('upgrade', (req, socket, head) => {
   sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws, req));
 });
 sockets.on('connection', socket => {
-  clearTimeout(disconnectedTimer);
-  game.setConnected(true); broadcast();
+  cameras.attach(socket); broadcast();
   socket.on('message', bytes => {
-    try {
-      const packet = JSON.parse(bytes.toString());
-      if (packet.type !== 'capture-result') return;
-      const pending = captures.get(packet.requestId);
-      if (!pending || pending.socket !== socket) return;
-      captures.delete(packet.requestId); clearTimeout(pending.timer);
-      if (typeof packet.image !== 'string' || packet.image.length > 2_000_000) pending.reject(new Error('Invalid camera result'));
-      else pending.resolve(packet.image);
-    } catch { /* Ignore malformed transport input; pending capture will time out. */ }
+    try { cameras.receive(socket, JSON.parse(bytes.toString())); } catch { /* Invalid packets cannot become captures. */ }
   });
-  socket.on('close', () => {
-    for (const [id, pending] of captures) if (pending.socket === socket) {
-      clearTimeout(pending.timer); pending.reject(new Error('Camera browser disconnected')); captures.delete(id);
-    }
-    if (sockets.clients.size === 0) {
-      game.setConnected(false);
-      if (game.state.running) disconnectedTimer = setTimeout(() => { void stopFleet('Browser disconnected; fleet stopped to prevent unattended inference'); }, 10_000);
-    }
-  });
+  socket.on('close', () => cameras.detach(socket));
 });
-game.capture = async (droneId: DroneId, pose: Pose, simTime: number, drones, match) => {
-  const socket = [...sockets.clients].find(client => client.readyState === WebSocket.OPEN);
-  if (!socket) throw new Error('Camera browser is disconnected');
-  const requestId = randomUUID();
-  return new Promise<string>((resolveImage, reject) => {
-    const timer = setTimeout(() => { captures.delete(requestId); reject(new Error('Camera capture timed out; check the game browser')); }, 8000);
-    captures.set(requestId, { socket, resolve: resolveImage, reject, timer });
-    socket.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones, match }));
-  });
-};
+game.capture = (...args) => cameras.capture(...args);
 for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended']) game.on(event, value => audit(event, value));
-game.on('tool', ({ drone, name, args }) => replay?.recordCommand(drone, name, args, game.state.simTime));
+game.on('tool', ({ drone, name, args }) => { replay?.recordFrame(game.state, true); replay?.recordCommand(drone, name, args, game.state.simTime); });
 game.on('recorded-observation', (sample: RecordedObservation) => replay?.recordObservation(sample));
-game.on('match-event', (event: MatchEvent) => { audit('combat', event); replay?.recordEvent(event); });
+game.on('match-event', (event: MatchEvent) => { audit('combat', event); replay?.recordFrame(game.state, true); replay?.recordEvent(event); });
+game.on('script-source', source => replay?.recordScriptSource(source));
+game.on('sdk-execution', execution => replay?.recordExecution(execution));
+game.on('routine-state', status => {
+  audit('routine', status);
+  if (status.state === 'cancelled' || status.state === 'failed') replay?.recordCancellation({
+    drone: status.drone, simTime: status.simTime, jobId: status.id, sourceHash: status.sourceHash,
+    reason: status.reason ?? status.error ?? status.state });
+});
+game.on('job', ({ drone, job, simTime }) => {
+  if (['cancelled', 'failed', 'blocked'].includes(job.state)) replay?.recordCancellation({ drone, simTime, jobId: job.id, reason: job.reason ?? job.state });
+});
+for (const event of ['radio', 'radio-delivery', 'player-radio']) game.on(event, message => replay?.recordRadio(message, game.state.simTime));
 game.on('transport-error', error => {
   if (!stopping) void stopFleet(error.message).then(() => { if (!runtime) setRuntime({ status: 'error', message: error.message }); });
 });

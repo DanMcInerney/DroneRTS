@@ -45,18 +45,47 @@ test('a new instruction hovers drones and rejects delayed commands carrying the 
   assert.equal((await game.tool('drone-1', 'send', { mission: 1, to: 'all', kind: 'claim', text: 'Old task' })).isError, true);
   game.stop();
 });
-test('movement is continuous, unarmored building contact destroys, and browser loss pauses simulation', async () => {
+test('local braking prevents a controllable impact, actual unarmored contact destroys, and browser loss pauses simulation', async () => {
   const game = await ready(), drone = game.state.drones[0];
+  drone.equipment!.armor = false;
   game.state.obstacles = [{ x: -7, z: 3, width: 4, depth: 5, height: 3 }];
   Object.assign(drone, { x: -7, y: 2, z: 9 });
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -7, y: 2, z: -5 });
+  await new Promise(resolve => setImmediate(resolve));
   for (let i = 0; i < 30; i++) game.tick(0.2);
+  assert.equal(drone.alive, true); assert.equal(drone.job?.state, 'blocked');
+  Object.assign(drone, { x: -7, y: 2, z: 3 }); // Actual overlap still reaches collision authority.
+  game.tick(1 / 120);
   assert.equal(drone.alive, false);
   assert.equal(game.inboxes['drone-1'].events.at(-1)?.type, 'destroyed');
   const simTime = game.state.simTime; game.setConnected(false); game.tick(0.2);
   assert.equal(game.state.simTime, simTime);
   game.stop();
 });
+test('recorded occupied approach reports a blocked job without contact or a false arrival', async t => {
+  for (const dt of [1 / 120, 0.0078]) {
+    const game = await ready(); t.after(() => game.stop());
+    const [drone, peer] = game.state.drones;
+    // Translate the recorded pair together into the current smaller bounds;
+    // separation, velocity and the oblique sensor geometry remain identical.
+    const target = { x: 25.20000076293945, y: 12, z: 21.5 };
+    Object.assign(drone, { x: 21.599998474121094, y: 8, z: 21.899999618530273 });
+    Object.assign(peer, target);
+    assert.equal((await game.tool(drone.id, 'act', { mission: 1, kind: 'fly_to', profile: 'precision', ...target })).isError, undefined);
+    await new Promise(resolve => setImmediate(resolve));
+    const jobId = drone.job!.id;
+    for (let i = 0; i < 2400; i++) game.tick(dt);
+    const bundle = json(await game.tool(drone.id, 'observe'));
+    assert.equal(bundle.job.id, jobId);
+    assert.equal(bundle.job.state, 'blocked');
+    assert.equal(bundle.job.reason, 'coverage-unavailable');
+    assert.ok(!bundle.events.some((event: any) => event.type === 'arrived'));
+    assert.ok(drone.alive && peer.alive && drone.equipment!.armor && peer.equipment!.armor);
+    assert.equal(drone.action, undefined);
+    assert.deepEqual(drone.velocity, { x: 0, y: 0, z: 0 });
+  }
+});
+
 test('camera result pairs requested pose with image and does not disclose target locations', async () => {
   const game = await ready();
   const observations = game.state.drones[0].observations;
@@ -164,7 +193,8 @@ test('retarget and hover preserve motion continuity, then settle without an old 
   await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: 15, y: 7, z: 23 });
   for (let i = 0; i < 20; i++) game.tick(0.05);
   const before = { x: drone.x, yaw: drone.yaw };
-  await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -15, y: 7, z: 23 });
+  const replacement = await game.tool('drone-1', 'act', { mission: 1, kind: 'fly_to', x: -15, y: 7, z: 23, replace: true });
+  assert.equal(json(replacement).accepted, true);
   assert.equal(drone.x, before.x); assert.equal(drone.yaw, before.yaw);
   game.tick(0.05);
   assert.ok(drone.x > before.x, 'An opposite waypoint must brake existing velocity before reversing');

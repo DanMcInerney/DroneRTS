@@ -1,3 +1,4 @@
+import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Bounded browser/controller verification with no Codex inference or live fleet startup.
  * Serve on FLEET_PORT=4318, then run: node --import tsx scripts/verify-ui.ts
  * Playwright supplies held-key/pointer-lock controls unavailable in sidebar automation.
@@ -8,11 +9,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { FleetGame } from '../server/game.ts';
 import { DRONE_IDS, type Pose } from '../shared/types.ts';
+import { createArtifactRun } from './test-artifacts.ts';
 
 const base = 'http://127.0.0.1:4318';
 const state = await fetch(`${base}/api/state`).then(response => response.json());
 assert.equal(state.running, false, 'Isolated server must be idle; no player session may be used');
-const output = resolve('artifacts/ui-verification'); await mkdir(output, { recursive: true });
+const { directory: output } = createArtifactRun('ui-verification'); await mkdir(output, { recursive: true });
 const game = new FleetGame(); game.setConnected(true); game.start();
 game.state.drones.forEach(drone => { drone.y = 30; });
 for (const id of DRONE_IDS) await game.tool(id, 'observe');
@@ -29,7 +31,7 @@ let sequence = 0;
 const broadcast = () => transport?.send(JSON.stringify({ type: 'state', state: game.state }));
 await page.routeWebSocket('**/ws', socket => {
   transport = socket; broadcast();
-  socket.onMessage(data => { const result = JSON.parse(String(data)); if (result.type === 'capture-result') captures.get(result.requestId)?.(result.image); });
+  socket.onMessage(data => { const result = JSON.parse(String(data)); if (result.type === 'camera-ready') socket.send(JSON.stringify({ type: 'camera-accepted' })); if (result.type === 'capture-result') captures.get(result.requestId)?.(result.image); });
 });
 await page.route('**/api/state', route => route.fulfill({ json: game.state }));
 await page.route('**/api/start', route => route.fulfill({ status: 409, json: { error: 'Inference disabled in browser verification' } }));
@@ -37,7 +39,7 @@ await page.route('**/api/reset', async route => { game.stop(); game.reset(); bro
 game.capture = (droneId: string, pose: Pose, simTime: number, drones) => new Promise((resolveImage, reject) => {
   const requestId = String(++sequence), deadline = setTimeout(() => { captures.delete(requestId); reject(new Error('Capture timed out')); }, 8000);
   captures.set(requestId, image => { clearTimeout(deadline); captures.delete(requestId); resolveImage(image); });
-  transport!.send(JSON.stringify({ type: 'capture', requestId, droneId, pose, simTime, drones }));
+  transport!.send(JSON.stringify({ type: 'capture', requestId, rendererId: rendererIdentity(process.cwd()), droneId, pose, simTime, drones }));
 });
 const sleep = (ms: number) => new Promise(resolveWait => setTimeout(resolveWait, ms));
 try {

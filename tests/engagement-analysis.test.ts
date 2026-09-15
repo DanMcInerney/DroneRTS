@@ -48,6 +48,14 @@ test('engagement measurements separate delivery from decisions and use past geom
   assert.equal(result.viewing.opportunities[0].target, 'drone-5');
   assert.equal(result.viewing.peerFrameAge.p50, 0.5);
 
+  // A zoomed acquisition has its own projection even if the sampled drone state is older.
+  const zoomRecords = records.map(record => record.type === 'observation' ? { ...record, cameraFov: 20 } : record);
+  await writeFile(join(session, 'frames.jsonl'), zoomRecords.map(r => JSON.stringify(r)).join('\n') + '\n');
+  await run(process.execPath, ['--import', 'tsx', 'scripts/analyze-engagement.ts', directory]);
+  const zoom = JSON.parse(await readFile(join(directory, 'engagement-analysis.json'), 'utf8'));
+  assert.equal(zoom.viewing.inFrustum.observationTargetPairs, 1);
+  assert.equal(zoom.viewing.centerClear.distinctImages, 0);
+
   manifest['client/drone-model.ts'] = 'historical-body-geometry';
   await writeFile(join(directory, 'source-manifest.json'), JSON.stringify(manifest));
   const preserved = await readFile(join(directory, 'engagement-analysis.json'), 'utf8');

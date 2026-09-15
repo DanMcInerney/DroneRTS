@@ -105,7 +105,7 @@ class Worker {
   }
 }
 
-async function fleet(t: { after: (callback: () => Promise<void>) => void }, withOperator = false) {
+async function fleet(t: { after: (callback: () => Promise<void>) => void }, withOperator = false, playerChat = false) {
   const dir = await mkdtemp(resolve(tmpdir(), 'fleet-zenoh-test-'));
   const session = randomUUID();
   // Reserve all ports at once so the OS cannot assign the same port twice.
@@ -119,7 +119,7 @@ async function fleet(t: { after: (callback: () => Promise<void>) => void }, with
   await Promise.all(reservations.map(server => new Promise<void>(done => server.close(() => done()))));
   const args = (index: number) => ['--drone', index === 3 ? 'operator' : `drone-${index + 1}`, '--session', session,
     '--listen', endpoints[index], '--peers', endpoints.filter((_, i) => i !== index).join(','),
-    '--store', resolve(dir, `drone-${index + 1}.sqlite`), '--roster', JSON.stringify(DEFAULT_FLEET)];
+    '--store', resolve(dir, `drone-${index + 1}.sqlite`), '--roster', JSON.stringify(DEFAULT_FLEET), ...(playerChat ? ['--player-chat'] : [])];
   const workers = Array.from({ length: count }, (_, index) => new Worker(args(index)));
   t.after(async () => {
     await Promise.all(workers.map(worker => worker.stop()));
@@ -165,16 +165,76 @@ test('three native Zenoh peers deliver group/direct over loopback TCP without pa
   assert.equal(one.received(group.id).length, 0);
   assert.equal(three.received(direct.id).length, 0);
   assert.equal(two.received(direct.id).length, 0);
-  const { expiresAt, ...directPayload } = one.received(direct.id)[0].message;
+  const { expiresAt, remainingTtlMs, networkId, bootId, senderSequence, trafficClass, ...directPayload } = one.received(direct.id)[0].message;
   assert.deepEqual(directPayload, direct);
+  assert.equal(networkId, direct.sessionId); assert.match(bootId, /^[a-f\d-]{36}$/); assert.equal(senderSequence, 1, 'sequence belongs to this native sender, independent of caller/game sequence'); assert.equal(trafficClass, 'durable');
   assert.match(expiresAt, /^\d{4}-\d{2}-\d{2}T.+Z$/);
   assert.ok(Date.parse(expiresAt) > Date.now());
+  assert.ok(remainingTtlMs > 0 && remainingTtlMs <= 120_000);
   assert.deepEqual(three.requests.filter(method => method !== 'status'), []);
   assert.equal([one, two, three].some(worker => worker.events.some(event => event.event === 'invalid-output')), false);
   await assert.rejects(one.request('send', { message: { ...group, from: 'drone-2' } }), /sender/);
   await assert.rejects(one.request('send', { message: { ...group, sessionId: randomUUID() } }), /session/);
   await assert.rejects(one.request('send', { message: { ...group, to: 'drone-1' } }), /Recipient/);
   await assert.rejects(one.request('send', { message: { ...group, text: 'Conflicting ID' } }), /different contents/);
+});
+
+test('blue operator participates in native group/direct chat and storage receipts do not replace objectives', { timeout: 45_000 }, async t => {
+  const { workers: [one, two, three, operator], message } = await fleet(t, true, true);
+  const group = { ...message('drone-1', 'all'), kind: 'chat' };
+  await one.request('send', { message: group });
+  await eventually(() => !!one.delivered(group.id), 'blue broadcast stored by teammates and player');
+  assert.equal(operator.received(group.id).length, 1);
+  assert.deepEqual(one.delivered(group.id).recipients, ['drone-2', 'drone-3', 'player']);
+  const reply = { ...message('drone-2', 'player', 'I received your suggestion'), kind: 'chat' };
+  await two.request('send', { message: reply });
+  await eventually(() => !!two.delivered(reply.id), 'direct player reply stored');
+  assert.equal(operator.received(reply.id).length, 1); assert.equal(one.received(reply.id).length, 0);
+  const instruction = { ...message('player', 'drone-3', 'Please report your own status'), kind: 'chat' };
+  await operator.request('send', { message: instruction });
+  await eventually(() => !!operator.delivered(instruction.id), 'ordinary direct operator chat');
+  assert.equal(three.received(instruction.id)[0].message.kind, 'chat');
+  assert.equal(one.received(instruction.id).length, 0); assert.equal(two.received(instruction.id).length, 0);
+  assert.ok(operator.events.some(event => event.event === 'delivery' && event.status === 'stored' && event.recipient === 'drone-3'));
+  await assert.rejects(one.request('send', { message: { ...message('drone-1', 'all'), kind: 'mission' } }), /Only the operator/);
+});
+
+test('status messages queue independently while offline and unsent expired messages do not replay', { timeout: 45_000 }, async t => {
+  const { workers: [one, two], message } = await fleet(t);
+  await one.request('link', { online: false });
+  const old = { ...message('drone-1', 'drone-2', 'Earlier own estimate'), kind: 'status' };
+  const latest = { ...message('drone-1', 'drone-2', 'Latest own estimate'), kind: 'status' };
+  await one.request('send', { message: old }); await one.request('send', { message: latest });
+  assert.equal((await one.request('status')).pending, 2);
+  await one.request('link', { online: true });
+  await eventually(() => !!one.delivered(latest.id) && !!one.delivered(old.id), 'both status messages transmitted');
+  assert.equal(two.received(old.id).length, 1); assert.equal(two.received(latest.id).length, 1);
+  await one.request('link', { online: false });
+  const expired = { ...message('drone-1', 'drone-2'), kind: 'status' };
+  await one.request('send', { message: expired, ttlMs: 50 }); await delay(100);
+  await one.request('link', { online: true }); await delay(500);
+  assert.equal(two.received(expired.id).length, 0);
+});
+
+test('native full mailbox rejects before ACK, keeps unread mail and retries after explicit consumption', { timeout: 60_000 }, async t => {
+  const { workers: [one, two], message } = await fleet(t);
+  const ids: string[] = [];
+  for (let index = 0; index < 256; index++) {
+    const item = message('drone-1', 'drone-2', `Unread bounded record ${index}`); ids.push(item.id);
+    await one.request('send', { message: item });
+  }
+  await eventually(async () => (await two.request('status')).inbox === 256 && (await one.request('status')).pending === 0, 'recipient durable queue reaches bounded capacity', 25_000);
+  const blocked = message('drone-1', 'drone-2', 'Keep this in sender outbox until receiver has room');
+  await one.request('send', { message: blocked });
+  await eventually(() => one.events.some(event => event.event === 'backpressure' && event.id === blocked.id), 'native negative storage admission');
+  assert.equal(two.received(blocked.id).length, 0); assert.equal(one.delivered(blocked.id), undefined);
+  assert.equal((await one.request('status')).pendingRecipients, 1);
+  assert.equal((await two.request('status')).inbox, 256);
+  await two.request('consume', { ids: [ids[0]] });
+  await eventually(() => !!one.delivered(blocked.id), 'sender retries after explicitly freed receiver slot');
+  assert.equal(two.received(blocked.id).length, 1);
+  const status = await two.request('status');
+  assert.equal(status.inbox, 256); assert.ok(status.storageBytes <= 4 * 1024 * 1024); assert.ok(status.journalPeakBytes <= 256 * 1024);
 });
 
 test('partitioned peers persist outbound mail and retry group delivery with receiver deduplication', { timeout: 45_000 }, async t => {
@@ -236,7 +296,9 @@ test('committed unconsumed inbox survives abrupt restart and consumed mail stays
   await restart(1);
   await eventually(() => workers[1].received(durable.id).length === 1, 'startup replay of unconsumed inbox');
   await connected();
-  assert.deepEqual(workers[1].received(durable.id)[0].message, originalReceived);
+  const { remainingTtlMs: replayTtl, ...replayed } = workers[1].received(durable.id)[0].message;
+  const { remainingTtlMs: originalTtl, ...original } = originalReceived;
+  assert.deepEqual(replayed, original); assert.equal(replayTtl, 0); assert.ok(originalTtl > 0);
   assert.ok(Date.parse(originalReceived.expiresAt) <= Date.now());
   assert.equal((await workers[1].request('status')).inbox, 1);
   assert.deepEqual(await workers[1].request('consume', { ids: [durable.id] }), { consumed: 1 });

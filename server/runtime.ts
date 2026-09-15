@@ -1,3 +1,4 @@
+import { compactObservation } from './observation-format.ts';
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -8,23 +9,15 @@ import { AppServerRpc } from './runtime-rpc.js';
 import { RuntimeReasoning, REASONING_CONFIG, REASONING_CONFIG_TOML } from './runtime-reasoning.ts';
 import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
 import type { ToolResult } from '../shared/types.js';
-import type { CockpitToolEvidence } from '../shared/cockpit.ts';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
+import { validateAgentBackend, type AgentBackend, type AgentBackendOptions } from './agent-backend.ts';
 
-export type RuntimeOptions = {
-  projectDir: string;
-  roster?: FleetRoster;
-  team?: 'blue' | 'red';
-  toolsForRole?: (role: FleetRole) => Tool[];
-  toolHandler: (role: FleetRole, name: string, args: Record<string, unknown>) => Promise<ToolResult>;
-  onStatus: (status: any) => void;
-  onEvent: (event: any) => void;
-  onToolEvidence?: (event: CockpitToolEvidence) => void;
-};
+export type RuntimeOptions = AgentBackendOptions;
 const quoted = (value: string) => JSON.stringify(value);
 
 
-export class CodexFleetRuntime {
+export class CodexFleetRuntime implements AgentBackend {
+  readonly configuration;
   private rpc?: AppServerRpc;
   private mcp?: FleetMcpServer;
   private runDir?: string;
@@ -54,9 +47,10 @@ export class CodexFleetRuntime {
   private readonly droneTools;
   private readonly parentInstructions: string;
   constructor(private options: RuntimeOptions) {
+    this.configuration = validateAgentBackend(options.backend);
     this.roster = validateRoster(options.roster ?? DEFAULT_FLEET);
     this.drones = this.roster.map(member => member.id);
-    this.droneTools = createDroneTools(this.roster);
+    this.droneTools = createDroneTools(this.roster, undefined, options.team);
     this.parentInstructions = createParentInstructions(this.roster);
   }
 
@@ -68,6 +62,7 @@ export class CodexFleetRuntime {
   }
   private async startInternal() {
     this.stopped = false;
+    this.options.onEvent({ type: 'agent-backend', configuration: this.configuration, inputBoundaries: ['tool-result', 'next-turn'], inferenceHardware: 'abstracted' });
     this.options.onStatus({ status: 'starting', message: 'Checking Codex and Luna / xhigh…', model: MODEL, effort: EFFORT });
     try {
       this.runDir = await mkdtemp(join(tmpdir(), 'drone-fleet-'));
@@ -197,13 +192,13 @@ export class CodexFleetRuntime {
   private async startMcp() {
     this.mcp = new FleetMcpServer({
       roles: ['parent', ...this.drones], active: () => !this.stopped,
-      tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: this.options.onEvent,
+      tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: event => this.options.onEvent(event as Record<string, unknown>),
       onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
       onToolEvidence: this.options.onToolEvidence,
       call: async (role, name, args) => {
         this.options.onEvent({ type: 'tool', role, name, arguments: args });
         this.toolCalls++;
-        const result = this.catalogBoundary(role, await this.options.toolHandler(role, name, args));
+        const result = this.catalogBoundary(role, compactObservation(await this.options.toolHandler(role, name, args)));
         this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
         return result;
       },
@@ -261,6 +256,7 @@ export class CodexFleetRuntime {
     if (message.method === 'turn/started') {
       this.activeTurns.set(p.threadId, p.turn.id);
       const role = this.roles.get(p.threadId);
+      this.options.onEvent({ type: 'actor-turn-started', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now() });
       if (role && this.retired.has(role)) void this.retireDrone(role);
     }
     if (message.method === 'turn/completed') {
@@ -268,16 +264,28 @@ export class CodexFleetRuntime {
       this.activeTurns.delete(p.threadId);
       if (!this.stopped) {
         const role = this.roles.get(p.threadId) ?? 'unknown actor';
-        this.options.onEvent({ type: 'actor-ended', role, status: p.turn.status, error: p.turn.error?.message });
+        this.options.onEvent({ type: 'actor-ended', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now(), status: p.turn.status, error: p.turn.error?.message });
         if (this.retired.has(role as FleetRole)) return;
         void this.resumeActor(p.threadId, role, this.catalogYields.has(role as FleetRole));
       }
     }
     if (message.method === 'thread/tokenUsage/updated') {
       this.usage.set(p.threadId, p.tokenUsage?.total?.totalTokens ?? 0);
+      this.options.onEvent({ type: 'actor-usage', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+        observedAtMs: performance.now(), totalTokens: p.tokenUsage?.total?.totalTokens,
+        lastInputTokens: p.tokenUsage?.last?.inputTokens, lastOutputTokens: p.tokenUsage?.last?.outputTokens,
+        lastReasoningOutputTokens: p.tokenUsage?.last?.reasoningOutputTokens, modelContextWindow: p.tokenUsage?.modelContextWindow });
       this.options.onStatus({ usage: [...this.usage.values()].reduce((a, b) => a + b, 0) });
       if (!this.toolCalls && [...this.usage.values()].reduce((a, b) => a + b, 0) > 40000) this.failRuntime('Bootstrap produced no game-tool calls after the token limit. Stopped to prevent wasted inference.');
     }
+    // Activity metadata distinguishes pending tools and observed compaction from
+    // silent native-turn intervals. Readable reasoning is captured separately.
+    if (['item/started', 'item/completed'].includes(message.method)
+      && ['reasoning', 'contextCompaction', 'mcpToolCall'].includes(p.item?.type)) {
+      this.options.onEvent({ type: 'actor-activity', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+        itemId: p.item.id, activity: p.item.type, phase: message.method === 'item/started' ? 'started' : 'completed', observedAtMs: performance.now() });
+    }
+    if (message.method === 'thread/compacted') this.options.onEvent({ type: 'actor-context-compacted', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId, observedAtMs: performance.now() });
     if (message.method === 'item/completed' && p.item?.type === 'collabAgentToolCall') this.options.onEvent({ type: 'native-agent-call', tool: p.item.tool, status: p.item.status, model: p.item.model, effort: p.item.reasoningEffort, children: p.item.receiverThreadIds });
     if (message.method === 'item/agentMessage/delta') this.options.onEvent({ type: 'actor-message-delta', role: this.roles.get(p.threadId), itemId: p.itemId, text: typeof p.delta === 'string' ? p.delta.slice(0, 24_000) : '' });
     this.reasoning.accept(message.method, p);
@@ -301,7 +309,8 @@ export class CodexFleetRuntime {
       this.options.onEvent({ type: 'runtime-warning', message: p.message ?? p });
       if (/malformed agent role/i.test(JSON.stringify(p))) this.startupError = 'Installed Codex rejected a drone role configuration. No gameplay may start.';
     }
-    if (message.method === 'error') this.options.onEvent({ type: 'runtime-error', message: p.error?.message ?? 'Codex error' });
+    if (message.method === 'error') this.options.onEvent({ type: 'runtime-error', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
+      observedAtMs: performance.now(), willRetry: p.willRetry, message: p.error?.message ?? 'Codex error' });
   }
 
   private failRuntime(message: string) {

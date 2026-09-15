@@ -20,10 +20,23 @@ export interface CockpitEvent {
   sequence: number; at: string; kind: 'call' | 'result' | 'output' | 'summary' | 'reasoning' | 'reasoning-status' | 'lifecycle';
   name?: string; text?: string; itemId?: string; delta?: boolean; streaming?: boolean; data?: unknown;
 }
-export interface CockpitWorkspace {
-  available: false; reason: string; entries: []; tools: string[];
-  compute: { model: string; effort: string; sandbox: string; shell: boolean; filesystem: boolean; web: boolean };
-  libraries: Array<{ name: string; purpose: string; access: 'host only' }>;
+export interface CockpitWorkspaceEntry { path: string; bytes: number; sha256: string; version: number; metadataBytes: number }
+export interface CockpitWorkspaceFile extends CockpitWorkspaceEntry {
+  droneId: DroneId; sessionId: string; content: string; omissions: string[];
+}
+export interface CockpitWorkspaceState {
+  available: boolean; reason: string; entries: CockpitWorkspaceEntry[];
+  storage?: Record<string, { usedBytes: number; limitBytes: number; freeBytes: number }>;
+  retainedVersions?: number;
+}
+export interface CockpitWorkspace extends CockpitWorkspaceState {
+  tools: string[];
+  compute: { model: string; effort: string; sandbox: string; shell: boolean; filesystem: boolean; web: boolean;
+    codeExecution: boolean; hostFilesystem: boolean; executionEngine: string; filesystemScope: string;
+    heapBytes: number; cpuMsPerSecond: number; maxRoutineMs: number };
+  libraries: Array<{ name: string; purpose: string; access: 'host only' | 'guest' }>;
+  optionalGuestLibraries: string[];
+  limits: { fileBytes: number; files: number; workspaceBytes: number; optionalLibraryBytes: number };
 }
 export interface CockpitSnapshot {
   protocol: 'fleet-cockpit/1'; droneId: DroneId; sessionId: string | null;

@@ -18,31 +18,40 @@ from peer_store import PeerStore, encode
 from peer_transport import PeerTransport
 from fleet_config import parse_roster
 
-MAX_BYTES = 65536
+MAX_BYTES = 10240
+MAX_TTL_MS = 600000
+# The host-bound opening includes the full vehicle/rules briefing. It still
+# shares the existing 8 KiB UTF-8 envelope cap with ordinary radio messages.
+MAX_MISSION_TEXT = 6000
 
 
 def emit(value):
-    print(json.dumps(value, separators=(",", ":"), allow_nan=False), flush=True)
+    print(json.dumps(value, separators=(",", ":"), allow_nan=False, ensure_ascii=False), flush=True)
 
 
 def received_message(message, expires):
     """Add receiver metadata to a copy; never change the original payload/dedup key."""
-    return {**message, "expiresAt": datetime.fromtimestamp(expires, timezone.utc)
-            .isoformat(timespec="milliseconds").replace("+00:00", "Z")}
+    # Wall labels are presentation only; immutable expiresAt is generated when
+    # queued, while transport admission/retry uses the host monotonic deadline.
+    return {**message, "remainingTtlMs": max(0, (expires - time.monotonic()) * 1000), "expiresAt": message.get("expiresAt") or datetime.fromtimestamp(
+        time.time() + expires - time.monotonic(), timezone.utc)
+        .isoformat(timespec="milliseconds").replace("+00:00", "Z")}
 
 
-def validate_message(message, fleet_session, drones, sender=None):
+def validate_message(message, fleet_session, drones, sender=None, player_chat=False):
     if not isinstance(message, dict) or message.get("protocol") != "fleet-radio/1":
         raise ValueError("Expected fleet-radio/1 message")
     if message.get("sessionId") != fleet_session:
         raise ValueError("Message fleet session does not match")
     if message.get("from") not in (*drones, "player") or (sender and message["from"] != sender):
         raise ValueError("Message sender must be this drone")
-    if message["from"] == "player" and (message.get("kind") != "mission" or message.get("to") != "all"):
+    if message["from"] == "player" and not player_chat and (message.get("kind") != "mission" or message.get("to") != "all"):
         raise ValueError("Operator may only broadcast player missions")
-    if message.get("to") not in (*drones, "all") or message["to"] == message["from"]:
+    if message.get("kind") == "mission" and message["from"] != "player":
+        raise ValueError("Only the operator may replace an objective")
+    if message.get("to") not in (*drones, "all", *(('player',) if player_chat else ())) or message["to"] == message["from"]:
         raise ValueError("Recipient must be all or another drone")
-    for field, limit in (("id", 200), ("kind", 64), ("sentAt", 80), ("text", 4000)):
+    for field, limit in (("id", 200), ("kind", 64), ("sentAt", 80), ("text", MAX_MISSION_TEXT if message.get("kind") == "mission" else 1200)):
         if not isinstance(message.get(field), str) or not 1 <= len(message[field]) <= limit:
             raise ValueError(f"Invalid message {field}")
     for field, minimum in (("sequence", 1), ("mission", 0)):
@@ -52,8 +61,9 @@ def validate_message(message, fleet_session, drones, sender=None):
         raise ValueError("Invalid message simTime")
     if "data" in message and not isinstance(message["data"], dict):
         raise ValueError("Message data must be an object")
-    if len(encode(message).encode("utf-8")) > MAX_BYTES:
-        raise ValueError("Message exceeds 64 KiB")
+    limit = MAX_BYTES if message.get("kind") == "transfer" else 8192
+    if len(encode(message).encode("utf-8")) > limit:
+        raise ValueError(f"Message exceeds {limit} UTF-8 bytes; use a bounded file transfer")
 
 
 class Peer:
@@ -70,9 +80,13 @@ class Peer:
         if not valid_count or len(set([args.listen, *peers])) != len(peers) + 1:
             raise ValueError("Distinct endpoints for the other drone peers and optional operator are required")
         self.drone, self.fleet_session = args.drone, args.session
+        self.network_id, self.boot_id = network_id, str(uuid.uuid4())
+        self.sender_sequence = 0
+        self.player_chat = bool(args.player_chat)
+        self.has_operator = len(peers) == count
         self.sender = "player" if args.drone == "operator" else args.drone
-        self.events = queue.Queue()
-        self.transport = PeerTransport(args.drone, network_id, args.listen, peers, self.events)
+        self.events = queue.Queue(maxsize=128)
+        self.transport = PeerTransport(args.drone, network_id, args.listen, peers, self.events, self.player_chat)
         self.store = PeerStore(args.store, args.drone, args.session)
         self.running = True
         self.counters = {"txFrames": 0, "rxFrames": 0, "duplicates": 0, "invalidFrames": 0, "retries": 0}
@@ -112,12 +126,26 @@ class Peer:
             raise ValueError("params must be an object")
         if method == "send":
             message = params.get("message")
-            validate_message(message, self.fleet_session, self.drones, self.sender)
+            validate_message(message, self.fleet_session, self.drones, self.sender, self.player_chat)
             ttl = params.get("ttlMs", 120000)
             if type(ttl) not in (int, float) or not math.isfinite(ttl) or not 1 <= ttl <= 600000:
                 raise ValueError("ttlMs must be between 1 and 600000")
             recipients = [drone for drone in self.drones if drone != self.drone] if message["to"] == "all" else [message["to"]]
-            self.store.queue(message, recipients, time.time() + ttl / 1000)
+            if message["to"] == "all" and self.sender != "player" and self.player_chat and self.has_operator:
+                recipients.append("player")
+            # The bridge binds sender/network/boot metadata; a guest cannot assert
+            # another identity. Absolute monotonic deadlines survive helper restarts
+            # on this same host; new matches have different stores/namespaces.
+            deadline = time.monotonic() + ttl / 1000
+            binding = self.store.sender_binding(message["id"])
+            if binding is None:
+                self.sender_sequence += 1
+                binding = {"bootId": self.boot_id, "senderSequence": self.sender_sequence}
+            message = {**message, "networkId": self.network_id, **binding,
+                       "expiresAt": datetime.fromtimestamp(datetime.fromisoformat(message["sentAt"].replace("Z", "+00:00")).timestamp() + ttl / 1000, timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                       "trafficClass": "control" if message["kind"] == "mission" else "transfer" if message["kind"] == "transfer" else "durable"}
+            validate_message(message, self.fleet_session, self.drones, self.sender, self.player_chat)
+            self.store.queue(message, recipients, deadline)
             return {"queued": True, "id": message["id"]}
         if method == "link":
             if type(params.get("online")) is not bool:
@@ -151,41 +179,58 @@ class Peer:
                 raise ValueError("Wrong fleet session")
             self.audit_payload("received", topic, packet)
             if topic == self.transport.ack_topic(self.sender):
-                if packet.get("protocol") != "fleet-ack/1" or packet.get("to") != self.sender or packet.get("from") not in self.drones:
+                if packet.get("protocol") not in ("fleet-ack/1", "fleet-backpressure/1") or packet.get("to") != self.sender or packet.get("from") not in (*self.drones, *(('player',) if self.player_chat else ())):
                     raise ValueError("Invalid ACK")
                 if not isinstance(packet.get("id"), str):
                     raise ValueError("Invalid ACK ID")
-                recipients = self.store.acknowledge(packet["id"], packet["from"], time.time())
+                if packet["protocol"] == "fleet-backpressure/1":
+                    emit({"event": "backpressure", "id": packet["id"], "recipient": packet["from"], "reason": "radio-mail storage full; retained in bounded sender outbox until expiry"})
+                    return
+                recipients = self.store.acknowledge(packet["id"], packet["from"], time.monotonic())
+                emit({"event": "delivery", "id": packet["id"], "status": "stored", "recipient": packet["from"]})
                 if recipients:
                     emit({"event": "delivery", "id": packet["id"], "status": "received", "recipients": recipients})
                 return
             if packet.get("protocol") != "fleet-zenoh/1":
                 raise ValueError("Invalid transport envelope")
             message = packet.get("message")
-            validate_message(message, self.fleet_session, self.drones)
-            if message["from"] == self.drone or message["to"] not in (self.drone, "all") or topic != self.transport.data_topic(message["to"]):
+            validate_message(message, self.fleet_session, self.drones, player_chat=self.player_chat)
+            if message.get("networkId") != self.network_id or not isinstance(message.get("bootId"), str) or type(message.get("senderSequence")) is not int or message["senderSequence"] < 1:
+                raise ValueError("Invalid bound transport identity")
+            if message["from"] == self.sender or message["to"] not in (self.sender, "all") or topic != self.transport.data_topic(message["to"]):
                 raise ValueError("Message not addressed to this peer")
-            expires = packet.get("expiresAt")
+            expires = packet.get("expiresMonotonic")
             if type(expires) not in (float, int) or not math.isfinite(expires):
                 raise ValueError("Invalid expiry")
-            if expires <= time.time() * 1000:
+            if expires <= time.monotonic() or expires > time.monotonic() + MAX_TTL_MS / 1000 + 1:
                 return
-            received = received_message(message, expires / 1000)
-            fresh = self.store.accept(message, expires / 1000)  # FULL synchronous SQLite commit precedes ACK.
+            # Stable wall expiry is stored as receiver metadata outside the immutable
+            # wire body by PeerStore; arrival labels never control deadline decisions.
+            received = received_message(message, expires)
+            try:
+                fresh = self.store.accept(message, expires)  # FULL SQLite commit precedes ACK.
+            except ValueError as error:
+                if "storage" not in str(error).lower() and "quota" not in str(error).lower():
+                    raise
+                self.put(self.transport.ack_topic(message["from"]), {
+                    "protocol": "fleet-backpressure/1", "sessionId": self.fleet_session,
+                    "id": message["id"], "from": self.sender, "to": message["from"],
+                })
+                return
             if fresh:
                 emit({"event": "received", "message": received})
             else:
                 self.counters["duplicates"] += 1
             self.put(self.transport.ack_topic(message["from"]), {
                 "protocol": "fleet-ack/1", "sessionId": self.fleet_session, "id": message["id"],
-                "from": self.drone, "to": message["from"],
+                "from": self.sender, "to": message["from"],
             })
             self.counters["txFrames"] += 1
         except (ValueError, TypeError, KeyError, UnicodeDecodeError, OverflowError, OSError):
             self.counters["invalidFrames"] += 1
 
     def tick(self):
-        now = time.time()
+        now = time.monotonic()
         for row in self.store.expire(now):
             emit({"event": "delivery", "id": row["id"], "status": "expired",
                   "recipients": json.loads(row["recipients"]), "receivedBy": json.loads(row["receipts"])})
@@ -195,7 +240,7 @@ class Peer:
                 self.store.attempted(row["id"], now)
                 self.put(self.transport.data_topic(message["to"]), {
                     "protocol": "fleet-zenoh/1", "sessionId": self.fleet_session,
-                    "message": message, "expiresAt": row["expires"] * 1000,
+                    "message": message, "expiresMonotonic": row["expires"],
                 })
                 self.counters["txFrames"] += 1
                 self.counters["retries"] += int(row["attempts"] > 0)
@@ -248,6 +293,7 @@ def main():
     parser.add_argument("--listen", required=True)
     parser.add_argument("--peers", required=True)
     parser.add_argument("--store", required=True)
+    parser.add_argument("--player-chat", action="store_true", help="Blue domain: operator receives ordinary group/direct conversation")
     args = parser.parse_args()
     try:
         Peer(args).run()

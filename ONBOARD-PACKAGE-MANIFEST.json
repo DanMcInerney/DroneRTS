@@ -1,0 +1,468 @@
+{
+  "schema": "drone-onboard-package/v1",
+  "runtime": "QuickJS WASM 0.32.0 release-sync",
+  "platform": "win32/x64; Node 24.15.0",
+  "artifacts": [
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.d.mts",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 30642,
+      "sha256": "89d6886dc16653c9e3372b255d3967ca756babe1f82ba07ed7d32af269c1b21e"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.d.ts",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 30642,
+      "sha256": "89d6886dc16653c9e3372b255d3967ca756babe1f82ba07ed7d32af269c1b21e"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.js",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 2080,
+      "sha256": "3a2796efb42688b5c92c09deca5343bf01fe900cdbfde5f2813c9e98d57b5709"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.js.map",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 6876,
+      "sha256": "1d00190ceb7ce5ed385096721a70c8ccae3c8215d22edf5efc30f77e4064530d"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.mjs",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1113,
+      "sha256": "5b6ccfe50a0d0066411135c66964b0c15c05167f5324df2e8066493da807efbe"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/dist/index.mjs.map",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 6597,
+      "sha256": "765a4b5dcbe5ea430c3def6a02aeea92d4da24b5c732835a307004bd3e59dbd0"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/LICENSE",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1102,
+      "sha256": "3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/package.json",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 768,
+      "sha256": "94fec038d66a1b64e3bc0b5bbcd87a8ab217badf5291085a53e97b2bafbd4e3f"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-ffi-types/README.md",
+      "package": "@jitl/quickjs-ffi-types",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 175,
+      "sha256": "808124bff16606acac21b74e72017c201200b370f62064dcd61baefbaa5470d6"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.browser.d.ts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 551,
+      "sha256": "48c7632a3a2fd82bb1ac630bd9c6a8ad2378d112599f2a1d52a6c93dc55dcfd4"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.browser.mjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 9368,
+      "sha256": "3b8e916b3248062be4bbd3281c8d2832f074e6850596fc9951e93b846139ddea"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.cjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 9220,
+      "sha256": "0c4f1704b22239171f4eff52eae838de5912b078c37cd9d762b1c5ec265bb73c"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.cloudflare.cjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 9308,
+      "sha256": "7db748e70ba231dafdf8c5173231b27cc3bd50dacba04f1b167e4e8021e1aafe"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.cloudflare.d.ts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 551,
+      "sha256": "48c7632a3a2fd82bb1ac630bd9c6a8ad2378d112599f2a1d52a6c93dc55dcfd4"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.d.ts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 551,
+      "sha256": "48c7632a3a2fd82bb1ac630bd9c6a8ad2378d112599f2a1d52a6c93dc55dcfd4"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.mjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 10208,
+      "sha256": "3b0757e4b1051a5f344322ad6a02c075dadff70cdb50d37b7df6c120d4af77e9"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/emscripten-module.wasm",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 503134,
+      "sha256": "105c3bed22d457e43e3d1c3c1c6959fda62a8fe06f0fc8a985303c3a2be72232"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.d.mts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 7575,
+      "sha256": "4aad6025f46424783cc19c3127b7c8fae72eaf39109cc108a70987af7fea02ce"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.d.ts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 7575,
+      "sha256": "4aad6025f46424783cc19c3127b7c8fae72eaf39109cc108a70987af7fea02ce"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.js",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 7158,
+      "sha256": "8c4be0aaf96b13d5d0fbf2ee165285b85e6260daac0a1ace1dd4be1ec6e00014"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.js.map",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 18915,
+      "sha256": "fbe8332055c0dba73b9b69b645b21d11d6265c8f1a4eebcc9f1c8b13942e51a8"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.mjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 6369,
+      "sha256": "ccf8b3aa066c2be5755e3ea49d81b01dff5a671deb34b7ec3a1c983dd52e9335"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/ffi.mjs.map",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 18893,
+      "sha256": "cc26884deca436711085498f825b676b211cb152abb5d69bc1812bd69c2e2e49"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.d.mts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1421,
+      "sha256": "5db8d2c236cf44dbd2b3850700cbf7753049f77559d0a5f4a67ffcad71f75820"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.d.ts",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1421,
+      "sha256": "5db8d2c236cf44dbd2b3850700cbf7753049f77559d0a5f4a67ffcad71f75820"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.js",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 7850,
+      "sha256": "74991fd063dceb1515d44de01cf52543f95ec0de6975f92e3b6a384cea40a3dc"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.js.map",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 20758,
+      "sha256": "e74cf47134269feebcc0eb9e8f2c1495231e61e2eea0a7fc733aa14f6d330141"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.mjs",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 282,
+      "sha256": "334f0e7eec1af1be0737f6bcaaa430656686843e29b91aa5e74c661708094538"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/dist/index.mjs.map",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1904,
+      "sha256": "1eea642d8cf666b6e233e2b910b590473a5e5bae49dc888e49c8d1224dde5696"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/LICENSE",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 2263,
+      "sha256": "446a69ae534aa8612d8b16d3bfc670c5a5050597dca3ce9820441a60d5d04fbb"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/package.json",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1783,
+      "sha256": "f1d8c02102ee441a6a85bf31522a9bc436e66600b31392ac9b0dddb15b33245d"
+    },
+    {
+      "path": "node_modules/@jitl/quickjs-wasmfile-release-sync/README.md",
+      "package": "@jitl/quickjs-wasmfile-release-sync",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 2490,
+      "sha256": "debb8041781390f99ed5e43f75af2b97ef35bb3683354faa4ed8f6897393a6fc"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/chunk-TAV5CUKK.mjs",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 3052,
+      "sha256": "b423c720a9deef215b404e4ee212533bcef9de785a11f44aacf1ad8266ae6769"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/chunk-TAV5CUKK.mjs.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 12916,
+      "sha256": "7a43bf38cb4f3f083bd3883a16498e17713ce246c1f3eda9005298dbf8ebc8f2"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/chunk-V2S4ZYJR.mjs",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 45838,
+      "sha256": "9601ad84160a56f1321e1ed67910a3b79a4e29312f11de129e6f94a5b3e17b9a"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/chunk-V2S4ZYJR.mjs.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 170484,
+      "sha256": "11e8bbbe268c90d2c025173a44c17f18bffbf2a7338644542097c1035f3e752d"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.d.mts",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 86018,
+      "sha256": "0d53129147a4be916231518ef6dd5d61391589b09ccf7ed46561b57b4c392303"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.d.ts",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 86018,
+      "sha256": "0d53129147a4be916231518ef6dd5d61391589b09ccf7ed46561b57b4c392303"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.js",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 60295,
+      "sha256": "cf8cdd9674a0cf4037d3788dc759cf7820bd7e67c699e9ea54a5a61f10b23a13"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.js.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 208773,
+      "sha256": "e52e0537b0b2e73be8cbe10c633bd789b54db94ed29f42ee0d5f01dac9de69cd"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.mjs",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 7103,
+      "sha256": "5f7a507ca71ffbff0ec0bad88a9c38f717d34fd8ab9222b58deacc9de5644a3e"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/index.mjs.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 24788,
+      "sha256": "02c1ee428cd14e9e24902343e16101010e8def6bbb90e64fa93a4d880eed41e5"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/module-asyncify-2EFITU5U.mjs",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 171,
+      "sha256": "c8cec04532f68af9aa436ad117defdc686d36a1670691d98cea9263345ba7b2b"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/module-asyncify-2EFITU5U.mjs.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 71,
+      "sha256": "cba81f7ad4d5b1b629bf43823f1082e73a10d0c3114c937515e7f8c1047629b3"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/module-ES6BEMUI.mjs",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 277,
+      "sha256": "289a200ab91f855ed79f75147eb674b81cea7adf032f9344bd8b29ff5e7a7d43"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/dist/module-ES6BEMUI.mjs.map",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 71,
+      "sha256": "cba81f7ad4d5b1b629bf43823f1082e73a10d0c3114c937515e7f8c1047629b3"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/LICENSE",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 1102,
+      "sha256": "3c6040aa318612a234cc951609b640c0c63d85ae5a98a9330d3116f1553a79db"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/package.json",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 955,
+      "sha256": "9e6ee511f4dd74ca9283848b1dd7e4a94abe94581bae1c62f98e42e00c12d765"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/README.md",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 83820,
+      "sha256": "faeaa118e2cb9509f6ce05ffd397071d0c55a0a5ab0c1b7a1489577616354e1d"
+    },
+    {
+      "path": "node_modules/quickjs-emscripten-core/README.template.md",
+      "package": "quickjs-emscripten-core",
+      "version": "0.32.0",
+      "license": "MIT",
+      "bytes": 3122,
+      "sha256": "7fcd4164644a4c10e40369eb67c4deb7e9d7e47e6b096c2d5867f49b9f889ce0"
+    },
+    {
+      "path": "server/onboard-manifest.ts",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 6836,
+      "sha256": "8ff55107af912e70dd38e7c4f96b72f1d3d34eaef0daa34c9867e5994a5f74fd"
+    },
+    {
+      "path": "server/onboard-workspace.ts",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 14216,
+      "sha256": "7bb370fd07ec4c4f3188cba8c8fed18a4a87873b0a1b38d0960b61b0ee7f5dff"
+    },
+    {
+      "path": "server/radio-transfer.ts",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 15827,
+      "sha256": "b893cd4e89944e30c714fca94020587ac314bc67929baaaa8b8b518a5af29ed0"
+    },
+    {
+      "path": "server/routine-runner.ts",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 13305,
+      "sha256": "de52a3133b8f845f9cd712a315a5442c67bcd8b800de857da75fc6ea66e2d460"
+    },
+    {
+      "path": "server/routine-worker.mjs",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 7674,
+      "sha256": "41231e21ef52f74b70a9a728e25cd7e2b9deab019373459f5447e424e2cb01c3"
+    },
+    {
+      "path": "shared/onboard.ts",
+      "package": "DroneRTS onboard SDK",
+      "version": "1",
+      "license": "Project source; local application",
+      "bytes": 1497,
+      "sha256": "4f878a346a451c68f65d2b17b9f97421030329a89d64c1c119bb8ae8b2b5525c"
+    }
+  ],
+  "artifactBytes": 1583772,
+  "manifestBytes": 17307,
+  "installedBytes": 1601079,
+  "limitBytes": 8388608,
+  "fits": true,
+  "optionalGuestLibraries": [],
+  "exclusions": [
+    "Node/Python/OS and renderer are fixed simulator infrastructure.",
+    "Zenoh and pymavlink are fixed network/vehicle platform infrastructure, not guest imports.",
+    "Inference engine and model weights are separately exempt.",
+    "Development tools, replay archives and repository files are inaccessible to guests.",
+    "The unused umbrella quickjs-emscripten development package and debug/asyncify variants are not deployed; their full installation exceeds 8 MiB."
+  ]
+}

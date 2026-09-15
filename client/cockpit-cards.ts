@@ -1,5 +1,7 @@
 import type { CockpitSnapshot, CockpitEvent } from '../shared/cockpit';
 import { json, record, timestamp } from './cockpit-model';
+import { CockpitWorkspaceView } from './cockpit-workspace';
+import { formatBytes } from './onboard-presentation';
 
 export interface CockpitCardContext { snapshot: CockpitSnapshot; events: CockpitEvent[] }
 export interface CockpitCardDefinition {
@@ -7,6 +9,7 @@ export interface CockpitCardDefinition {
   /** Only redraw when a card's evidence changes, preserving scroll and open details. */
   evidence(context: CockpitCardContext): unknown;
   render(host: HTMLElement, context: CockpitCardContext): void;
+  dispose?(host: HTMLElement): void;
 }
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string) {
   const element = document.createElement(tag); element.className = className;
@@ -27,6 +30,7 @@ function metadata(entries: Array<[string, unknown]>) {
   return list;
 }
 function sensorBundle(context: CockpitCardContext) { return record(context.snapshot.lastDelivery?.bundle?.sensors); }
+const reading = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? String(Number(value.toFixed(2))) : value === undefined ? '—' : String(value);
 
 const cameraCard: CockpitCardDefinition = {
   id: 'camera', label: '01 / OPTICAL MEMORY', title: 'Last image seen', className: 'cockpit-camera-card',
@@ -65,11 +69,12 @@ const sensorsCard: CockpitCardDefinition = {
     host.replaceChildren();
     const position = record(sensors.position), heading = record(sensors.heading), time = record(sensors.timestamp), camera = record(sensors.camera);
     const readings = node('div', 'cockpit-readings');
-    for (const axis of ['x', 'y', 'z']) { const item = node('div'); item.append(node('span', '', axis.toUpperCase()), node('strong', '', position[axis] === undefined ? '—' : String(position[axis]))); readings.append(item); }
-    const headingBlock = node('div', 'cockpit-heading-reading'); headingBlock.append(node('span', '', 'HEADING'), node('strong', '', heading.degrees === undefined ? '—' : `${heading.degrees}°`));
+    for (const axis of ['x', 'y', 'z']) { const item = node('div'); item.append(node('span', '', axis.toUpperCase()), node('strong', '', reading(position[axis]))); readings.append(item); }
+    const headingBlock = node('div', 'cockpit-heading-reading'); headingBlock.append(node('span', '', 'HEADING'), node('strong', '', heading.degrees === undefined ? '—' : `${reading(heading.degrees)}°`));
     host.append(node('p', 'cockpit-mini-label', 'LOCAL POSITION / XYZ'), readings, headingBlock);
-    host.append(metadata([['Acquired', timestamp(time.capturedAt)], ['Delivered', timestamp(lastDelivery?.bundle?.deliveredAt)], ['Camera', camera.available === true ? 'Image available' : 'Unavailable']]));
+    host.append(metadata([['Acquired', timestamp(time.capturedAt)], ['Delivered', timestamp(lastDelivery?.bundle?.deliveredAt)], ['Camera', camera.available === true ? 'Image available' : 'Unavailable'], ...(typeof sensors.validity === 'string' ? [['Sensor validity', sensors.validity] as [string, unknown]] : [])]));
     host.append(detail('Exact sensor payload', sensors));
+    if (lastDelivery?.bundle?.currentTelemetry) host.append(detail('Current telemetry in this delivery', lastDelivery.bundle.currentTelemetry));
   },
 };
 const inboxCard: CockpitCardDefinition = {
@@ -92,6 +97,7 @@ const inboxCard: CockpitCardDefinition = {
       host.append(list);
     }
     host.append(note(`Batch delivered ${timestamp(delivery?.bundle?.deliveredAt)} · mission ${delivery?.bundle?.mission ?? '—'}`));
+    if (delivery?.bundle?.hasMore) host.append(note('More unread events remain for a later tool delivery.'));
     host.append(detail('Exact inbox batch', batch));
   },
 };
@@ -130,30 +136,32 @@ const outboxCard: CockpitCardDefinition = {
     host.replaceChildren(list, note('Send calls in the retained event window. A call alone does not confirm delivery.'));
   },
 };
+const workspaceViews = new WeakMap<HTMLElement, CockpitWorkspaceView>();
 const workspaceCard: CockpitCardDefinition = {
   id: 'workspace', label: '06 / LOCAL WORKSPACE', title: 'Files & automations', className: 'cockpit-workspace-card',
-  evidence: ({ snapshot }) => [snapshot.workspace.available, snapshot.workspace.reason, snapshot.workspace.entries],
+  evidence: ({ snapshot }) => [snapshot.droneId, snapshot.sessionId, snapshot.workspace],
   render(host, { snapshot }) {
-    const workspace = snapshot.workspace; host.replaceChildren();
-    const tree = node('div', 'cockpit-tree');
-    tree.append(node('div', 'cockpit-tree-root', '▱  Drone workspace'), node('div', 'cockpit-tree-empty', workspace.entries.length ? `${workspace.entries.length} entries` : '└─  No agent-created files'));
-    host.append(tree, node('div', 'cockpit-workspace-state', workspace.available ? 'WORKSPACE AVAILABLE' : 'NO WRITABLE WORKSPACE'), note(workspace.reason));
-    if (workspace.entries.length) host.append(detail('Workspace entries', workspace.entries));
+    let view = workspaceViews.get(host);
+    if (!view) { view = new CockpitWorkspaceView(host); workspaceViews.set(host, view); }
+    view.update(snapshot);
   },
+  dispose(host) { workspaceViews.get(host)?.dispose(); workspaceViews.delete(host); },
 };
 const environmentCard: CockpitCardDefinition = {
   id: 'environment', label: '07 / EXECUTION ENVIRONMENT', title: 'Tools & libraries', className: 'cockpit-environment-card',
-  evidence: ({ snapshot }) => snapshot.workspace,
+  evidence: ({ snapshot }) => [snapshot.workspace.compute, snapshot.workspace.tools, snapshot.workspace.libraries, snapshot.workspace.optionalGuestLibraries],
   render(host, { snapshot }) {
     const { compute, libraries, tools } = snapshot.workspace; host.replaceChildren();
     host.append(node('p', 'cockpit-model-name', `${compute.model} / ${compute.effort}`));
     const flags = node('div', 'cockpit-compute-flags');
-    for (const [label, available] of [['Shell', compute.shell], ['Files', compute.filesystem], ['Web', compute.web]] as const) flags.append(node('span', available ? 'available' : '', `${available ? '✓' : '×'} ${label}`));
+    for (const [label, available] of [['Onboard files', compute.filesystem], ['Scripts', compute.codeExecution], ['Host files', compute.hostFilesystem], ['Shell', compute.shell], ['Web', compute.web]] as const) flags.append(node('span', available ? 'available' : '', `${available ? '✓' : '×'} ${label}`));
     host.append(flags, node('p', 'cockpit-mini-label', 'CURRENTLY PERMITTED CONTROLLER TOOLS'));
     const toolList = node('div', 'cockpit-tool-list'); for (const name of tools) toolList.append(node('code', '', name)); host.append(toolList);
-    host.append(note(`Sandbox: ${compute.sandbox}`));
-    const details = node('details', 'cockpit-libraries'); details.append(node('summary', '', `Installed host libraries · ${libraries.length}`));
+    host.append(note(`${compute.executionEngine} · ${formatBytes(compute.heapBytes)} heap · ${compute.cpuMsPerSecond} ms CPU/s · ${compute.maxRoutineMs / 1000} s per routine. Files: ${compute.filesystemScope}. Host sandbox: ${compute.sandbox}.`));
+    const details = node('details', 'cockpit-libraries'); details.append(node('summary', '', `Runtime & bridge libraries · ${libraries.length}`));
     for (const library of libraries) { const row = node('div'); row.append(node('strong', '', library.name), node('span', '', library.purpose), node('small', '', library.access)); details.append(row); }
+    const optional = snapshot.workspace.optionalGuestLibraries;
+    details.append(note(`Optional guest libraries: ${optional.length ? optional.join(', ') : 'none installed'}. Host bridge packages are outside guest imports.`));
     host.append(details);
   },
 };
@@ -172,6 +180,6 @@ export function mountCockpitCards(host: HTMLElement, definitions: readonly Cockp
     update(context: CockpitCardContext) {
       for (const card of cards) { const signature = json(card.definition.evidence(context)); if (signature === card.signature) continue; card.signature = signature; card.definition.render(card.body, context); }
     },
-    reset() { for (const card of cards) { card.signature = ''; empty(card.body, 'Waiting for agent evidence', 'Connecting to the cockpit recorder.'); } },
+    reset() { for (const card of cards) { card.signature = ''; card.definition.dispose?.(card.body); empty(card.body, 'Waiting for agent evidence', 'Connecting to the cockpit recorder.'); } },
   };
 }

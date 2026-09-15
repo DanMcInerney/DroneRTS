@@ -8,7 +8,7 @@ export class ResourceVision {
   private sightings = new Map<DroneId, { ids: string[]; mission: number; simTime: number }>();
   clear() { this.sightings.clear(); }
   forget(id: DroneId) { this.sightings.delete(id); }
-  record(id: DroneId, pose: Pose, mission: number, simTime: number, image: boolean, resources: readonly ResourceNode[], buildings: readonly Obstacle[]) {
+  record(id: DroneId, pose: Pose, mission: number, simTime: number, image: boolean, resources: readonly ResourceNode[], buildings: readonly Obstacle[], fov: number = DRONE_CAMERA.fov) {
     const yaw = pose.yaw * Math.PI / 180, pitch = pose.pitch * Math.PI / 180;
     const forward = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
     const right = { x: Math.cos(yaw), y: 0, z: -Math.sin(yaw) };
@@ -19,7 +19,8 @@ export class ResourceVision {
       const focus = { x: node.x, y: node.y + 0.65, z: node.z };
       const delta = { x: focus.x - pose.x, y: focus.y - pose.y, z: focus.z - pose.z };
       const dot = (v: typeof delta) => v.x * delta.x + v.y * delta.y + v.z * delta.z;
-      const depth = dot(forward), vertical = Math.tan(DRONE_CAMERA.fov * Math.PI / 360) * 0.92;
+      // Projection belongs to the captured image, even if camera mode changes before delivery.
+      const depth = dot(forward), vertical = Math.tan(fov * Math.PI / 360) * 0.92;
       return depth > 0.1 && Math.abs(dot(up)) < depth * vertical
         && Math.abs(dot(right)) < depth * vertical * DRONE_CAMERA.width / DRONE_CAMERA.height
         && !buildings.some(building => intersectsBuilding(pose, focus, building));

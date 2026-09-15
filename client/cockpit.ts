@@ -109,6 +109,7 @@ export function mountCockpit(initialIds: readonly string[]) {
     const wasVisible = visible; visible = Boolean(next); droneId = next; page.hidden = !visible;
     const app = document.querySelector<HTMLElement>('#app'); if (app && (wasVisible || visible)) app.inert = visible || location.hash === '#admin';
     if (!visible) {
+      cards.reset();
       if (wasVisible) { document.body.style.overflow = location.hash === '#admin' ? 'hidden' : previousOverflow; if (location.hash !== '#admin') restoreFocus?.focus(); }
       return;
     }
@@ -133,5 +134,5 @@ export function mountCockpit(initialIds: readonly string[]) {
     }
   }, { signal: listeners.signal });
   window.addEventListener('hashchange', route, { signal: listeners.signal }); setDrones(initialIds); route();
-  return { setDrones, dispose() { generation++; visible = false; clearTimeout(timer); request?.abort(); listeners.abort(); page.remove(); } };
+  return { setDrones, dispose() { generation++; visible = false; clearTimeout(timer); request?.abort(); cards.reset(); listeners.abort(); page.remove(); } };
 }

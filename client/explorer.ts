@@ -102,7 +102,7 @@ export class Explorer {
     }
     const { x, y, z } = this.camera.position;
     const heading = ((-THREE.MathUtils.radToDeg(this.camera.rotation.y) % 360) + 360) % 360;
-    this.status.textContent = `X ${x.toFixed(1)}   Y ${y.toFixed(1)}   Z ${z.toFixed(1)} · HDG ${heading.toFixed(0)}° · ${down('ShiftLeft', 'ShiftRight') ? 'FAST' : 'CRUISE'}`;
+    this.status.textContent = `X ${x.toFixed(3)}   Y ${y.toFixed(3)}   Z ${z.toFixed(3)} · HDG ${heading.toFixed(0)}° · ${down('ShiftLeft', 'ShiftRight') ? 'FAST' : 'CRUISE'}`;
   }
 
   dispose() { this.exit(); this.abort.abort(); this.overlay.remove(); }

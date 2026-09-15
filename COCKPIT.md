@@ -5,12 +5,12 @@ Click a drone feed card, or open `#cockpit/drone-1`, to inspect its latest recei
 ## Cards
 
 - **Last image seen:** actual pixels from the last MCP image response, with acquisition and delivery timestamps. If a later response has no image, the previous frame is explicitly marked. Images are served separately from JSON and remain outside audit exports.
-- **Position & heading:** the last delivered sensor object, including the camera's availability. Expand the exact JSON. No live spectator position is substituted.
-- **Last inbox batch:** every event in the latest returned bundle, including an empty batch. Received player and teammate messages remain distinct from messages merely queued for delivery.
+- **Position & heading:** the last acquired sensor object, including camera pose, own velocity/orientation, finite ranges and validity. The `fleet-observation/5` column encoding remains lossless; newer current telemetry has separate acquisition metadata. No spectator position is substituted.
+- **Last inbox batch:** every event in the latest returned 128 KiB-bounded slice, including empty slices. `hasMore` means unread events remain for later tool results. Received messages stay distinct from messages merely queued for delivery.
 - **Last tool exchange:** latest request arguments and latest returned content. A pending request labels the previous receipt. Credential redaction, separately served images and size omissions are disclosed.
 - **Radio outbox:** retained `send` requests; a request does not establish peer delivery.
-- **Files & automations:** actual runtime capability state. Drones currently have no filesystem or code-execution tool, so there are no agent-created scripts to browse.
-- **Tools & libraries:** dynamically available tools, Luna/xhigh, sandbox constraints and host adapter dependencies. Zenoh and pymavlink are host libraries; drones do not import them.
+- **Files & automations:** read-only inspection of the selected drone's actual private virtual workspace, including authored/imported notes and JavaScript. Empty means no retained files; unavailable/revoked access is explicit. Inspecting source neither runs a routine nor imports transferred code.
+- **Tools & libraries:** dynamically available tools, Luna/xhigh, bounded QuickJS execution, private file quotas and guest/host library boundaries. Own relative modules may be imported; optional guest libraries are absent. Zenoh and pymavlink are host adapters outside guest imports.
 
 The bottom feed shows tool activity, emitted agent output, **Native reasoning** and **Reasoning summary** entries. Streaming output updates appear as their text arrives. Pause the feed to inspect entries; resume to follow new activity. Evidence is recorded when the final MCP response is constructed; the native client does not acknowledge when the model has read it.
 
@@ -43,7 +43,7 @@ Only readable text emitted by the native runtime is displayed. Encrypted payload
 | Feed model | `client/cockpit-model.ts` | Event identity, bounds and merging text deltas/completions. |
 | Page | `client/cockpit.ts`, `client/cockpit.css` | Navigation, polling, cancellation, responsive layout and output feed. |
 
-The workspace contract intentionally reports an unavailable workspace. Adding script execution later requires an explicitly designed isolated compute service and file contract; merely rendering a tree must not enable host filesystem access.
+The workspace view reads the existing onboard service through a pure inspection path. It grants no host-directory access, consumes no inbox events, does not expire/import transfers and cannot write files or execute code. Authored files and immutable versions belong to the actor's 2 MiB workspace, with 64 KiB/file and 256-file limits. The complete application split and QuickJS heap/CPU/SDK/deadline limits are documented in [ONBOARD.md](ONBOARD.md); guest libraries have a combined 256 KiB ceiling and none is currently installed. New matches start empty, while destruction revokes actor access.
 
 ## HTTP and retention
 
@@ -55,6 +55,6 @@ Per drone, the server retains up to 256 events and 256 KB of event JSON, 24 KB o
 
 Run `npm test` and `npm run build`. The cockpit tests exercise real MCP responses, empty/error bundles, exact image bytes, per-drone/session isolation, credential redaction and retention limits without model inference. Reasoning protocol tests cover native versus summary text, multipart deltas, completions, interrupted partials and absent readable text; they do not establish live Luna support.
 
-For watchable UI checks, run `node --import tsx scripts/cockpit-fixture.ts`. It starts a developer-controlled match on an ephemeral loopback port, prints its URL and stops after ten minutes. It never creates model actors. Open that URL in a browser to supply real camera captures. Its `POST /api/fixture` actions (`bootstrap`, `mail`, `observe`, `output`, `reasoning-complete`, `cargo`, `camera-off`, `camera-on`, `reset`) change only this synthetic fixture. `output` streams explicitly synthetic native reasoning and a summary; `reasoning-complete` finalizes them and adds an empty-response availability example. `cargo` accepts index 0, 1 or 2; `droneId` selects drone-1 or drone-4. Stop the fixture with Ctrl+C after checking. Ports 4317 and 4318 are untouched.
+For watchable UI checks, run `node --import tsx scripts/cockpit-fixture.ts`. It starts a developer-controlled match on an ephemeral loopback port, prints its URL and stops after ten minutes. It uses the production camera channel, compact observation schema and managed test-artifact lifecycle, without creating model actors. Open the URL in a current browser to supply real camera captures. Its `POST /api/fixture` actions include `bootstrap`, `mail`, `observe`, `output`, `reasoning-complete`, `workspace`, `cargo`, `camera-off`, `camera-on` and `reset`. `output` streams explicitly synthetic native reasoning and a summary; `workspace` creates explicitly synthetic private-file evidence through the onboard service. Cargo indices refer to the current five-cache layout. Stop with Ctrl+C after checking. Ports 4317 and 4318 are untouched.
 
 `node --import tsx scripts/runtime-preflight.ts` checks that the installed native runtime accepts all three reasoning settings and can call its parent MCP tool. It starts no model inference and does not establish which readable reasoning streams Luna will emit.

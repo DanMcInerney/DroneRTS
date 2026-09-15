@@ -1,3 +1,4 @@
+import { isCargoRules } from '../shared/rts';
 import type { WorldState } from './types';
 import { dronePresentation } from './drone-presentation';
 
@@ -17,16 +18,29 @@ export class MatchPanel {
       element(`${team}-alive`).replaceChildren(document.createTextNode(String(alive)));
       const total = document.createElement('span'); total.textContent = ` / ${drones.length}`; element(`${team}-alive`).append(total);
       element(`${team}-credits`).textContent = Math.floor((match?.teams[team].credits ?? 0) + 1e-9).toLocaleString();
+      element(`${team}-credits`).title = `${(match?.teams[team].earned ?? 0).toFixed(0)} salvage delivered this match · ${drones.reduce((total, drone) => total + (drone.cargo?.amount ?? 0), 0).toFixed(0)} currently aboard`;
     }
     const resources = document.createDocumentFragment();
     for (const [index, resource] of (match?.resources ?? []).entries()) {
-      const row = document.createElement('div'); row.className = `resource-row ${resource.remaining <= 0 ? 'depleted' : ''}`;
-      const name = document.createElement('span'); name.textContent = `◆  Deposit ${String(index + 1).padStart(2, '0')}`;
+      const cargoRules = isCargoRules(match?.rulesVersion);
+      const rich = cargoRules ? resource.capacity >= 600 : (resource.extractionMultiplier ?? 1) > 1;
+      const row = document.createElement('div'); row.className = `resource-row ${resource.remaining <= 0 ? 'depleted' : ''} ${rich ? 'rich' : ''}`;
+      const name = document.createElement('span'); name.textContent = resource.kind === 'dropped' ? '◆  Dropped cargo' : rich ? '◆  CENTRAL MEGA' : `◆  ${cargoRules ? 'Cache' : 'Deposit'} ${String(index + 1).padStart(2, '0')}`;
       const remaining = document.createElement('strong'); remaining.textContent = `${Math.ceil(resource.remaining)} / ${resource.capacity}`;
       const progress = document.createElement('progress'); progress.max = resource.capacity; progress.value = resource.remaining; progress.setAttribute('aria-label', `${resource.id} salvage remaining`);
-      row.append(name, remaining, progress); resources.append(row);
+      row.append(name, remaining, progress);
+      const miners = state.drones.filter(drone => drone.alive !== false && (cargoRules ? drone.logistics?.state === 'loading' && drone.logistics.sourceId === resource.id : drone.mining === resource.id));
+      const teams = new Set(miners.map(drone => drone.team ?? dronePresentation(drone.id).team));
+      const detail = document.createElement('small'); detail.className = 'resource-detail';
+      detail.textContent = `${rich && !cargoRules ? `${resource.extractionMultiplier}× extraction · ` : ''}${teams.size > 1 ? 'CONTESTED · ' : ''}${miners.length ? `${miners.length} ${cargoRules ? 'loading' : 'mining'}` : resource.remaining <= 0 ? cargoRules ? 'Empty pallets' : 'Depleted' : cargoRules ? 'No active loading' : 'No active miners'}${cargoRules && resource.reserved ? ` · ${resource.reserved} reserved` : ''}`;
+      row.classList.toggle('contested', teams.size > 1); row.append(detail); resources.append(row);
     }
     element('resource-list').replaceChildren(resources);
+    const totals = document.createDocumentFragment();
+    for (const team of ['blue', 'red'] as const) {
+      const row = document.createElement('span'); row.textContent = `${team.toUpperCase()} · ${(match?.teams[team].earned ?? 0).toFixed(0)} delivered · ${state.drones.filter(drone => (drone.team ?? dronePresentation(drone.id).team) === team).reduce((total, drone) => total + (drone.cargo?.amount ?? 0), 0).toFixed(0)} aboard`; totals.append(row);
+    }
+    element('haul-totals').replaceChildren(totals);
     const finished = match?.phase === 'finished';
     element('match-result').hidden = !finished;
     if (finished) {
@@ -39,7 +53,7 @@ export class MatchPanel {
     this.eventSignature = signature;
     const events = match?.events ?? [];
     element('combat-count').textContent = String(events.length);
-    if (!events.length) { element('combat-log').innerHTML = '<p class="combat-empty">First contact is still ahead. Mining, equipment purchases and combat events appear here.</p>'; return; }
+    if (!events.length) { element('combat-log').innerHTML = '<p class="combat-empty">Pickup, delivery, equipment purchases and combat events appear here.</p>'; return; }
     const rows = document.createDocumentFragment();
     for (const event of events.slice(-70).reverse()) {
       const row = document.createElement('article'); row.className = `combat-event ${event.team ? `team-${event.team}` : ''}`;

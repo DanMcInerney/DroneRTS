@@ -1,17 +1,26 @@
 import type { DroneId } from './fleet.ts';
-import type { Equipment, MatchState, TeamId } from './rts.ts';
+import type { CameraMode, CargoState, CargoServiceState, Equipment, MatchState, Point, ServiceAction, TeamId } from './rts.ts';
+import type { DroneJob, DroneStorage, MovementProfile } from './onboard.ts';
 export { DRONE_IDS, type DroneId } from './fleet.ts';
 export type Role = 'parent' | DroneId;
 export interface Pose { x: number; y: number; z: number; yaw: number; pitch: number }
-export interface Action { id: string; kind: string; target?: { x: number; y: number; z: number } }
+export interface Action { id: string; kind: string; target?: { x: number; y: number; z: number }; profile?: MovementProfile; owner?: string }
 export interface Drone extends Pose {
   id: DroneId; status: string; action?: Action; online: boolean; observations: number;
   team?: TeamId; alive?: boolean; equipment?: Equipment; mining?: string; lastFiredAt?: number;
+  ammo?: number; cameraMode?: CameraMode; servicing?: ServiceAction;
+  battery?: number; charging?: boolean; jamming?: boolean; radioJammed?: boolean;
+  cargo?: CargoState; logistics?: CargoServiceState; gunPurchased?: boolean; velocity?: Point;
+  job?: DroneJob; storage?: DroneStorage;
 }
 export interface Obstacle { id?: string; name?: string; color?: string; x: number; z: number; width: number; depth: number; height: number; rotation?: number; baseY?: number }
 export interface Treasure { id: string; x: number; y: number; z: number; found: boolean; foundBy?: DroneId; foundAt?: number }
 export interface RadioMessage {
+  delivery?: { queuedAt?: string; storedBy: string[]; bundledBy: string[]; answeredBy?: string[]; completedBy?: string[]; error?: string };
+  networkId?: string; bootId?: string; senderSequence?: number;
+  trafficClass?: 'durable' | 'status' | 'transfer' | 'control';
   expiresAt?: string;
+  expiresMonotonicMs?: number;
   protocol: 'fleet-radio/1'; sessionId: string; sequence: number; sentAt: string;
   id: string; from: string; to: string; kind: string; text: string;
   simTime: number; mission: number; data?: Record<string, unknown>;

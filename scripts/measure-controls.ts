@@ -3,10 +3,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createArtifactRun } from './test-artifacts.ts';
 import { FleetGame } from '../server/game.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import { RTS_CONFIG, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, Obstacle, ToolResult } from '../shared/types.ts';
+
+const { directory } = createArtifactRun('control-measurements');
 
 const wrap = (value: number) => ((value + 180) % 360 + 360) % 360 - 180;
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
@@ -19,7 +22,7 @@ type Sample = ReturnType<typeof sample>;
 type Metrics = Record<string, string | boolean | number | null>;
 function sample(game: FleetGame) {
   return { time: game.state.simTime, drones: game.state.drones.map(d => ({ id: d.id, ...pose(d), alive: d.alive,
-    action: d.action?.id ?? null, armor: d.equipment?.armor })), projectiles: structuredClone(game.state.match!.projectiles) };
+    action: d.action?.id ?? null, job: structuredClone(d.job ?? null), armor: d.equipment?.armor })), projectiles: structuredClone(game.state.match!.projectiles) };
 }
 
 class Fixture {
@@ -31,6 +34,9 @@ class Fixture {
   get target() { return this.game.state.drones[3]; }
   async ready() {
     this.game.setConnected(true); this.game.start(); this.game.state.obstacles = [];
+    assert.equal(this.game.state.match!.rulesVersion, 'cargo-v2');
+    // Prescribed impact fixtures set their own armor independently of match defaults.
+    for (const drone of this.game.state.drones) drone.equipment!.armor = false;
     this.game.state.match!.resources = [];
     this.game.capture = async () => SYNTHETIC_CAMERA;
     this.game.state.drones.forEach((d, i) => Object.assign(d, { x: 100 + 10 * i, y: 20, z: 100, yaw: 0, pitch: 0 }));
@@ -47,7 +53,14 @@ class Fixture {
     const result = await this.game.tool(id, name, { mission: 1, ...args });
     const value = body(result);
     this.commands.push({ time: this.game.state.simTime, id, name, args, result: value });
-    assert.ok(!result.isError && !value.rejected && !value.stopped, JSON.stringify(value));
+    assert.ok(!result.isError && !value.rejected && !value.stopped,
+      JSON.stringify({ scenario: this.name, id, name, args, error: value.error, reason: value.reason }));
+    if (name === 'act' && args.kind === 'fly_to') {
+      // Allow the accepted asynchronous job to reach its local controller. This
+      // fixture has no wire transport and advances no simulation during admission.
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(this.game.state.drones.find(drone => drone.id === id)!.job?.state, 'running');
+    }
     return value;
   }
   advance(seconds: number) {
@@ -105,7 +118,8 @@ async function waypoint(tick: number, length: number): Promise<Result> {
   const arrivals = f.game.inboxes[f.drone.id].events.filter(e => e.type === 'arrived');
   const speeds = f.trace.slice(1).map((s, i) => distance(s.drones[0], f.trace[i].drones[0]) / (s.time - f.trace[i].time));
   const maxOvershoot = Math.max(0, ...f.trace.map(s => s.drones[0].x - target.x));
-  assert.ok(arrived && f.drone.alive); assert.equal(arrivals.length, 1); assert.equal(distance(f.drone, target), 0);
+  assert.ok(arrived && f.drone.alive); assert.equal(f.drone.job?.state, 'completed');
+  assert.equal(arrivals.length, 1); assert.equal(distance(f.drone, target), 0);
   return f.finish({ arrived, arrivalEventSeconds: arrivals[0].simTime as number, arrivalObservedSeconds: round(atArrival),
     finalErrorWorldUnits: distance(f.drone, target), maxOvershootWorldUnits: round(maxOvershoot),
     maxSampleSpeedWorldUnitsPerSecond: round(Math.max(...speeds)), arrivalEvents: arrivals.length }, { start, target });
@@ -113,9 +127,9 @@ async function waypoint(tick: number, length: number): Promise<Result> {
 
 async function hover(tick: number, reverse: boolean): Promise<Result> {
   const f = await new Fixture(reverse ? 'reverse_then_hover' : 'cruise_then_hover', tick).ready();
-  await f.command({ kind: 'fly_to', x: 60, y: 10, z: 0 }); f.advance(1);
+  await f.command({ kind: 'fly_to', x: 40, y: 10, z: 0 }); f.advance(1);
   const atCommand = pose(f.drone), commandTime = f.game.state.simTime;
-  if (reverse) { await f.command({ kind: 'fly_to', x: -60, y: 10, z: 0 }); f.advance(0.1); }
+  if (reverse) { await f.command({ kind: 'fly_to', x: -25, y: 10, z: 0, replace: true }); f.advance(0.1); }
   await f.command({ kind: 'hover' });
   const atHover = pose(f.drone), hoverTime = f.game.state.simTime; f.advance(2);
   const drift = distance(atHover, f.drone), final = pose(f.drone); f.advance(1);
@@ -148,16 +162,21 @@ async function corridor(tick: number): Promise<Result> {
 }
 
 async function obstacle(tick: number, armor: boolean): Promise<Result> {
-  const f = await new Fixture(armor ? 'armored_obstacle_contact' : 'unarmored_obstacle_contact', tick).ready();
+  const f = await new Fixture(armor ? 'armored_obstacle_braking' : 'unarmored_obstacle_braking', tick).ready();
   f.drone.equipment!.armor = armor;
   const wall: Obstacle = { x: 0, z: -6, width: 6, depth: 2, height: 14 };
   f.game.state.obstacles = [wall];
   await f.command({ kind: 'fly_to', x: 0, y: 10, z: -15 }); f.advance(5);
   const impacts = f.game.state.match!.events.filter(e => e.drone === f.drone.id && e.cause === 'terrain');
-  assert.equal(impacts.length, 1); assert.equal(f.drone.alive, armor); assert.equal(f.drone.equipment!.armor, false);
+  assert.equal(impacts.length, 0); assert.equal(f.drone.alive, true); assert.equal(f.drone.equipment!.armor, armor);
+  assert.equal(f.drone.job?.state, 'blocked'); assert.equal(f.drone.job?.reason, 'obstruction');
+  assert.equal(f.drone.action, undefined);
+  const nearFace = wall.z + wall.depth / 2, clearance = f.drone.z - nearFace - RTS_CONFIG.droneRadius;
+  assert.ok(clearance > 0, 'Finite sensor braking must stop before physical wall contact');
   const final = pose(f.drone); f.advance(1); assert.equal(distance(final, f.drone), 0);
-  return f.finish({ alive: f.drone.alive !== false, armorRemaining: f.drone.equipment!.armor,
-    impactEvents: impacts.length, impactTimeSeconds: impacts[0].simTime, finalZ: round(f.drone.z),
+  return f.finish({ alive: Boolean(f.drone.alive), armorRemaining: f.drone.equipment!.armor,
+    impactEvents: impacts.length, jobState: f.drone.job!.state, blockingReason: f.drone.job!.reason!,
+    wallClearanceWorldUnits: round(clearance), finalZ: round(f.drone.z),
     driftDuringFinalSecondWorldUnits: distance(final, f.drone) }, { obstacles: [wall], armor });
 }
 
@@ -178,17 +197,21 @@ function ballisticAim(relative: Point, velocity: Point) {
 
 async function shot(tick: number, range: number, moving: boolean, compensated: boolean, occluded = false): Promise<Result> {
   const f = await new Fixture(`shot_${range}_${moving ? 'moving' : 'stationary'}_${compensated ? 'compensated' : 'direct'}${occluded ? '_wall' : ''}`, tick).ready();
-  Object.assign(f.target, { x: 0, y: 10, z: -range });
+  // Translate the prescribed shot together so the moving-target command fits
+  // the landmark crop; relative range, ballistic aim and target speed are fixed.
+  Object.assign(f.drone, { z: 20 });
+  Object.assign(f.target, { x: 0, y: 10, z: 20 - range });
   f.drone.equipment!.gun = true;
+  f.drone.ammo = RTS_CONFIG.magazineSize;
   // The target starts from rest and accelerates for 0.5 s before firing: displacement 0.75, terminal velocity 3.
   const targetAtFire = { x: moving ? 0.75 : 0, y: 0, z: -range }, velocity = { x: moving ? 3 : 0, y: 0, z: 0 };
   const aim = compensated ? ballisticAim(targetAtFire, velocity) : { vector: targetAtFire, interceptSeconds: null };
   const heading = Math.atan2(aim.vector.x, -aim.vector.z) * 180 / Math.PI;
   const pitch = Math.atan2(aim.vector.y, Math.hypot(aim.vector.x, aim.vector.z)) * 180 / Math.PI;
-  if (occluded) f.game.state.obstacles = [{ x: 0, z: -range / 2, width: 10, depth: 1, height: 20 }];
+  if (occluded) f.game.state.obstacles = [{ x: 0, z: 20 - range / 2, width: 10, depth: 1, height: 20 }];
   f.trace = [sample(f.game)];
   await f.command({ kind: 'look', heading, pitch }); f.advance(3);
-  if (moving) await f.command({ kind: 'fly_to', x: 60, y: 10, z: -range }, f.target.id);
+  if (moving) await f.command({ kind: 'fly_to', x: 40, y: 10, z: 20 - range }, f.target.id);
   f.advance(0.5);
   assert.ok(Math.abs(f.target.x - targetAtFire.x) < 1e-6, 'Measured target displacement must match setup calibration');
   const fireTime = f.game.state.simTime, atFire = { shooter: pose(f.drone), target: pose(f.target) };
@@ -223,22 +246,26 @@ const comparisons = results.filter(r => r.tickSeconds === 0.05).map(a => {
   const final = (r: Result) => r.trace.at(-1)!.drones;
   return { name: a.name, maxFinalPositionDifferenceWorldUnits: round(Math.max(...final(a).map((d, i) => distance(d, final(b)[i])))),
     sameAliveOutcomes: final(a).every((d, i) => d.alive === final(b)[i].alive),
+    sameJobOutcomes: final(a).every((d, i) => d.job?.state === final(b)[i].job?.state && d.job?.reason === final(b)[i].job?.reason),
     sameEventTypes: JSON.stringify(a.events.map(e => [e.type, e.cause])) === JSON.stringify(b.events.map(e => [e.type, e.cause])) };
 });
-assert.ok(comparisons.every(c => c.sameAliveOutcomes && c.sameEventTypes));
-const stamp = new Date().toISOString(), directory = path.resolve('artifacts', 'control-measurements', stamp.replaceAll(':', '-'));
+assert.equal(results.length, 34); assert.equal(comparisons.length, 17);
+assert.ok(comparisons.every(c => c.sameAliveOutcomes && c.sameJobOutcomes && c.sameEventTypes));
+const stamp = new Date().toISOString();
 await mkdir(directory, { recursive: true });
-const metadata = { measuredAt: stamp, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+const metadata = { schemaVersion: 'control-measurements/2', rulesVersion: 'cargo-v2',
+  observationProtocol: 'fleet-observation/2', measuredAt: stamp, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   workingTree: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }).trim(),
   node: process.version, command: 'node --import tsx scripts/measure-controls.ts', inference: false,
   cameraEvidence: 'Synthetic one-pixel fixture only. No scene camera, visual perception, actor decision, MAVLink or Zenoh validation.',
   units: 'Simulator-local world units, simulation seconds, degrees. Sample rates are caller ticks; FleetGame integrates at <= 1/120 s.',
-  population: '17 prespecified deterministic scenarios at two caller tick durations (34 runs). One observation unit is a scenario run; these are fixtures, not autonomous success rates.',
-  limits: 'Scripted paths and ballistic calibration are developer-only. Arrival/impact events have internal-substep precision; observed stop/settle times and maximum speed are sample estimates. No production constants or prompts modified.' };
+  population: '17 prespecified deterministic scenarios at two caller tick durations (34 runs), including protected wall approaches using finite local sensors. One observation unit is a scenario run; these are fixtures, not autonomous success rates.',
+  limits: 'Scripted paths and ballistic calibration are developer-only. Arrival/impact events have internal-substep precision; observed stop/settle times and maximum speed are sample estimates. Wall approaches measure prevention; actual armor/contact damage remains covered independently in tests/starting-armor.test.ts and tests/rts.test.ts. Historical reports retain their prior rules. No production constants or prompts modified.' };
 const summary = { metadata, cases: results.map(({ name, tickSeconds, metrics }) => ({ name, tickSeconds, metrics })), comparisons };
 await writeFile(path.join(directory, 'summary.json'), JSON.stringify(summary, null, 2));
 await writeFile(path.join(directory, 'trajectories.json'), JSON.stringify({ metadata, results }, null, 2));
-console.log(JSON.stringify({ artifact: directory, passedRuns: results.length, inference: false,
+console.log(JSON.stringify({ artifact: directory, schemaVersion: metadata.schemaVersion, rulesVersion: metadata.rulesVersion, passedRuns: results.length, inference: false,
   tickComparison: { cases: comparisons.length, sameAliveAndEventOutcomes: comparisons.every(c => c.sameAliveOutcomes && c.sameEventTypes),
+    sameJobOutcomes: comparisons.every(c => c.sameJobOutcomes),
     maxFinalPositionDifferenceWorldUnits: Math.max(...comparisons.map(c => c.maxFinalPositionDifferenceWorldUnits)) },
   metricsAt50Milliseconds: summary.cases.filter(c => c.tickSeconds === 0.05).map(({ name, metrics }) => ({ name, ...metrics })) }));

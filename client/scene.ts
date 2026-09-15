@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Pose, WorldState } from './types';
-import { DRONE_CAMERA } from '../shared/camera-profile';
+import { cameraFovFor, DRONE_CAMERA } from '../shared/camera-profile';
 import { createCity, createTreasure, disposeGroup } from './city-scene';
 import { PoseBuffer } from './pose-buffer';
 import { Explorer } from './explorer';
@@ -95,7 +95,7 @@ export class FleetScene {
     const poses = JSON.stringify(state.drones.map(({ id, x, y, z, yaw, pitch, action }) => [id, x, y, z, yaw, pitch, action]));
     if (poses !== this.poseSignature) { this.poseSignature = poses; this.frameDirty = true; }
     this.drones.reconcile(state.drones);
-    const combatSignature = JSON.stringify([state.match?.resources, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.mining])]);
+    const combatSignature = JSON.stringify([state.match?.rulesVersion, state.match?.resources, state.match?.servicePads, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.cargo, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
     if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match); this.frameDirty = true; }
   }
 
@@ -109,7 +109,7 @@ export class FleetScene {
     this.renderer.setSize(host.clientWidth, host.clientHeight, false); this.frameDirty = true;
   }
 
-  fitOverview(downtown = false) { this.overview.fit(downtown); }
+  fitOverview() { this.overview.fit(); }
 
   private render(time: number) {
     if (this.stopped) return;
@@ -133,7 +133,7 @@ export class FleetScene {
       if (!drone || !camera) continue;
       const bounds = view.getBoundingClientRect();
       if (bounds.width < 1 || bounds.height < 1 || bounds.bottom <= 0 || bounds.top >= window.innerHeight || bounds.right <= 0 || bounds.left >= window.innerWidth) continue;
-      this.poseCamera(camera, drone); camera.aspect = bounds.width / bounds.height; camera.updateProjectionMatrix(); this.drones.hideObserver(droneId);
+      this.poseCamera(camera, drone); camera.fov = cameraFovFor(drone); camera.aspect = bounds.width / bounds.height; camera.updateProjectionMatrix(); this.drones.hideObserver(droneId);
       const x = bounds.left - box.left, y = box.bottom - bounds.bottom;
       this.renderer.setViewport(x, y, bounds.width, bounds.height); this.renderer.setScissor(x, y, bounds.width, bounds.height); this.renderer.render(this.scene, camera);
     }
@@ -152,6 +152,11 @@ export class FleetScene {
 
   capture(droneId: string, pose: Pose, drones = this.state?.drones ?? [], match: MatchState | undefined = this.state?.match): string {
     this.poseCamera(this.captureCamera, pose);
+    // The requested world snapshot owns both optics and geometry. A later live
+    // camera toggle must not change the projection of an earlier acquisition.
+    const previousFov = this.captureCamera.fov;
+    this.captureCamera.fov = cameraFovFor(drones.find(drone => drone.id === droneId) ?? {});
+    this.captureCamera.updateProjectionMatrix();
     const { width, height } = DRONE_CAMERA;
     const previousTarget = this.renderer.getRenderTarget(), previousViewport = this.renderer.getViewport(new THREE.Vector4());
     const previousScissor = this.renderer.getScissor(new THREE.Vector4()), previousTest = this.renderer.getScissorTest();
@@ -164,6 +169,7 @@ export class FleetScene {
     } finally {
       this.renderer.setRenderTarget(previousTarget); this.renderer.setViewport(previousViewport);
       this.renderer.setScissor(previousScissor); this.renderer.setScissorTest(previousTest);
+      this.captureCamera.fov = previousFov; this.captureCamera.updateProjectionMatrix();
     }
     const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
     const context = canvas.getContext('2d'); if (!context) throw new Error('Camera capture unavailable: no 2D canvas context.');

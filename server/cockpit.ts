@@ -1,8 +1,11 @@
 import { Router } from 'express';
+import { createHash } from 'node:crypto';
 import { MATCH_DRONE_IDS, type DroneId } from '../shared/fleet.ts';
 import type { GameState, ToolResult } from '../shared/types.ts';
-import type { CockpitCall, CockpitDelivery, CockpitEvent, CockpitImage, CockpitSnapshot, CockpitToolEvidence, CockpitWorkspace } from '../shared/cockpit.ts';
-import { ACTOR_MODEL, ACTOR_EFFORT, DRONE_COMPUTE, DRONE_HOST_LIBRARIES } from '../shared/actor-environment.ts';
+import type { CockpitCall, CockpitDelivery, CockpitEvent, CockpitImage, CockpitSnapshot, CockpitToolEvidence, CockpitWorkspace, CockpitWorkspaceState, CockpitWorkspaceFile } from '../shared/cockpit.ts';
+import { ACTOR_MODEL, ACTOR_EFFORT, DRONE_COMPUTE, DRONE_HOST_LIBRARIES, DRONE_GUEST_LIBRARIES } from '../shared/actor-environment.ts';
+import { ONBOARD_LIMITS, workspacePath, type OnboardWorkspace } from './onboard-workspace.ts';
+import { ROUTINE_LIMITS } from './routine-runner.ts';
 
 export const COCKPIT_LIMITS = { events: 256, eventBytes: 256_000, text: 24_000, deliveryBytes: 2_000_000, imageBytes: 2_000_000 } as const;
 type StoredDrone = {
@@ -45,10 +48,15 @@ function clean(value: unknown, notes: Set<string>, depth = 0): unknown {
   }));
 }
 
-const workspace = (tools: string[]): CockpitWorkspace => ({
-  available: false, reason: 'This actor has fleet MCP tools only. Shell, filesystem access and code execution are disabled, so it cannot create or run automation scripts.', entries: [], tools,
-  compute: { model: ACTOR_MODEL, effort: ACTOR_EFFORT, sandbox: DRONE_COMPUTE.sandbox, shell: DRONE_COMPUTE.shell, filesystem: DRONE_COMPUTE.filesystem, web: DRONE_COMPUTE.web },
-  libraries: DRONE_HOST_LIBRARIES.map(library => ({ name: `${library.name} ${library.version}`, purpose: library.purpose, access: 'host only' })),
+const workspace = (tools: string[], state?: CockpitWorkspaceState): CockpitWorkspace => ({
+  ...(state ?? { available: false, reason: 'No onboard workspace is attached to this cockpit snapshot.', entries: [] }), tools,
+  compute: { model: ACTOR_MODEL, effort: ACTOR_EFFORT, sandbox: DRONE_COMPUTE.sandbox, shell: DRONE_COMPUTE.shell, filesystem: DRONE_COMPUTE.filesystem, web: DRONE_COMPUTE.web,
+    codeExecution: DRONE_COMPUTE.codeExecution, hostFilesystem: DRONE_COMPUTE.hostFilesystem, executionEngine: DRONE_COMPUTE.executionEngine, filesystemScope: DRONE_COMPUTE.filesystemScope,
+    heapBytes: ROUTINE_LIMITS.heapBytes, cpuMsPerSecond: ROUTINE_LIMITS.cpuMsPerSecond, maxRoutineMs: ROUTINE_LIMITS.wallTimeMs },
+  libraries: [...DRONE_HOST_LIBRARIES.map(library => ({ name: `${library.name} ${library.version}`, purpose: library.purpose, access: 'host only' as const })),
+    ...DRONE_GUEST_LIBRARIES.map(library => ({ name: `${library.name} ${library.version}`, purpose: library.purpose, access: 'guest' as const }))],
+  optionalGuestLibraries: DRONE_GUEST_LIBRARIES.map(library => `${library.name} ${library.version}`),
+  limits: { fileBytes: ONBOARD_LIMITS.file, files: ONBOARD_LIMITS.files, workspaceBytes: ONBOARD_LIMITS.workspace, optionalLibraryBytes: ONBOARD_LIMITS.optionalLibraries },
 });
 
 /** Bounded, in-memory player evidence; no filesystem, mailbox drain or new sensor capture. */
@@ -57,6 +65,7 @@ export class CockpitStore {
   private drones = new Map<DroneId, StoredDrone>();
 
   reset(sessionId: string | null) { this.sessionId = sessionId; this.drones.clear(); }
+  get currentSession() { return this.sessionId; }
   private drone(id: DroneId) {
     let drone = this.drones.get(id);
     if (!drone) { drone = freshDrone(); this.drones.set(id, drone); }
@@ -93,7 +102,7 @@ export class CockpitStore {
     let bundle: Record<string, unknown> | null = null;
     for (const part of result.content) {
       if (part.type !== 'text') continue;
-      try { const value: unknown = JSON.parse(part.text); if (isRecord(value) && value.protocol === 'fleet-observation/1') bundle = value; }
+      try { const value: unknown = JSON.parse(part.text); if (isRecord(value) && ['fleet-observation/1', 'fleet-observation/2', 'fleet-observation/3', 'fleet-observation/4', 'fleet-observation/5'].includes(String(value.protocol))) bundle = value; }
       catch { /* Not every tool text block is a sensor bundle. */ }
     }
     const entry = this.append(drone, { kind: 'result', name: event.name, data: { isError: Boolean(event.result.isError), observation: Boolean(bundle) } });
@@ -140,12 +149,12 @@ export class CockpitStore {
       this.append(drone, { kind: 'lifecycle', name: type, data: clean({ status: value.status, attempt: value.attempt, error: value.error }, new Set()) });
     }
   }
-  snapshot(id: DroneId, options: { session?: string; after?: number; running?: boolean; tools?: string[] } = {}): CockpitSnapshot {
+  snapshot(id: DroneId, options: { session?: string; after?: number; running?: boolean; tools?: string[]; workspace?: CockpitWorkspaceState } = {}): CockpitSnapshot {
     const drone = this.drone(id), reset = (options.session ?? null) !== this.sessionId || (options.after ?? 0) > drone.cursor;
     const after = reset ? 0 : options.after ?? 0;
     return structuredClone({ protocol: 'fleet-cockpit/1', droneId: id, sessionId: this.sessionId, cursor: drone.cursor, reset,
       truncated: drone.evictedThrough > after, running: options.running ?? false, serverTime: new Date().toISOString(),
-      lastCall: drone.lastCall, lastDelivery: drone.lastDelivery, lastImage: drone.lastImage, events: drone.events.filter(event => event.sequence > after), workspace: workspace(options.tools ?? []),
+      lastCall: drone.lastCall, lastDelivery: drone.lastDelivery, lastImage: drone.lastImage, events: drone.events.filter(event => event.sequence > after), workspace: workspace(options.tools ?? [], options.workspace),
     });
   }
   image(id: DroneId, sessionId: string, sequence: number) {
@@ -154,9 +163,23 @@ export class CockpitStore {
   }
 }
 
-export function cockpitRouter(options: { store: CockpitStore; state: () => GameState; tools: (id: DroneId) => string[] }) {
+type WorkspaceReader = Pick<OnboardWorkspace, 'inspect' | 'inspectFile'>;
+export function cockpitRouter(options: { store: CockpitStore; state: () => GameState; tools: (id: DroneId) => string[]; onboard?: (id: DroneId) => WorkspaceReader | undefined }) {
   const router = Router();
   router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  const inspect = (id: DroneId): { board?: WorkspaceReader; state: CockpitWorkspaceState } => {
+    const absent = (reason: string) => ({ state: { available: false, reason, entries: [] } });
+    if (!options.store.currentSession) return absent('Launch a match to create private onboard workspaces.');
+    if (options.state().drones.find(drone => drone.id === id)?.alive === false) return absent('This drone was destroyed; its onboard workspace access was revoked.');
+    try {
+      const board = options.onboard?.(id);
+      if (!board) return absent('This drone has not allocated its private onboard workspace yet.');
+      const { entries, status } = board.inspect();
+      if (status.revoked) return absent('Onboard workspace access was revoked.');
+      return { board, state: { available: true, reason: 'Live private onboard files. Reading this view does not execute scripts.', entries,
+        retainedVersions: status.retainedVersions, storage: { runtime: status.runtime, workspace: status.workspace, radio: status.radio, staging: status.staging, logs: status.logs } } };
+    } catch { return absent('Onboard workspace inspection is temporarily unavailable.'); }
+  };
   router.get('/:droneId', (req, res) => {
     const id = req.params.droneId as DroneId;
     if (!MATCH_DRONE_IDS.includes(id)) { res.status(404).json({ error: 'Unknown drone.' }); return; }
@@ -164,11 +187,31 @@ export function cockpitRouter(options: { store: CockpitStore; state: () => GameS
     if ((req.query.after !== undefined && (typeof req.query.after !== 'string' || !/^\d+$/.test(req.query.after))) || (after !== undefined && (!Number.isSafeInteger(after) || after < 0)) || (req.query.session !== undefined && (typeof req.query.session !== 'string' || req.query.session.length > 160))) {
       res.status(400).json({ error: 'Invalid cockpit cursor.' }); return;
     }
-    const snapshot = options.store.snapshot(id, { session: req.query.session as string | undefined, after, running: options.state().running, tools: options.tools(id) });
-    const etag = `"${snapshot.sessionId ?? 'idle'}:${id}:${snapshot.cursor}:${Number(snapshot.running)}:${snapshot.workspace.tools.join('-')}"`;
+    const snapshot = options.store.snapshot(id, { session: req.query.session as string | undefined, after, running: options.state().running, tools: options.tools(id), workspace: inspect(id).state });
+    // Guest routines can change files without a model tool boundary or cockpit event.
+    const workspaceVersion = createHash('sha256').update(JSON.stringify(snapshot.workspace)).digest('hex').slice(0, 16);
+    const etag = `"${snapshot.sessionId ?? 'idle'}:${id}:${snapshot.cursor}:${Number(snapshot.running)}:${workspaceVersion}"`;
     res.set('ETag', etag);
     if (req.get('if-none-match') === etag && !snapshot.reset) { res.status(304).end(); return; }
     res.json(snapshot);
+  });
+  router.get('/:droneId/workspace', (req, res) => {
+    const id = req.params.droneId as DroneId, sessionId = req.query.session, path = req.query.path, version = Number(req.query.version), hash = req.query.sha256;
+    if (!MATCH_DRONE_IDS.includes(id) || typeof sessionId !== 'string' || typeof path !== 'string' || typeof req.query.version !== 'string' || !/^\d+$/.test(req.query.version) || !Number.isSafeInteger(version) || (hash !== undefined && (typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)))) {
+      res.status(400).json({ error: 'Choose a workspace file, session and version.' }); return;
+    }
+    if (sessionId !== options.store.currentSession) { res.status(409).json({ error: 'The match session changed; reload this cockpit.' }); return; }
+    try { workspacePath(path); } catch { res.status(400).json({ error: 'Invalid private workspace path.' }); return; }
+    const { board } = inspect(id);
+    if (!board) { res.status(404).json({ error: 'This onboard workspace is unavailable.' }); return; }
+    try {
+      const { entry, content: raw } = board.inspectFile(path);
+      if (entry.version !== version || (hash !== undefined && entry.sha256 !== hash)) { res.status(409).json({ error: 'This file changed; refresh its workspace entry.' }); return; }
+      if (entry.bytes > ONBOARD_LIMITS.file) { res.status(413).json({ error: 'File exceeds the onboard file bound.' }); return; }
+      if (Buffer.byteLength(raw) > ONBOARD_LIMITS.file) { res.status(413).json({ error: 'File exceeds the onboard file bound.' }); return; }
+      const notes = new Set<string>(), content = String(clean(raw, notes));
+      res.json({ droneId: id, sessionId, ...entry, content, omissions: [...notes] } satisfies CockpitWorkspaceFile);
+    } catch { res.status(404).json({ error: 'This workspace file is no longer available.' }); }
   });
   router.get('/:droneId/image/:sequence', (req, res) => {
     const id = req.params.droneId as DroneId, sequence = Number(req.params.sequence);

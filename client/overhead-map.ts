@@ -1,9 +1,9 @@
+import { isCargoRules, hasBatteries } from '../shared/rts';
 import * as THREE from 'three';
 import { CITY } from '../shared/city';
 import type { Drone } from './types';
 import { dronePresentation } from './drone-presentation';
 import type { MatchState } from '../shared/rts';
-import { BATTLEFIELD } from '../shared/battlefield';
 
 /** Owns overhead projection, map input and ID-keyed annotations. */
 export class OverheadMap {
@@ -14,6 +14,7 @@ export class OverheadMap {
   private lines = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   private markers = new Map<string, HTMLElement>();
   private resources = new Map<string, HTMLElement>();
+  private servicePads = new Map<string, HTMLElement>();
   private abort = new AbortController();
 
   constructor(readonly view: HTMLElement, private invalidate: () => void, enter: (x: number, z: number, altitude: number) => void) {
@@ -34,23 +35,24 @@ export class OverheadMap {
     view.addEventListener('click', event => enterAt(event.clientX, event.clientY), options);
     view.addEventListener('keydown', event => {
       if (event.key === '+' || event.key === '=' || event.key === '-') {
-        event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * (event.key === '-' ? 1.2 : 1 / 1.2), 25, 18000); this.invalidate(); return;
+        event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * (event.key === '-' ? 1.2 : 1 / 1.2), 25, 500); this.invalidate(); return;
       }
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault(); const box = view.getBoundingClientRect(); enterAt(box.left + box.width / 2, box.top + box.height / 2);
     }, options);
     view.addEventListener('wheel', event => {
       if (Math.abs(event.deltaY) < 1) return;
-      event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * Math.exp(Math.sign(event.deltaY) * 0.15), 25, 18000); this.invalidate();
+      event.preventDefault(); this.span = THREE.MathUtils.clamp(this.span * Math.exp(Math.sign(event.deltaY) * 0.15), 25, 500); this.invalidate();
     }, { ...options, passive: false });
     this.fit();
   }
 
-  fit(downtown = false) {
-    const minX = downtown ? BATTLEFIELD.focus.x[0] : CITY.bounds.x[0], maxX = downtown ? BATTLEFIELD.focus.x[1] : CITY.bounds.x[1];
-    const minZ = downtown ? BATTLEFIELD.focus.z[0] : CITY.bounds.z[0], maxZ = downtown ? BATTLEFIELD.focus.z[1] : CITY.bounds.z[1];
+  fit() {
+    const [minX, maxX] = CITY.bounds.x;
+    const [minZ, maxZ] = CITY.bounds.z;
     this.center.set((minX + maxX) / 2, (minZ + maxZ) / 2);
-    this.span = Math.max(maxX - minX, maxZ - minZ) * 1.06; this.invalidate();
+    const box = this.view.getBoundingClientRect(), aspect = box.width / Math.max(1, box.height);
+    this.span = Math.max((maxX - minX) / Math.max(1, aspect), (maxZ - minZ) * Math.min(1, aspect)) * 1.06; this.invalidate();
   }
 
   configure() {
@@ -62,6 +64,7 @@ export class OverheadMap {
   }
 
   renderMarkers(displayed: readonly Drone[], current: readonly Drone[], match?: MatchState) {
+    const cargoRules = isCargoRules(match?.rulesVersion);
     const box = this.view.getBoundingClientRect();
     const project = (x: number, z: number) => {
       const p = new THREE.Vector3(x, 0, z).project(this.camera); return [(p.x + 1) / 2 * box.width, (1 - p.y) / 2 * box.height];
@@ -73,7 +76,6 @@ export class OverheadMap {
       node.setAttribute('stroke', color); node.setAttribute('stroke-width', close ? '1' : '1.5'); node.setAttribute('fill', close ? '#597e4620' : 'none');
       node.setAttribute('stroke-dasharray', close ? '3 3' : '5 4'); paths.push(node);
     };
-    if (this.span > 500) CITY.cityBoundary.forEach(ring => path(ring.map(p => project(p.x, p.z)), '#4e705c', true));
     const currentById = new Map(current.map(drone => [drone.id, drone]));
     for (const shot of match?.projectiles ?? []) {
       path([project(shot.x - shot.vx * 0.07, shot.z - shot.vz * 0.07), project(shot.x, shot.z)], shot.team === 'blue' ? '#c3f5ff' : '#ffb092');
@@ -88,8 +90,25 @@ export class OverheadMap {
         marker.innerHTML = '<span>◆</span><b></b>'; this.resources.set(node.id, marker); this.markerLayer.append(marker);
       }
       const [x, y] = project(node.x, node.z);
-      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
-      marker.classList.toggle('depleted', node.remaining <= 0); marker.querySelector('b')!.textContent = `${String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}`;
+      marker.style.left = `${x}px`; marker.style.top = `${y}px`; marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height || (!cargoRules && node.zoneSize !== undefined && node.remaining <= 0);
+      marker.querySelector('span')!.textContent = node.zoneSize === undefined ? '◆' : '□';
+      const rich = cargoRules ? node.capacity >= 600 : (node.extractionMultiplier ?? 1) > 1;
+      marker.classList.toggle('depleted', node.remaining <= 0); marker.classList.toggle('rich', rich);
+      marker.querySelector('b')!.textContent = `${rich ? 'MEGA' : node.kind === 'dropped' ? 'DROP' : String(index + 1).padStart(2, '0')} · ${Math.ceil(node.remaining)}${rich && !cargoRules ? ` · ${node.extractionMultiplier}×` : ''}`;
+      marker.title = `${rich ? 'Central mega deposit' : `Deposit ${index + 1}`} · ${Math.ceil(node.remaining)} salvage remaining`;
+    }
+    const padIds = new Set(match?.servicePads?.map(pad => pad.id) ?? []);
+    for (const [id, marker] of this.servicePads) if (!padIds.has(id)) { marker.remove(); this.servicePads.delete(id); }
+    for (const pad of match?.servicePads ?? []) {
+      let marker = this.servicePads.get(pad.id);
+      if (!marker) {
+        marker = document.createElement('div'); marker.className = 'map-service-pad'; marker.dataset.padId = pad.id;
+        marker.innerHTML = '<span>H</span><b>SERVICE</b>'; this.servicePads.set(pad.id, marker); this.markerLayer.prepend(marker);
+      }
+      marker.dataset.team = pad.team; marker.classList.toggle('cube', pad.zoneSize !== undefined);
+      marker.title = `${pad.team === 'blue' ? 'Blue' : 'Red'} ${cargoRules ? 'base apron · delivery' : `service ${pad.zoneSize === undefined ? 'pad' : 'cube'}`} · refit and rearm${hasBatteries(match?.rulesVersion) ? ' · automatic charging' : ''}`;
+      const [x, y] = project(pad.x, pad.z); marker.style.left = `${x}px`; marker.style.top = `${y}px`;
+      marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
     }
     const displayedIds = new Set<string>(displayed.map(drone => drone.id));
     for (const [id, marker] of this.markers) if (!displayedIds.has(id)) { marker.remove(); this.markers.delete(id); }
@@ -106,6 +125,11 @@ export class OverheadMap {
       }
       const [x, y] = project(drone.x, drone.z);
       marker.classList.toggle('eliminated', drone.alive === false);
+      marker.classList.toggle('jamming', drone.alive !== false && Boolean(drone.jamming));
+      marker.classList.toggle('radio-jammed', drone.alive !== false && Boolean(drone.radioJammed));
+      const actual = currentById.get(drone.id) ?? drone;
+      marker.title = `${drone.id}${actual.cargo ? ` · Cargo ${actual.cargo.amount}` : ''}${actual.logistics ? ` · ${actual.logistics.state}` : ''}${actual.job ? ` · ${actual.job.state}` : ''}${drone.jamming ? ' · Jammer active' : ''}${drone.radioJammed ? ' · Radio jammed' : ''}`;
+      marker.querySelector('.map-drone-label')!.textContent = identity.shortLabel + (actual.cargo?.amount ? ` ◆${actual.cargo.amount}` : '');
       marker.hidden = x < 0 || x > box.width || y < 0 || y > box.height;
       marker.style.left = `${x}px`; marker.style.top = `${y}px`;
       (marker.firstElementChild as HTMLElement).style.transform = `rotate(${-drone.yaw}deg)`;
@@ -113,5 +137,5 @@ export class OverheadMap {
     this.lines.replaceChildren(...paths);
   }
 
-  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); this.resources.clear(); }
+  dispose() { this.abort.abort(); this.markerLayer.remove(); this.lines.remove(); this.markers.clear(); this.resources.clear(); this.servicePads.clear(); }
 }
