@@ -76,6 +76,7 @@ try {
     Object.assign(observer, { x: 0, y: 65, z: 20, yaw: 0, pitch: 0 });
     Object.assign(target, { x: 0, y: 65, z: 9, yaw: 180, pitch: 0 });
     const pixels = (result: ToolResult) => result.content.find(part => part.type === 'image')!;
+    target.equipment!.armor = true;
     const armored = await game.tool('drone-1', 'observe'); await imageFile('target-armored.jpg', armored);
     target.equipment!.armor = false;
     const unarmored = await game.tool('drone-1', 'observe'); await imageFile('target-unarmored.jpg', unarmored);
@@ -85,20 +86,27 @@ try {
     game.state.drones = game.state.drones.filter(drone => drone.id !== target.id);
     const absent = await game.tool('drone-1', 'observe');
     assert.deepEqual(pixels(destroyed), pixels(absent), 'a dead target must render exactly like an absent target');
+    // Emissive navigation lights obey ordinary camera occlusion.
+    const obstacles = game.state.obstacles;
+    try {
+      target.alive = true; game.state.drones.push(target);
+      game.state.obstacles = [{ id: 'qa-light-occluder', x: 0, z: 14, width: 6, depth: 1, height: 70 }];
+      broadcast();
+      const covered = await game.tool('drone-1', 'observe'); await imageFile('target-behind-cover.jpg', covered);
+      game.state.drones = game.state.drones.filter(drone => drone.id !== target.id);
+      const emptyCover = await game.tool('drone-1', 'observe');
+      assert.deepEqual(pixels(covered), pixels(emptyCover), 'team lights cannot reveal a drone through a building');
+    } finally { game.state.obstacles = obstacles; broadcast(); }
+
   } finally { game.state.drones = openingDrones; }
   assert.equal(game.state.match!.teams.blue.credits, RTS_CONFIG.startingCredits);
-  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'optics' })).equipped, 'optics');
-  assert.equal(body(await game.tool('drone-2', 'buy', { mission: 1, item: 'armor' })).rejected, true);
-  const wide = await game.tool('drone-1', 'observe');
-  const zoom = await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' });
-  assert.equal(body(zoom).cameraMode, 'zoom');
-  assert.notEqual(wide.content.find(item => item.type === 'image')?.data, zoom.content.find(item => item.type === 'image')?.data);
-  await imageFile('optics-wide.jpg', wide); await imageFile('optics-zoom.jpg', zoom);
+  for (const item of ['gun', 'cargo', 'armor', 'optics']) assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item })).rejected, true);
+  assert.ok(game.state.drones.every(drone => !drone.equipment?.armor && !drone.equipment?.gun && !drone.equipment?.optics));
+  assert.equal((await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' })).isError, true);
   broadcast();
   const firstCard = page.locator('.feed-card[data-drone="drone-1"]');
-  await firstCard.locator('.camera-mode').getByText('ZOOM', { exact: true }).waitFor();
-  await page.screenshot({ path: resolve(directory, 'optics.png'), fullPage: true });
-  await game.tool('drone-1', 'camera', { mission: 1, mode: 'wide' });
+  await firstCard.locator('.camera-mode').getByText('WIDE', { exact: true }).waitFor();
+  assert.equal(await page.locator('[data-item="optics"]:visible').count(), 0);
   await page.locator('#map-downtown').click();
   await page.locator('#overview-map').screenshot({ path: resolve(directory, 'downtown-map.png') });
   await page.locator('#overview-map').click();
@@ -137,11 +145,11 @@ try {
   await page.screenshot({ path: resolve(directory, 'unloading.png'), fullPage: true });
   tick(CARGO_CONFIG.deliveryDuration + .1); broadcast();
   assert.equal(game.state.match!.teams.blue.earned, 90);
-  assert.equal(game.state.match!.teams.blue.credits, 90, 'Opening optics spent the original allowance');
+  assert.equal(game.state.match!.teams.blue.credits, 90, 'All spendable salvage comes from completed delivery');
   assert.ok(game.state.drones.slice(0, 3).every(drone => drone.cargo?.amount === 0 && drone.battery === undefined));
   await firstCard.locator('.cargo-label').getByText('CARGO 0 / 30', { exact: true }).waitFor();
   assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'gun' })).equipped, 'gun');
-  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo', replace: 'optics' })).equipped, 'cargo');
+  assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'cargo' })).equipped, 'cargo');
   assert.equal((await game.tool('drone-1', 'camera', { mission: 1, mode: 'zoom' })).isError, true);
   assert.equal(body(await game.tool('drone-1', 'buy', { mission: 1, item: 'miner' })).rejected, true);
   broadcast(); await firstCard.locator('.module-count').getByText('2/2 MODULES', { exact: true }).waitFor();
@@ -174,12 +182,12 @@ try {
   await page.screenshot({ path: resolve(directory, 'mobile.png'), fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   game.stop(); broadcast(); await page.locator('#reset').click();
-  assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && drone.equipment?.armor && drone.battery === undefined));
+  assert.ok(game.state.drones.every(drone => drone.cargo?.amount === 0 && !drone.equipment?.armor && drone.battery === undefined));
   assert.deepEqual(errors, []);
   assert.equal(stalePackets.filter(packet => JSON.parse(packet).type === 'capture').length, 0);
   await writeFile(resolve(directory, 'camera-evidence.json'), JSON.stringify(cameraEvidence, null, 2));
   const result = { passed: true, inference: false, fixture: true, directory, port, preflight,
-    checks: ['stale first renderer rejected; current renderer supplies all acquisitions', 'six actual cameras', 'optics wide/zoom', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
+    checks: ['stale first renderer rejected; current renderer supplies all acquisitions', 'six actual cameras', 'live team lights disappear on death and remain occluded by buildings', 'zero starting credits and armor; optics unavailable', 'God view and Admin camera isolation', 'simultaneous pickup and carry without bank credit',
       'simultaneous delivery without battery UI', 'delivered income funds modules', 'explicit cargo refit', 'legacy miner rejected',
       'finite gun ammunition', 'cancelled/refunded and completed rearm', 'cargo map and player reply', 'responsive layout', 'fresh reset'] };
   await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2)); console.log(JSON.stringify(result));

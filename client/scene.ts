@@ -8,6 +8,7 @@ import { OverheadMap } from './overhead-map';
 import { DroneVisuals } from './drone-visuals';
 import { CombatView } from './combat-view';
 import type { MatchState } from '../shared/rts';
+import { daylight } from './daylight';
 
 export type DroneViewport = { droneId: string; view: HTMLElement };
 const radians = THREE.MathUtils.degToRad;
@@ -40,24 +41,20 @@ export class FleetScene {
   private explorer: Explorer;
   private abort = new AbortController();
   private lastAnimation = 0;
+  private disposeDaylight: () => void;
 
   constructor(private container: HTMLElement, views: DroneViewport[], mapView: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(1);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.08;
-    // Vertex lighting avoids a separate shadow pass for every camera.
-    this.renderer.shadowMap.enabled = false;
+    this.renderer.toneMappingExposure = 1;
+    this.captureTarget.samples = Math.min(4, this.renderer.capabilities.maxSamples);
     this.renderer.domElement.className = 'world-canvas';
     this.renderer.domElement.setAttribute('aria-hidden', 'true');
     this.container.prepend(this.renderer.domElement);
     this.captureTarget.texture.colorSpace = THREE.SRGBColorSpace;
-    this.scene.background = new THREE.Color('#b9dce9');
-    this.scene.fog = new THREE.Fog('#b9dce9', 140, 400);
-    this.scene.add(new THREE.HemisphereLight(0xdbeaff, 0x646444, 2.5));
-    const sun = new THREE.DirectionalLight(0xffeed2, 3.1);
-    sun.position.set(-90, 160, 90); this.scene.add(sun);
+    this.disposeDaylight = daylight(this.scene, this.renderer);
     this.scene.add(this.worldGroup, this.treasureGroup);
     this.explorer = new Explorer(active => {
       (active ? this.explorer.view : this.container).prepend(this.renderer.domElement);
@@ -86,6 +83,7 @@ export class FleetScene {
     if (signature !== this.worldSignature) {
       this.worldSignature = signature;
       disposeGroup(this.worldGroup); this.worldGroup.add(createCity(state.obstacles)); this.frameDirty = true;
+      this.renderer.shadowMap.needsUpdate = true;
     }
     const treasureSignature = JSON.stringify(state.treasures);
     if (treasureSignature !== this.treasureSignature) {
@@ -181,6 +179,6 @@ export class FleetScene {
   dispose() {
     this.stopped = true; this.explorer.dispose(); this.overview.dispose(); this.abort.abort(); this.observer.disconnect();
     disposeGroup(this.worldGroup); disposeGroup(this.treasureGroup); this.drones.dispose(); this.combat.dispose();
-    this.cameras.clear(); this.captureTarget.dispose(); this.renderer.dispose(); this.renderer.domElement.remove();
+    this.cameras.clear(); this.captureTarget.dispose(); this.disposeDaylight(); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

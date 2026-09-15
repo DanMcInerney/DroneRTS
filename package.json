@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
+    "assets:build": "node scripts/build-graphics.mjs",
     "start": "tsx server/index.ts --production",
     "test": "node --import tsx scripts/run-tests.ts",
     "network:setup": "node scripts/setup-network.mjs",

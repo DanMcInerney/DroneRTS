@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
-import { batteryCapacityFor, hasBatteries, isCargoRules, CARGO_V1_EQUIPMENT_MODULES, cargoCapacityFor, CARGO_CONFIG, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, insideApron, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type CargoInactiveReason, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
+import { batteryCapacityFor, hasBatteries, isCargoRules, CARGO_V2_EQUIPMENT_MODULES, CARGO_V1_EQUIPMENT_MODULES, cargoCapacityFor, CARGO_CONFIG, emptyEquipment, startingEquipment, EQUIPMENT_MODULES, LEGACY_EQUIPMENT_MODULES, insideApron, insideZone, resourceZoneSize, serviceZoneSize, RTS_CONFIG, type CargoInactiveReason, type EquipmentItem, type EquipmentModule, type MatchEvent, type MatchState, type Point, type ResourceNode, type ServicePad, type TeamId } from '../shared/rts.ts';
 import { CITY, type CityPoint } from '../shared/city.ts';
 import { at, distance, offset, sphereContact, subtract, terrainContact, unit } from './rts-geometry.ts';
 
@@ -26,7 +26,7 @@ export class RtsRules {
   newMatch(resources: readonly ResourceNode[], servicePads: readonly ServicePad[] = []): MatchState {
     const economy = () => ({ credits: RTS_CONFIG.startingCredits, earned: 0, shopUnlocked: true });
     return {
-      rulesVersion: 'cargo-v2', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
+      rulesVersion: 'cargo-v3', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
       resources: resources.filter(node => node.kind !== 'dropped').map(node => ({ ...node, kind: 'cache', reserved: 0, remaining: node.capacity, zoneSize: resourceZoneSize(node) })),
       servicePads: servicePads.map(pad => ({ ...pad, zoneSize: serviceZoneSize(pad) })), projectiles: [], events: [],
     };
@@ -95,10 +95,11 @@ export class RtsRules {
     if (!Object.hasOwn(RTS_CONFIG.prices, item)) throw new Error('Unknown attachment');
     if (usesCargo(state) && (item === 'miner' || item === 'miner_upgrade' || item === 'jammer')) throw new Error('This attachment is unavailable under cargo rules');
     if (!hasBatteries(matchOf(state).rulesVersion) && item === 'battery') throw new Error('Batteries are unavailable under current rules');
+    if (matchOf(state).rulesVersion === 'cargo-v3' && item === 'optics') throw new Error('Optics are unavailable under current rules');
     const wallet = matchOf(state).teams[team(drone)], price = RTS_CONFIG.prices[item];
     if (!wallet.shopUnlocked) throw new Error('The team shop is unavailable');
     if (!this.friendlyPad(state, drone)) throw new Error('A friendly service pad must be within reach');
-    const modules: readonly EquipmentModule[] = usesCargo(state) ? hasBatteries(matchOf(state).rulesVersion) ? CARGO_V1_EQUIPMENT_MODULES : EQUIPMENT_MODULES : LEGACY_EQUIPMENT_MODULES;
+    const modules: readonly EquipmentModule[] = usesCargo(state) ? hasBatteries(matchOf(state).rulesVersion) ? CARGO_V1_EQUIPMENT_MODULES : matchOf(state).rulesVersion === 'cargo-v2' ? CARGO_V2_EQUIPMENT_MODULES : EQUIPMENT_MODULES : LEGACY_EQUIPMENT_MODULES;
     const gear = equipment(drone), isModule = modules.includes(item as EquipmentModule);
     if (replace !== undefined && (!isModule || !modules.includes(replace) || !gear[replace] || replace === item)) {
       throw new Error('Replacement must name a different equipped module');

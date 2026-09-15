@@ -1,5 +1,30 @@
 # RTS verification — September 14, 2026
 
+## Cargo-v3 layout, equipment and lights — September 15, 2026, 14:50 UTC
+
+The user-authorized revision starts all six drones unarmored with zero shared salvage and removes optics from current purchases/tools/UI. Gun and cargo remain the two modules; armor remains purchasable. The same 512-character opening order reaches both teams through the existing native relay/launch gate; detailed vehicle calibration remains in each pilot's instructions. Historical rules and recorded equipment remain interpretable.
+
+The two 56 m base aprons occupy opposite existing west/east rooftops, about 670 m apart, with a midpoint about 13.3 m from the geographic center. Their service height remains six local units above the roof. Vine/Fourth and Main/Fourth hold 120 salvage each; Walnut/Fourth holds 600, preserving 840 total. The central 20 m apron uses a measured 0.5 m east offset; Main/Fourth uses a 1 m west / 3 m north offset and follows the street rotation. Exact footprint/airspace checks cover all corner buildings, full roof support, three separated bodies, vertical approach clearance and initial camera visibility. City source geometry is unchanged.
+
+**Validation passed:** 426 deterministic/native integration tests, TypeScript/Vite build, the updated physical cargo fixture, and both browser fixtures on isolated port 4319. A strengthened purchased-armor relaunch/reset check then passed all five tests in its file. Only developer fixture compositions/test assertions changed after the full suite; the retained provenance files identify carried-forward checks. No inference ran. The scripted unarmored carrier picked up at sim 30.85 s and delivered to its rooftop base at 64.25 s, conserving stock throughout. Routes use private developer geometry and synthetic camera placeholders; this is mechanics evidence, not autonomous navigation.
+
+Blender-authored upper/lower rotor-guard rings emit the team's color with ordinary depth occlusion. Actual 512 × 288 camera comparisons verified live/dead removal and identical images with an enemy behind an opaque building versus absent. All six opening cameras acquired the revised map; zero starting funds/armor, unavailable optics, delivered-income purchases, rearm, reset, mobile layout and required-asset failure gating passed. Visual inspection covered both rooftops, the three-site overhead layout, central corner clearance, team lights and the opening FPV view.
+
+Renderer fingerprint: `73aa6026ec105113b49cbfcea18678dd47663a682a78570c61602f64aeff5b18`. The compressed GLBs total 1,646,648 bytes. Thirty warmed production captures (render/readback/JPEG included) measured p50 **215.0 ms**, p95 **252.8 ms**, maximum **262.1 ms** in local headless Chromium. These are host fixture timings, not guaranteed frame rates or evidence of improved autonomous recognition.
+
+Evidence: `artifacts/test-runs/2026-09-15T14-50-38-478Z-cargo-v3-qa-7d17506c/` (tests, starting-equipment log, cargo-mechanics, rts-ui and graphics). Managed retention may prune raw evidence after a later run. Earlier reports below remain historical.
+
+
+## Blender graphics fixtures — September 15, 2026, 13:45 UTC
+
+The first [Blender asset pass](GRAPHICS.md) passed **424 tests**, TypeScript/Vite build, the deterministic RTS browser fixture and the new graphics fixture on isolated port **4319**. No inference ran. Ports 4317/4318 were unavailable; the owned test server remained idle. The renderer fingerprint was `e439c93af14146965275e8168bfb1e02a9d71ac07b49fd49f4bcc6e049b6a40f` and includes both GLBs and their manifest.
+
+The fixtures verified current camera ownership, all six acquired views, destroyed/absent target image equality, older alive snapshots, God view/Admin camera isolation, optics, cargo loading/delivery/refitting, finite ammunition/rearming and responsive layout. A deliberately failed required GLB kept Launch disabled and sent no camera-ready message. Visual inspection covered the skyline, Carew street façades, Queen City Square, consumer aircraft, crates and actual 512 × 288 captures. This establishes presentation and deterministic behavior, not autonomous recognition or improved gameplay.
+
+The compressed city and kit total **1,595,356 bytes**. The measured Queen City Square scene pass used **45 draws / 28,034 triangles**, including sky, road and cargo scenery. Thirty warmed production camera captures (three prescribed poses, render/readback/JPEG included) measured **p50 88.5 ms, p95 176.8 ms, maximum 209.9 ms** in headless Chromium on this host. These timings are local fixture measurements, not physical camera latency or guaranteed six-feed frame rates. Building geometry, service bands, vehicle scale and camera calibration remain unchanged.
+
+Raw evidence and grouped logs: `artifacts/test-runs/2026-09-15T13-45-32-434Z-graphics-qa-32d63047/`. Managed retention may prune this directory after a newer test run; the report remains historical evidence of the fingerprint above.
+
 ## Watchable battle launch — September 15, 2026, 03:09 UTC
 
 The user requested a normal watchable battle while the QA fixes were prepared for PR/merge. The initial launch on commit `930ed16` and manifest `8133a701c6053b8a156069687f92dd5887c8d5c08cd432b85f8b042e64ac3e30` stopped at **sim 0**, before any acquisition, movement, purchase or combat. The native red parent received **“Selected model is at capacity”** on its initial turn and both bounded resume attempts. The runtime then stopped the whole fleet because the red relay could not remain active. Luna/xhigh was retained; no fallback model was used.

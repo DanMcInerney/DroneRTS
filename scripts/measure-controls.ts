@@ -34,7 +34,7 @@ class Fixture {
   get target() { return this.game.state.drones[3]; }
   async ready() {
     this.game.setConnected(true); this.game.start(); this.game.state.obstacles = [];
-    assert.equal(this.game.state.match!.rulesVersion, 'cargo-v2');
+    assert.equal(this.game.state.match!.rulesVersion, 'cargo-v3');
     // Prescribed impact fixtures set their own armor independently of match defaults.
     for (const drone of this.game.state.drones) drone.equipment!.armor = false;
     this.game.state.match!.resources = [];
@@ -253,7 +253,7 @@ assert.equal(results.length, 34); assert.equal(comparisons.length, 17);
 assert.ok(comparisons.every(c => c.sameAliveOutcomes && c.sameJobOutcomes && c.sameEventTypes));
 const stamp = new Date().toISOString();
 await mkdir(directory, { recursive: true });
-const metadata = { schemaVersion: 'control-measurements/2', rulesVersion: 'cargo-v2',
+const metadata = { schemaVersion: 'control-measurements/2', rulesVersion: 'cargo-v3',
   observationProtocol: 'fleet-observation/2', measuredAt: stamp, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
   workingTree: execFileSync('git', ['status', '--short'], { encoding: 'utf8' }).trim(),
   node: process.version, command: 'node --import tsx scripts/measure-controls.ts', inference: false,

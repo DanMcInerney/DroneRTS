@@ -45,6 +45,7 @@ test('accepted rearming explicitly retires a route whose movement it stops', asy
   const game = await ready(); t.after(() => game.stop());
   const drone = game.state.drones[0];
   drone.equipment!.gun = true; drone.ammo = 0;
+  game.state.match!.teams.blue.credits = 10;
   await game.tool(drone.id, 'route', { mission: 1, op: 'start', waypoints: [{ x: drone.x + 8, y: drone.y, z: drone.z }] });
   await flush();
   assert.equal(drone.job?.state, 'running');

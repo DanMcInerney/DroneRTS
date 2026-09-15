@@ -57,6 +57,7 @@ test('physical cube entry mines automatically; income and purchases reveal no re
   assert.ok(Math.abs(game.state.match!.teams.blue.credits - RTS_CONFIG.startingCredits - game.state.match!.teams.blue.earned) < 1e-7);
   assert.equal(game.toolCapabilities('drone-2').shop, true);
   assert.equal(game.toolCapabilities('drone-4').shop, true);
+  game.state.match!.teams.blue.credits += 30; // Historical funded shop fixture.
   const result = body(await game.tool('drone-2', 'buy', { mission: 1, item: 'gun' }));
   assert.equal(result.equipped, 'gun'); assert.equal(game.toolCapabilities('drone-2').gun, true);
   assert.equal(game.toolCapabilities('drone-1').gun, false);

@@ -34,7 +34,9 @@ Replay records stay separate from audit exports under `artifacts/replays/<sessio
 
 ## Economy and combat
 
-New matches use **cargo-v2**. Each team begins with 30 shared salvage and each drone with one free armor charge, empty module slots and a free cargo grip. Four outer caches hold 60 salvage each; the central depot holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible.
+Both teams receive the same short opening commander order through the existing launch gate. Detailed calibration remains in each pilot’s vehicle briefing. Drones have steady team-colored navigation lights; historical recordings retain saved equipment and camera modes.
+
+New matches use **cargo-v3**. Each team begins with zero salvage; drones start unarmored with empty module slots and a free cargo grip. Opposite west/east rooftop bases bracket three intersection caches: Vine/Fourth and Main/Fourth hold 120 each, and Walnut/Fourth holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible.
 
 Pickup requires the drone center over the marked apron, 0.6–2.4 local units above its surface, moving at most 0.3 local units per simulation second for three simulation seconds. One interval fills available capacity from available stock, with atomic reservations and partial final loads. The free grip carries 30 salvage; the cargo module carries 60. Loaded maximum speed is 20% lower. Cargo becomes shared credits only after two simulation seconds of the same low/slow service at a friendly base. Cancelling loading releases stock; cancelling unloading keeps cargo. Accessible crash-site drops can be collected by either team; inaccessible cargo is recorded lost.
 
@@ -45,11 +47,10 @@ Bases use team-painted aprons, three pad marks, a service cabinet and the cargo 
 | Free grip | 0 | Carries one 30-salvage crate, no module slot. |
 | Cargo module | 30 | Carries 60 salvage total, one slot. |
 | Gun | 30 | Initially contains 12 rounds; physical camera-aimed shots, cover and friendly fire. |
-| Optics | 30 | Wide/zoom projection, no object identification or extra world knowledge. |
-| Armor | 20 | One replacement armor charge, outside module slots. |
+| Armor | 20 | One armor charge, outside module slots. |
 | Rearm | 10 | Refills to 12 rounds after eight uninterrupted simulation seconds at friendly service. |
 
-Two module slots accept gun, cargo and optics. Fitting/replacement requires friendly service occupancy and explicit replacement without resale refunds. Refitting creates no free ammunition. Batteries, mining drills, upgrades and jamming are unavailable in new matches; historical recordings keep their original equipment meaning.
+Two module slots accept gun and cargo. Fitting/replacement requires friendly service occupancy and explicit replacement without resale refunds. Refitting creates no free ammunition. Optics, batteries, mining drills, upgrades and jamming are unavailable in new matches; historical recordings keep their original equipment meaning.
 
 Rearming reserves payment and grants no ammunition before completion. Movement commands, translation, firing, refitting, damage, a received replacement objective, destruction and Stop cancel it with exactly one refund. Looking, camera mode, radio, waiting and unloading may continue. Ordinary chat does not cancel service or flight.
 
@@ -63,9 +64,9 @@ These are initial simulator balance values. Historical cube-economy playtests do
 
 ## Actor tools and sensors
 
-Each living drone has `observe`, `act`, `send`, `wait`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`; optics unlocks `camera`. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
+Each living drone has `observe`, `act`, `send`, `wait`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`. Historical equipped optics retain the `camera` interpretation in recordings. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
 
-`server/runtime-tools.ts` composes a compact role/compute/encoding prompt with the exact common briefing from `shared/mission.ts`. [DRONE-PROMPT.md](DRONE-PROMPT.md) documents that composition. Numeric onboard and routine limits come from their authoritative profiles; `shared/actor-environment.ts` describes the matching guest/host capability boundary for the cockpit. The current cargo-v2 rules and five-cache downtown layout supersede the earlier three-cache mining revision; historical recordings keep their own geometry and rules.
+`server/runtime-tools.ts` composes a compact role/compute/encoding prompt with the exact common briefing from `shared/mission.ts`. [DRONE-PROMPT.md](DRONE-PROMPT.md) documents that composition. Numeric onboard and routine limits come from their authoritative profiles; `shared/actor-environment.ts` describes the matching guest/host capability boundary for the cockpit. The current cargo-v3 rules and three-intersection rooftop-base layout supersede the earlier five-cache cargo-v2 revision; historical recordings keep their own geometry and rules.
 
 | Tool | Effect |
 | --- | --- |
@@ -96,6 +97,8 @@ Every direct tool or aggregate exchange delivers one fresh acquired camera bundl
 See [ONBOARD.md](ONBOARD.md) for private files, SDK syntax, package accounting and execution limits. [IMPLEMENTATION-VERIFICATION.md](IMPLEMENTATION-VERIFICATION.md) records current checks and outstanding autonomy gates. The [implementation handoff](DRONE-RTS-IMPLEMENTATION-HANDOFF.md) specifies the current revision; [STRATEGY-PLAN.md](STRATEGY-PLAN.md) remains earlier design evidence.
 
 ## Architecture and verification
+
+The first [Blender graphics pass](GRAPHICS.md) adds consumer-style aircraft and cargo assets, PBR downtown façades, daylight reflections, building shadows and antialiasing. Editable `.blend` sources are in `assets/blender/`; run `npm run assets:build` to regenerate the game GLBs with Blender. Camera readiness waits for the required assets.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) maps ownership. [CITY.md](CITY.md) describes private battlefield layout and the separate vehicle calibration; [CINCINNATI-SOURCES.md](CINCINNATI-SOURCES.md) records geographic evidence and approximations. [NETWORK.md](NETWORK.md) and [MAVLINK.md](MAVLINK.md) describe the native protocols. [AGENTS.md](AGENTS.md) gives development constraints. The current [QA handoff](QA-HANDOFF.md) prioritizes the reproduced braking failure, decision latency and remaining autonomy gates, with an offline reproduction command.
 
@@ -133,7 +136,7 @@ node --import tsx scripts/analyze-engagement.ts artifacts/test-runs/<run-directo
 node --import tsx scripts/analyze-decision-latency.ts artifacts/test-runs/<run-directory>
 ```
 
-`measure-controls.ts` runs 34 prescribed cargo-v2 flight, finite-sensor braking and ballistic fixtures with synthetic camera placeholders and no inference; actual contact damage is checked separately in the automated tests. All `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually; each command owns its test server and requires a camera browser within 60 seconds. The default is [port 4318](http://127.0.0.1:4318). Set `RTS_TRIAL_PORT` to another free port when a different checkout owns 4318; player port 4317 is forbidden. The runner checks 4317, 4318 and the selected port, and refuses any existing server at its selected port. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Other servers are preserved.
+`measure-controls.ts` runs 34 prescribed cargo-v3 flight, finite-sensor braking and ballistic fixtures with synthetic camera placeholders and no inference; actual contact damage is checked separately in the automated tests. All `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually; each command owns its test server and requires a camera browser within 60 seconds. The default is [port 4318](http://127.0.0.1:4318). Set `RTS_TRIAL_PORT` to another free port when a different checkout owns 4318; player port 4317 is forbidden. The runner checks 4317, 4318 and the selected port, and refuses any existing server at its selected port. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Other servers are preserved.
 
 Flight uses the normal opening with a flight-only operator objective. Aiming fixtures position three visible pairs above the city and grant blue guns; red receives either a holding or a repeated-flight objective. Fixture objectives supply no battlefield coordinates or enemy telemetry; all actors retain the common vehicle calibration. Moving targets choose their own waypoints and can pause between commands, so a hit during that trial does not necessarily mean a hit on a moving target. `match` uses the production opening, equipment and missions. The test host disables other UI mutations except Stop.
 

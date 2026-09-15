@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { RtsRules } from '../server/rts.ts';
 import { DroneMotion } from '../server/drone-motion.ts';
 import { LocalSensors } from '../server/local-sensors.ts';
-import { cargoCapacityFor, CARGO_CONFIG, EQUIPMENT_MODULES, RTS_CONFIG, type Point } from '../shared/rts.ts';
+import { apronPoint, cargoCapacityFor, CARGO_CONFIG, EQUIPMENT_MODULES, RTS_CONFIG, type Point } from '../shared/rts.ts';
 import type { Drone, DroneId, GameState } from '../shared/types.ts';
 
-function fixture(stock = 60) {
+function fixture(stock = 60, funded = true) {
   const rules = new RtsRules();
   const drones: Drone[] = Array.from({ length: 6 }, (_, i) => ({
     id: `drone-${i + 1}`, x: i === 0 ? 0 : i === 3 ? 60 : 100 + i * 10, y: 1.5, z: 0,
@@ -22,6 +22,8 @@ function fixture(stock = 60) {
     ]),
   };
   rules.begin(state);
+  // Most service tests begin after an earlier delivery. The opening test opts out.
+  if (funded) state.match!.teams.blue.credits = state.match!.teams.red.credits = 30;
   const tick = (dt: number, previous?: Map<DroneId, Point>) => { state.simTime += dt; rules.step(state, dt, previous); };
   const at = (drone: Drone, x: number, y = 1.5, z = 0) => { Object.assign(drone, { x, y, z, velocity: { x: 0, y: 0, z: 0 } }); };
   const load = (drone = drones[0]) => { at(drone, 20); tick(CARGO_CONFIG.pickupDuration); };
@@ -62,13 +64,13 @@ for (const dt of [1 / 120, 0.0077957, 0.002]) test(`physical final approach pres
   assert.equal(match.events.filter(event => event.type === 'cargo_cancelled').length, 0);
 });
 
-test('cargo-v2 opens with 30 shared credits, armor, free grips and only three module choices', () => {
-  const { state, drones, wallet } = fixture();
-  assert.equal(state.match!.rulesVersion, 'cargo-v2');
-  assert.deepEqual(wallet, { credits: 30, earned: 0, shopUnlocked: true });
-  assert.deepEqual(EQUIPMENT_MODULES, ['gun', 'cargo', 'optics']);
+test('cargo-v3 opens with zero credits, no armor, free grips and only gun/cargo modules', () => {
+  const { state, drones, wallet } = fixture(60, false);
+  assert.equal(state.match!.rulesVersion, 'cargo-v3');
+  assert.deepEqual(wallet, { credits: 0, earned: 0, shopUnlocked: true });
+  assert.deepEqual(EQUIPMENT_MODULES, ['gun', 'cargo']);
   for (const drone of drones) {
-    assert.equal(drone.equipment!.armor, true);
+    assert.equal(drone.equipment!.armor, false);
     assert.ok(EQUIPMENT_MODULES.every(item => !drone.equipment![item]));
     assert.equal(cargoCapacityFor(drone), 30); assert.equal(drone.cargo!.amount, 0);
   }
@@ -184,7 +186,7 @@ test('Stop retains existing cargo and refunds rearm exactly once, while reset re
   state.match!.resources.push({ id: 'old-drop', kind: 'dropped', x: 40, y: 0, z: 0, capacity: 5, remaining: 5 });
   rules.begin(state);
   assert.equal(state.match!.resources.length, 1); assert.equal(state.match!.resources[0].remaining, 60);
-  assert.equal(drone.cargo!.amount, 0); assert.equal(state.match!.teams.blue.credits, 30);
+  assert.equal(drone.cargo!.amount, 0); assert.equal(state.match!.teams.blue.credits, 0);
   assert.equal(drone.gunPurchased, false);
 });
 
@@ -212,7 +214,7 @@ test('inaccessible wall crashes lose cargo without creating a relocated recovery
 });
 
 test('armor interruption releases loading reservation but retains already carried cargo', () => {
-  const { rules, state, drone, load, at, stock, conserved } = fixture(); load(); at(drone, 40, 4);
+  const { rules, state, drone, load, at, stock, conserved } = fixture(); drone.equipment!.armor = true; load(); at(drone, 40, 4);
   rules.terrainCollision(state, drone, drone, { x: 40, y: -1, z: 0 });
   assert.equal(drone.alive, true); assert.equal(drone.equipment!.armor, false); assert.equal(drone.cargo!.amount, 30);
   assert.equal(stock.reserved, 0); assert.equal(conserved(), 60);
@@ -220,21 +222,20 @@ test('armor interruption releases loading reservation but retains already carrie
 
 test('cargo refits preserve two-slot ownership, reject legacy shop items and cannot discard excess cargo', () => {
   const { rules, state, drone, wallet, load, at } = fixture(); wallet.credits = 200;
-  rules.buy(state, drone, 'cargo'); rules.buy(state, drone, 'optics');
-  assert.throws(() => rules.buy(state, drone, 'gun'), /Both module slots/);
-  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery'] as const) assert.throws(() => rules.buy(state, drone, item), /unavailable/);
+  rules.buy(state, drone, 'cargo');
+  for (const item of ['miner', 'miner_upgrade', 'jammer', 'battery', 'optics'] as const) assert.throws(() => rules.buy(state, drone, item), /unavailable/);
   load(); at(drone, 0); const before = wallet.credits;
   assert.throws(() => rules.buy(state, drone, 'gun', 'cargo'), /Deliver excess cargo/);
   assert.equal(drone.cargo!.amount, 60); assert.equal(wallet.credits, before); assert.equal(drone.equipment!.cargo, true);
+  rules.buy(state, drone, 'gun'); assert.equal(drone.equipment!.gun, true);
 });
 
 test('gun refitting cannot manufacture ammunition or introduce battery state', () => {
   const { rules, state, drone, wallet } = fixture(); wallet.credits = 300;
   rules.buy(state, drone, 'gun'); rules.fire(state, drone); assert.equal(drone.ammo, 11);
-  rules.buy(state, drone, 'optics', 'gun'); assert.equal(drone.ammo, 0);
-  rules.buy(state, drone, 'gun', 'optics'); assert.equal(drone.ammo, 0);
+  rules.buy(state, drone, 'cargo', 'gun'); assert.equal(drone.ammo, 0);
+  rules.buy(state, drone, 'gun', 'cargo'); assert.equal(drone.ammo, 0);
   rules.buy(state, drone, 'cargo'); assert.equal(drone.battery, undefined);
-  rules.buy(state, drone, 'optics', 'cargo'); assert.equal(drone.battery, undefined);
   const before = wallet.credits; rules.rearm(state, drone); assert.equal(wallet.credits, before - RTS_CONFIG.rearmCost);
 });
 
@@ -247,4 +248,16 @@ test('current pickup, delivery, refitting and rearming ignore obsolete empty bat
   rules.rearm(state, drone); tick(8); assert.equal(drone.ammo, 12);
   assert.equal(drone.alive, true); assert.equal(conserved(), 60);
   assert.ok(!state.match!.events.some(event => event.cause === 'power' || event.type.startsWith('battery_')));
+});
+
+test('rotated rooftop base delivers relative to its roof and fits equipment up to the calibrated service height', () => {
+  const { state, drone, rules, load, tick, wallet } = fixture(60, false);
+  const pad = state.match!.servicePads![0]; Object.assign(pad, { x: 0, y: 8, z: 0, zoneSize: 5.6, serviceHeight: 6, rotation: 35 });
+  load(); Object.assign(drone, apronPoint(pad, 2.5, 2.5, 1.5));
+  tick(2); assert.equal(wallet.credits, 30); assert.equal(drone.cargo!.amount, 0);
+  Object.assign(drone, apronPoint(pad, 0, 0, 5.9)); rules.buy(state, drone, 'gun');
+  assert.equal(drone.ammo, 12); assert.equal(wallet.credits, 0);
+  wallet.credits = 30; Object.assign(drone, apronPoint(pad, 2.81, 0, 1.5));
+  assert.throws(() => rules.buy(state, drone, 'cargo'), /friendly service pad/);
+  assert.equal(wallet.credits, 30);
 });

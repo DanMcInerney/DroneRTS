@@ -44,7 +44,7 @@ export class FleetPanels {
     const card = document.createElement('article'); card.className = `feed-card team-${identity.team ?? 'blue'}`; card.dataset.drone = id; card.dataset.droneId = id;
     card.innerHTML = `<header class="feed-header"><div><span class="drone-dot"></span><h2></h2></div><span class="drone-connection">OFFLINE</span></header>
       <div class="viewport"><div class="camera-top"><span>FPV <i></i> <b class="camera-mode">WIDE</b></span><span class="heading">HDG 000°</span></div><div class="reticle" aria-hidden="true"><span></span><span></span></div><div class="camera-bottom"><span class="altitude">POS Y <b>—</b></span><span class="sensor-count">0 OBS</span></div><div class="camera-vignette" aria-hidden="true"></div></div>
-      <div class="equipment-row"><div class="loadout-strip"><span data-item="gun" title="Gun · one module slot">↗ Gun</span><span data-item="cargo" title="Cargo module · one module slot · two crates total">◆ Cargo</span><span data-item="miner" title="Historical mining drill" hidden>◆ Drill</span><span data-item="optics" title="Optics · one module slot · wide/zoom camera">◎ Optics</span><span data-item="jammer" title="Historical jammer" hidden>⌁ Jammer</span><span data-item="armor" title="Armor · separate one-hit protection">⬡ Armor</span></div>
+      <div class="equipment-row"><div class="loadout-strip"><span data-item="gun" title="Gun · one module slot">↗ Gun</span><span data-item="cargo" title="Cargo module · one module slot · two crates total">◆ Cargo</span><span data-item="miner" title="Historical mining drill" hidden>◆ Drill</span><span data-item="optics" title="Historical optics" hidden>◎ Optics</span><span data-item="jammer" title="Historical jammer" hidden>⌁ Jammer</span><span data-item="armor" title="Armor · separate one-hit protection">⬡ Armor</span></div>
       <div class="equipment-state"><span class="module-count">0/2 MODULES</span><span class="ammo-status"></span><strong class="mining-status"></strong></div></div>
       <div class="endurance-state" hidden><span class="jamming-status" hidden></span><span class="interference-status" title="Peer radio is interrupted; the local camera and flight controls remain available." hidden>RADIO JAMMED</span></div>
       <div class="service-status" hidden><span class="service-label"></span><progress class="service-progress" max="1" value="0" aria-label="Rearming progress"></progress></div>
@@ -90,6 +90,7 @@ export class FleetPanels {
       items.card.classList.toggle('drone-eliminated', drone.alive === false);
       items.mapItem.classList.toggle('eliminated', drone.alive === false);
       for (const item of [...EQUIPMENT_MODULES, 'armor'] as const) items.card.querySelector(`[data-item="${item}"]`)!.classList.toggle('equipped', Boolean(drone.equipment?.[item]));
+      items.card.querySelector<HTMLElement>('[data-item="optics"]')!.hidden = !drone.equipment?.optics;
       put('[data-item="miner"]', drone.equipment?.miner && drone.equipment.minerUpgrade ? '◆ Drill II' : '◆ Drill');
       const modules = equippedModuleCount(drone);
       put('.module-count', `${modules}/${RTS_CONFIG.moduleSlots} MODULES`);

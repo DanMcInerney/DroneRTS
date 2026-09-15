@@ -12,6 +12,7 @@ import { layout } from './layout';
 import { MatchPanel } from './match-panel';
 import { mountCockpit } from './cockpit';
 import { DroneRadio } from './drone-radio';
+import { loadGraphicsAssets } from './graphics-assets';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 root.innerHTML = layout;
@@ -40,8 +41,15 @@ let busy = false;
 let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
 function alertMessage(message: string) { element('alert-text').textContent = message; element('alert').hidden = false; }
-try { scene = new FleetScene(element('world-views'), initialViews, element('overview-map')); scene.fitOverview(); }
-catch (error) { alertMessage(`The 3D view could not start. Enable WebGL and reload. ${error instanceof Error ? error.message : ''}`); element('fleet-feeds').classList.add('webgl-unavailable'); }
+try {
+  startButton.disabled = true;
+  element('connection-text').textContent = 'Loading city and aircraft…';
+  await loadGraphicsAssets();
+  scene = new FleetScene(element('world-views'), initialViews, element('overview-map')); scene.fitOverview();
+} catch (error) {
+  alertMessage(`The 3D view could not start. Check the asset connection and WebGL, then reload. ${error instanceof Error ? error.message : ''}`);
+  element('fleet-feeds').classList.add('webgl-unavailable');
+}
 
 function clock(time: number) { const tenths = Math.max(0, Math.round(time * 10)); const minutes = Math.floor(tenths / 600).toString().padStart(2, '0'); return `${minutes}:${((tenths % 600) / 10).toFixed(1).padStart(4, '0')}`; }
 function updateControls() {

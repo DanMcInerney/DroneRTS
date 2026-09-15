@@ -80,7 +80,7 @@ test('recorded occupied approach reports a blocked job without contact or a fals
     assert.equal(bundle.job.state, 'blocked');
     assert.equal(bundle.job.reason, 'coverage-unavailable');
     assert.ok(!bundle.events.some((event: any) => event.type === 'arrived'));
-    assert.ok(drone.alive && peer.alive && drone.equipment!.armor && peer.equipment!.armor);
+    assert.ok(drone.alive && peer.alive && !drone.equipment!.armor && !peer.equipment!.armor);
     assert.equal(drone.action, undefined);
     assert.deepEqual(drone.velocity, { x: 0, y: 0, z: 0 });
   }

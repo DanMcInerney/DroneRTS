@@ -5,7 +5,7 @@ import { BOOTSTRAP_MESSAGE, MODEL, EFFORT, createParentInstructions, createDrone
 import { validateRoster, type FleetRoster } from '../shared/fleet.ts';
 import { DEFAULT_AGENT_BACKEND, validateAgentBackend, type AgentBackendConfiguration } from '../server/agent-backend.ts';
 import { CARGO_CONFIG } from '../shared/rts.ts';
-import { RTS_BRIEFING } from '../shared/mission.ts';
+import { RTS_BRIEFING, RTS_MISSION } from '../shared/mission.ts';
 
 function fixture(roster?: FleetRoster) {
   const events: any[] = [];
@@ -183,7 +183,7 @@ test('catalog exposes purchases with team credit access and equipment tools only
   assert.deepEqual(equipped.map(tool => tool.name), [...armed.slice(0, -1), 'camera', 'exchange']);
   assert.deepEqual(equipped.find(tool => tool.name === 'camera')!.inputSchema.required, ['mission', 'mode']);
   assert.deepEqual(equipped.find(tool => tool.name === 'rearm')!.inputSchema.required, ['mission']);
-  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'cargo', 'optics']);
+  assert.deepEqual((equipped.find(tool => tool.name === 'buy')!.inputSchema.properties!.replace as any).enum, ['gun', 'cargo']);
   const jammer = createDroneTools(undefined, { shop: true, gun: false, jammer: true, alive: true });
   assert.deepEqual(jammer.map(tool => tool.name), shop, 'historical equipment must not reactivate deferred tools');
   assert.deepEqual(createDroneTools(undefined, { shop: true, gun: true, alive: false }), []);
@@ -281,4 +281,11 @@ test('retirement during catalog discovery cancels the pending continuation', asy
   assert.ok(!requests.includes('turn/start'));
   assert.ok(!requests.includes('turn/interrupt'));
   assert.equal(internal.catalogWaiters.size, 0);
+});
+
+test('terse common opening states the empty loadout and lights without exposing map geometry', () => {
+  assert.ok(RTS_MISSION.length < 700);
+  assert.match(RTS_MISSION, /no salvage, no armor/); assert.match(RTS_MISSION, /lights in their team color/);
+  assert.match(RTS_BRIEFING, /starts unarmored/); assert.match(RTS_BRIEFING, /rooftops/);
+  assert.doesNotMatch(RTS_MISSION + RTS_BRIEFING, /optics|zoom|Vine|Walnut|Main Street|Paycor|Queen City|halfway|middle|central/i);
 });

@@ -18,12 +18,12 @@ async function ready() {
   return game;
 }
 
-test('ready, launch, relaunch and reset grant each drone one independent armor charge without spending', () => {
+test('ready, launch, relaunch and reset start unarmored with empty independent equipment and zero credits', () => {
   const game = new FleetGame(); game.setConnected(true);
   const check = () => {
     assert.equal(game.state.drones.length, 6);
     for (const drone of game.state.drones) {
-      assert.equal(drone.equipment?.armor, true);
+      assert.equal(drone.equipment?.armor, false);
       assert.equal(drone.equipment?.gun, false);
       assert.equal(drone.equipment?.miner, false);
     }
@@ -34,11 +34,11 @@ test('ready, launch, relaunch and reset grant each drone one independent armor c
     assert.equal(game.state.match!.events.filter(event => event.type === 'purchased').length, 0);
   };
   check(); game.start(); check();
-  game.state.drones[0].equipment!.armor = false;
+  game.state.drones[0].equipment!.armor = true;
   game.state.drones[0].equipment!.gun = true;
   game.state.match!.teams.blue.credits = 0;
   game.stop(); game.start(); check();
-  game.state.drones[0].equipment!.armor = false;
+  game.state.drones[0].equipment!.armor = true;
   game.stop(); game.reset(); check();
 });
 
@@ -52,6 +52,7 @@ const collisions = [
 for (const collision of collisions) test(`${collision.id}'s recorded route brakes; actual contact consumes armor with private feedback and stops flight`, async t => {
   const game = await ready(); t.after(() => game.stop());
   const drone = game.state.drones.find(drone => drone.id === collision.id)!;
+  drone.equipment!.armor = true; // Explicit purchased-armor damage fixture.
   Object.assign(drone, collision.from);
   const command = { mission: 1, kind: 'fly_to', ...collision.target };
   assert.equal(body(await game.tool(drone.id, 'act', command)).accepted, true);
@@ -88,12 +89,13 @@ for (const collision of collisions) test(`${collision.id}'s recorded route brake
   assert.equal(drone.alive, false, 'a second unprotected collision remains lethal');
 });
 
-test('starting armor absorbs a bullet with hit feedback, without reporting a collision or attacker', async t => {
+test('purchased armor absorbs a bullet with hit feedback, without reporting a collision or attacker', async t => {
   const game = await ready(); t.after(() => game.stop()); game.state.obstacles = [];
   game.state.drones.forEach((drone, i) => Object.assign(drone, { x: i * 30, y: 5, z: 30 }));
   const target = game.state.drones[0], shooter = game.state.drones[3];
   Object.assign(target, { x: 0, y: 5, z: 0 });
   Object.assign(shooter, { x: 0, y: 5, z: 8, yaw: 0, pitch: 0 });
+  target.equipment!.armor = true;
   shooter.equipment!.gun = true; shooter.ammo = 1;
   await game.tool(shooter.id, 'fire', { mission: 1 });
   for (let step = 0; step < 120 && target.equipment!.armor; step++) game.tick(1 / 120);

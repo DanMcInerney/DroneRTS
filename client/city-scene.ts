@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { CITY } from '../shared/city';
 import type { CityPoint } from '../shared/city';
 import type { Obstacle, Treasure } from '../shared/types';
+import { graphicsCity } from './graphics-assets';
 
 const radians = THREE.MathUtils.degToRad;
-const material = (color: THREE.ColorRepresentation) => new THREE.MeshLambertMaterial({ color });
+const material = (color: THREE.ColorRepresentation) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 });
 
 function polygon(points: CityPoint[], color: THREE.ColorRepresentation, height: number, holes: CityPoint[][] = []) {
   const shape = new THREE.Shape();
@@ -41,7 +42,7 @@ export function createCity(buildings: Obstacle[]) {
   const group = new THREE.Group();
   const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
   // A small scenic margin avoids a floating slab at the flight envelope.
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(width + 800, depth + 800), material('#a7b49a'));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(width + 800, depth + 800), material('#9b9e92'));
   ground.rotation.x = -Math.PI / 2;
   ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, 0, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
   ground.receiveShadow = true;
@@ -56,8 +57,8 @@ export function createCity(buildings: Obstacle[]) {
     if (park.points.length > 2) group.add(polygon(park.points, park.color ?? '#82ac70', 0.05));
   }
   // Broad value separation survives the finite-resolution acquired cameras.
-  const asphalt = material('#3c464b');
-  const paving = material('#cfc9b8');
+  const asphalt = material('#444a4e');
+  const paving = material('#aaa9a1');
   const roadMatrices: THREE.Matrix4[][] = [[], []];
   const roadDummy = new THREE.Object3D();
   const markings: THREE.Vector3[] = [];
@@ -88,6 +89,9 @@ export function createCity(buildings: Obstacle[]) {
   });
   group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(markings), new THREE.LineBasicMaterial({ color: '#c7bf96', transparent: true, opacity: 0.48 })));
 
+  const baked = graphicsCity(buildings);
+  if (baked) group.add(baked);
+  else {
   const windowMatrices: THREE.Matrix4[] = [];
   const windowDummy = new THREE.Object3D();
   const transform = new THREE.Matrix4();
@@ -140,6 +144,7 @@ export function createCity(buildings: Obstacle[]) {
   windowMatrices.forEach((matrix, index) => windows.setMatrixAt(index, matrix));
   windows.instanceMatrix.needsUpdate = true;
   group.add(windows);
+  }
   // Physical street signs are visible through the same cameras as every other prop.
   const signs = new Set<string>();
   CITY.roads.forEach(road => {
@@ -178,6 +183,7 @@ export function createTreasure(treasure: Treasure) {
 export function disposeGroup(group: THREE.Group) {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
   group.traverse(object => {
     if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
       geometries.add(object.geometry);
@@ -186,8 +192,10 @@ export function disposeGroup(group: THREE.Group) {
   });
   geometries.forEach(item => item.dispose());
   materials.forEach(item => {
-    const texture = (item as THREE.MeshBasicMaterial).map;
-    texture?.dispose(); item.dispose();
+    const surface = item as THREE.MeshStandardMaterial;
+    for (const texture of [surface.map, surface.roughnessMap, surface.metalnessMap]) if (texture) textures.add(texture);
+    item.dispose();
   });
+  textures.forEach(texture => texture.dispose());
   group.clear();
 }

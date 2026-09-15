@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { graphicsAsset } from './graphics-assets';
 
 /** These are non-solid cargo props; the vehicle collision sphere is unchanged. */
 export const SALVAGE_VISUAL = Object.freeze({ width: 0.22, height: 0.12, depth: 0.22, ochre: '#bd8c27', ink: '#171b1d', pallet: '#30363a' });
@@ -18,6 +19,8 @@ export function cargoSymbol(size: number, color: string = SALVAGE_VISUAL.ink): T
 
 /** Identical matte crate shape/markings in stock and beneath a carrying drone. */
 export function salvageCrate() {
+  const asset = graphicsAsset('crate');
+  if (asset) return asset;
   const group = new THREE.Group(); group.name = 'crate';
   const { width, height, depth, ochre } = SALVAGE_VISUAL;
   const body = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), new THREE.MeshLambertMaterial({ color: ochre }));
@@ -45,6 +48,8 @@ export function salvageCrate() {
 }
 
 export function salvagePallet() {
+  const asset = graphicsAsset('pallet');
+  if (asset) return asset;
   const pallet = new THREE.Mesh(new THREE.BoxGeometry(0.29, 0.025, 0.29), new THREE.MeshLambertMaterial({ color: SALVAGE_VISUAL.pallet }));
   pallet.name = 'pallet'; pallet.position.y = 0.0125; return pallet;
 }

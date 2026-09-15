@@ -1,49 +1,37 @@
 import type { DroneId, Pose } from './types';
-import type { ResourceNode, ServicePad } from './rts';
+import { apronServicePositions, type ResourceNode, type ServicePad } from './rts';
 import downtown from './downtown.json';
 
-// Simulator and player-renderer data. Never import this module into drone tools
-// or put battlefield coordinates or route information in actor prompts.
-const launchSites = [
-  { x: -27, z: 39.2 }, // West Third Street forecourt, west of Race.
-  { x: 40, z: 30.2 }, // East Third Street forecourt, south of the tower cluster.
+// Simulator/player data only. Never expose locations or routes to actors.
+// Opposite west/east rooftops: Paycor Headquarters and the Queen City Square
+// podium. Equal 56m aprons align with the existing roof boxes, which stay intact.
+const servicePads: ServicePad[] = [
+  { id: 'service-blue', team: 'blue', x: -25.673, y: 1.28, z: 11.541, rotation: 10.171, zoneSize: 5.6, serviceHeight: 6 },
+  { id: 'service-red', team: 'red', x: 41.343, y: 1.8, z: 13.161, rotation: 11.173, zoneSize: 5.6, serviceHeight: 6 },
 ];
-// Broad Third Street verges leave the entire six-unit service volume clear.
-const serviceSites = [{ x: -27, z: 41 }, { x: 40, z: 32 }];
-const offsets = [{ x: -1.8, z: 1.2 }, { x: 0, z: 2.1 }, { x: 1.8, z: 0.8 }];
 const ids: DroneId[] = ['drone-1', 'drone-2', 'drone-3', 'drone-4', 'drone-5', 'drone-6'];
 const spawns = Object.fromEntries(ids.map((id, index) => {
-  const site = launchSites[Math.floor(index / 3)], offset = offsets[index % 3];
-  const x = site.x + offset.x, z = site.z + offset.z, y = 1.8;
-  const service = serviceSites[Math.floor(index / 3)];
-  const dx = service.x - x, dz = service.z - z;
-  return [id, { x, y, z,
-    yaw: Math.atan2(-dx, -dz) * 180 / Math.PI,
-    pitch: -55, // Look into the visible marked base apron before exploring.
+  const pad = servicePads[Math.floor(index / 3)];
+  const point = apronServicePositions(pad, pad.zoneSize!)[index % 3];
+  return [id, { ...point, y: pad.y + 1.8,
+    yaw: Math.atan2(point.x - pad.x, point.z - pad.z) * 180 / Math.PI,
+    pitch: -55,
   } satisfies Pose];
 })) as Record<DroneId, Pose>;
 
-const deposit = (id: string, x: number, z: number, zoneSize: number, capacity: number, extractionMultiplier = 1): ResourceNode =>
-  ({ id, x, y: 0, z, zoneSize, kind: 'cache', reserved: 0, remaining: capacity, capacity, extractionMultiplier });
+const deposit = (id: string, x: number, z: number, zoneSize: number, capacity: number, rotation = 0): ResourceNode =>
+  ({ id, x, y: 0, z, zoneSize, rotation, kind: 'cache', reserved: 0, remaining: capacity, capacity, extractionMultiplier: 1 });
 
-/** Paired exploration opportunities around a rich central contest; no launch-site salvage. */
 export const BATTLEFIELD = {
-  spawns,
-  servicePads: [
-    { id: 'service-blue', team: 'blue', ...serviceSites[0], y: 0, zoneSize: 6 },
-    { id: 'service-red', team: 'red', ...serviceSites[1], y: 0, zoneSize: 6 },
-  ] satisfies ServicePad[],
+  spawns, servicePads,
   resources: [
-    // Mapped intersection centers, with edges sized to fill each crossing while
-    // clearing the corner buildings. Keep stable IDs for recordings and fixtures.
-    deposit('salvage-race-third', -17.07, 33.978, 3, 60), // Race / Third.
-    deposit('salvage-vine-fourth', -5.854, 17.161, 2.5, 60), // Vine / Fourth.
-    deposit('salvage-main-second', 26.366, 34, 3, 60), // Main / Second.
-    deposit('salvage-sycamore-fifth', 33.356, -4.393, 2.5, 60), // Sycamore / Fifth.
-    // Broad open forecourt immediately south of Vine / Third. The stable ID
-    // remains for recordings; this rules revision intentionally moves the depot.
-    deposit('salvage-fountain', -3, 35, 4, 600),
+    // Nearest Fourth Street crossings to each base/center midpoint. Small
+    // measured offsets clear the sourced corner boxes without moving the city.
+    deposit('salvage-vine-fourth', -5.854, 17.161, 2.5, 120),
+    deposit('salvage-main-fourth', 21.86, 11.589, 2.5, 120, 11),
+    // Walnut/Fourth is the source road junction nearest the map center (9,13).
+    // A 0.05-unit east offset fits a 20m apron between all four corner buildings.
+    deposit('salvage-walnut-fourth', 8.126, 14.521, 2, 600),
   ] satisfies ResourceNode[],
-  // An initial player camera composition, not a wall or an agent observation.
   focus: { x: downtown.x, z: downtown.z } as { x: [number, number]; z: [number, number] },
 };

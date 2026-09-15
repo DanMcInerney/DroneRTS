@@ -20,6 +20,8 @@ function fixture(historical = false) {
       drones.map(drone => ({ id: `pad-${drone.id}`, x: drone.x, y: drone.y, z: drone.z, team: drone.team! }))),
   };
   rules.begin(state);
+  // Seed a funded purchase fixture; new-match/reset assertions below still require zero.
+  for (const wallet of Object.values(state.match!.teams)) wallet.credits = 30;
   if (historical) state.match!.rulesVersion = 'cube-v1';
   // These damage and purchase fixtures explicitly start without protection.
   for (const drone of drones) drone.equipment = emptyEquipment();
@@ -267,7 +269,7 @@ test('a new match clears equipment, resource depletion, cooldown and victory', (
   rules.begin(state);
   assert.equal(drone.alive, true); assert.deepEqual(drone.equipment, startingEquipment());
   assert.equal(drone.lastFiredAt, undefined); assert.equal(drone.mining, undefined);
-  assert.equal(state.match?.resources[0].remaining, 100); assert.equal(state.match?.teams.blue.credits, 30);
+  assert.equal(state.match?.resources[0].remaining, 100); assert.equal(state.match?.teams.blue.credits, 0);
   assert.equal(state.match?.phase, 'active'); assert.equal(state.match?.winner, null);
 });
 
