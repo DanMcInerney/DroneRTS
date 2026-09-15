@@ -57,6 +57,8 @@ Flight has no endurance limit. New matches have no battery charge, drain, rechar
 
 One armor charge absorbs one collision or bullet, then is lost. A protected collision stops movement and generates generic local collision/armor-loss feedback; bullet absorption gives generic hit/armor-loss feedback. Alerts reveal no attacker, obstacle identity or impact coordinates. Unprotected contacts with terrain, buildings, drones or bullets are lethal. Cargo may remain recoverable at a valid crash site. Eliminated drones lose all tool access and cannot respawn; last-team-standing victory and simultaneous-elimination draws remain unchanged.
 
+Armor loss leaves the living team-colored airframe visible. Eliminated airframes disappear from player views and newly acquired cameras; a historical acquisition uses its own recorded alive state. Cargo drops remain separately controlled by the economy.
+
 These are initial simulator balance values. Historical cube-economy playtests do not validate cargo hauling or balance. The common briefing teaches recognition, rules, vehicle calibration, private radio and the need for actual teammate agreement on an initial plan, first item and purchaser. It does not assign tactics, roles, equipment, routes or reporting schedules.
 
 ## Actor tools and sensors

@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CockpitStore, cockpitRouter, COCKPIT_LIMITS } from '../server/cockpit.ts';
+import { createCockpit } from '../server/cockpit-session.ts';
 import { FleetMcpServer } from '../server/runtime-mcp.ts';
 import { CodexFleetRuntime } from '../server/runtime.ts';
 import { FleetGame } from '../server/game.ts';
@@ -20,6 +21,48 @@ function delivery(events: unknown[] = [], image = true): ToolResult {
     ...(image ? [{ type: 'image' as const, mimeType: 'image/png', data: imageData }] : [])] };
 }
 function fixture() { const store = new CockpitStore(); store.reset('session-one'); return store; }
+
+test('shared host wiring records final tool images, streamed output and real workspace without consuming mail', async () => {
+  const game = new FleetGame(), cockpit = createCockpit(game), app = express();
+  app.use('/api/cockpit', cockpit.router);
+  const server = createServer(app);
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const audits: unknown[] = [];
+  try {
+    game.setConnected(true); game.start();
+    const evidence = cockpit.begin((type, event) => audits.push({ type, event }));
+    const session = game.sessionIdentity;
+    const board = game.onboardWorkspace('drone-1');
+    const entry = board.write('note.txt', 'own note');
+    game.inboxes['drone-1'].push({ type: 'player', mission: 1, text: 'Pending test instruction' });
+    evidence.onToolEvidence({ type: 'call', role: 'drone-1', name: 'observe', arguments: {} });
+    evidence.onToolEvidence({ type: 'delivery', role: 'drone-1', name: 'observe', result: delivery() });
+    evidence.onEvent('agent', { type: 'actor-message-delta', role: 'drone-1', itemId: 'out', delta: true, text: 'Checking.' });
+    evidence.onEvent('agent', { type: 'actor-message', role: 'drone-1', itemId: 'out', text: 'Checking.' });
+    const snapshot = await (await fetch(`${base}/api/cockpit/drone-1`)).json();
+    assert.equal(snapshot.sessionId, session);
+    assert.equal(snapshot.lastDelivery.tool, 'observe');
+    assert.equal(snapshot.events.filter((event: any) => event.kind === 'output').length, 2);
+    assert.equal(audits.length, 1, 'streamed text is not duplicated in the audit');
+    assert.deepEqual(snapshot.workspace.entries, [entry]);
+    assert.deepEqual(Buffer.from(await (await fetch(base + snapshot.lastImage.url)).arrayBuffer()), Buffer.from(imageData, 'base64'));
+    const url = `${base}/api/cockpit/drone-1/workspace?session=${session}&path=note.txt&version=${entry.version}`;
+    assert.equal((await (await fetch(url)).json()).content, 'own note');
+    assert.equal((await (await fetch(`${base}/api/cockpit/drone-2`)).json()).lastDelivery, null);
+    // No game tool boundary has run; inspecting the cockpit leaves pending mail unread.
+    assert.equal(game.inboxes['drone-1'].delivered, 0);
+    game.capture = async () => `data:image/png;base64,${imageData}`;
+    const observed = await game.tool('drone-1', 'observe');
+    assert.ok(JSON.parse((observed.content[0] as { text: string }).text).events.some((event: any) => event.type === 'player'));
+    game.stop(); game.reset(); cockpit.reset();
+    evidence.onToolEvidence({ type: 'delivery', role: 'drone-1', name: 'observe', result: delivery() });
+    assert.equal((await (await fetch(`${base}/api/cockpit/drone-1`)).json()).lastDelivery, null);
+    assert.equal((await fetch(url)).status, 409);
+  } finally {
+    game.stop(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
 
 test('cockpit retains the complete final delivered sensor/unread bundle and exact image without draining mail', () => {
   const store = fixture();

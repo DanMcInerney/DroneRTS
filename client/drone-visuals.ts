@@ -3,6 +3,8 @@ import type { Drone } from './types';
 import { disposeGroup } from './city-scene';
 import { makeDrone, positionDrone as position } from './drone-model';
 
+const visibleTo = (drone: Drone, observer?: string) => drone.alive !== false && drone.id !== observer;
+
 /** Owns drone mesh identity, lifetime and temporary sensor-snapshot overrides. */
 export class DroneVisuals {
   private meshes = new Map<string, THREE.Group>();
@@ -22,11 +24,13 @@ export class DroneVisuals {
   pose(drones: readonly Drone[]) {
     for (const drone of drones) {
       const mesh = this.meshes.get(drone.id);
-      if (mesh) position(mesh, drone);
+      if (mesh) { position(mesh, drone); mesh.visible = visibleTo(drone); }
     }
   }
 
-  hideObserver(id?: string) { this.meshes.forEach((mesh, droneId) => { mesh.visible = droneId !== id; }); }
+  hideObserver(id?: string) {
+    this.meshes.forEach(mesh => { mesh.visible = visibleTo(mesh.userData.drone as Drone, id); });
+  }
 
   withSnapshot<T>(observer: string, drones: readonly Drone[], render: () => T): T {
     const saved = [...this.meshes.values()].map(mesh => ({ mesh, drone: mesh.userData.drone as Drone, visible: mesh.visible }));
@@ -36,7 +40,7 @@ export class DroneVisuals {
       for (const drone of drones) {
         let mesh = this.meshes.get(drone.id);
         if (!mesh) { mesh = makeDrone(drone.id); temporary.push(mesh); this.scene.add(mesh); }
-        position(mesh, drone); mesh.visible = drone.id !== observer;
+        position(mesh, drone); mesh.visible = visibleTo(drone, observer);
       }
       return render();
     } finally {

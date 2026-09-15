@@ -24,6 +24,15 @@ test('trial shutdown closes unhandled upgrades, preserves its audit and releases
     await once(gameSocket, 'message');
     assert.equal(host.game.state.running, false);
     assert.equal(host.game.state.runtime.status, 'idle');
+    const response = await fetch(`http://127.0.0.1:${port}/api/cockpit/drone-2`);
+    assert.match(response.headers.get('content-type')!, /application\/json/);
+    const cockpit = await response.json();
+    assert.equal(cockpit.protocol, 'fleet-cockpit/1');
+    assert.equal(cockpit.droneId, 'drone-2');
+    assert.equal(cockpit.sessionId, null);
+    assert.equal(cockpit.lastDelivery, null);
+    assert.equal(cockpit.workspace.available, false);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/cockpit/unknown`)).status, 404);
     host.game.emit('tool', { drone: 'drone-1', name: 'observe', args: {} });
     if (raw.connecting) await once(raw, 'connect');
     raw.write(`GET /unclaimed-upgrade HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);

@@ -12,6 +12,7 @@ import { TeamSession } from '../server/team-session.ts';
 import { ReplayRecorder, REPLAY_SAMPLE_INTERVAL } from '../server/replay-recorder.ts';
 import { diagnosticsRouter, redactDiagnostic } from '../server/diagnostics.ts';
 import { replayRouter } from '../server/replay-store.ts';
+import { createCockpit } from '../server/cockpit-session.ts';
 import { MATCH_FLEET } from '../shared/fleet.ts';
 import { CITY } from '../shared/city.ts';
 import { BATTLEFIELD } from '../shared/battlefield.ts';
@@ -21,6 +22,7 @@ import { arrangeTrial, type TrialScenario } from './trial-scenarios.ts';
 export async function createTrialHost(projectDir: string, directory: string, scenario: TrialScenario, port = 4318) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4317) throw new Error('Invalid isolated trial port');
   const game = new FleetGame(), app = express(), server = createServer(app);
+  const cockpit = createCockpit(game);
   const connections = new Set<Socket>();
   server.on('connection', socket => {
     connections.add(socket);
@@ -63,6 +65,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   });
   app.use(express.json({ limit: '16kb' }));
   app.get('/api/state', (_req, res) => res.json(game.state));
+  app.use('/api/cockpit', cockpit.router);
   app.use('/api/diagnostics', diagnosticsRouter({ directory, roster: MATCH_FLEET, state: () => game.state, activeSession: () => game.state.running ? sessionId : undefined }));
   app.use('/api/diagnostics', replayRouter({ directory }));
   app.post('/api/stop', async (_req, res) => { await stop(); res.json({ stopped: true }); });
@@ -114,6 +117,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
     async start() {
       if (starting || stopPromise) throw new Error('Trial is single-use');
       starting = true; game.start(); game.awaitFleetLaunch();
+      const evidence = cockpit.begin(audit);
       const fixture = arrangeTrial(game, scenario); audit('trial-fixture', fixture);
       recorder = await ReplayRecorder.create({ directory, sessionId, header: {
         type: 'header', protocol: 'fleet-replay/1', startedAt: new Date().toISOString(), sampleInterval: REPLAY_SAMPLE_INTERVAL,
@@ -126,7 +130,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
       if (stopPromise) { await recorder.stop(game.state.simTime); throw new Error('Startup cancelled'); }
       runtime = new TeamSession({ projectDir, game,
         onStatus: status => { if (!stopPromise) { Object.assign(game.state.runtime, status); audit('runtime', status); broadcast(); } },
-        onNetwork: state => { game.state.network = state; }, onEvent: audit, onFailure: fail,
+        onNetwork: state => { game.state.network = state; }, ...evidence, onFailure: fail,
       });
       let previous = performance.now();
       ticker = setInterval(() => { const now = performance.now(); game.tick((now - previous) / 1000); previous = now; broadcast(); }, 50);

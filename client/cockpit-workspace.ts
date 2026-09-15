@@ -29,7 +29,7 @@ export class CockpitWorkspaceView {
     const old = this.snapshot, workspace = snapshot.workspace;
     const switched = old && (old.droneId !== snapshot.droneId || old.sessionId !== snapshot.sessionId);
     this.snapshot = snapshot;
-    if (switched || !workspace.available) { this.cancel(); this.selected = undefined; this.collapsed.clear(); this.fileMessage(workspace.available ? 'Select a file to inspect its current contents.' : 'Files are unavailable for this drone.'); }
+    if (switched || old?.workspace.available !== workspace.available || !workspace.available) { this.cancel(); this.selected = undefined; this.collapsed.clear(); this.fileMessage(workspace.available ? 'Select a file to inspect its current contents.' : 'Files are unavailable for this drone.'); }
     this.state.textContent = workspace.available ? 'PRIVATE ONBOARD WORKSPACE' : 'WORKSPACE UNAVAILABLE';
     this.state.classList.toggle('available', workspace.available);
     this.reason.textContent = workspace.reason;

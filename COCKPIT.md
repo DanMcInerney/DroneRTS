@@ -2,6 +2,8 @@
 
 Click a drone feed card, or open `#cockpit/drone-1`, to inspect its latest received evidence. Switch drones with the selector; Back or Escape returns to the flight deck. The game and camera renderer stay mounted. Opening a cockpit never captures a new observation or consumes mail.
 
+Production and focused trials use the same `server/cockpit-session.ts` adapter for the HTTP router, final tool evidence and runtime output. Trial cockpits therefore expose the same acquired images and real private workspace inspection as production. The trial's existing mutation restrictions still apply.
+
 ## Cards
 
 - **Last image seen:** actual pixels from the last MCP image response, with acquisition and delivery timestamps. If a later response has no image, the previous frame is explicitly marked. Images are served separately from JSON and remain outside audit exports.

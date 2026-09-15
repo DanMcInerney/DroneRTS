@@ -119,10 +119,36 @@ const imageFiles = await Promise.all([...new Set(images.flatMap(r => r.imageId ?
   catch { return { id, bytes: null }; }
 }));
 const roles = [...new Set(deliveries.map(d => d.role))];
+const fieldBytes = (ds: Delivery[]) => {
+  const fields: Record<string, number> = {};
+  for (const { body } of ds) for (const [key, value] of Object.entries(body)) fields[key] = (fields[key] ?? 0) + bytes(value);
+  return fields;
+};
+// These are observed additions between compactions, not a reconstruction of
+// the backend's retained context or an attribution of its tokenizer counts.
+const contextContributions = compactions.filter(c => c.startedAt).map(c => {
+  const from = compactions.filter(p => p.role === c.role && p.completedAt < c.startedAt).at(-1)?.completedAt ?? trialStart;
+  const records = audit.filter(r => r.type === 'agent' && r.value.role === c.role && r.wallTime >= from && r.wallTime <= c.startedAt);
+  const ds = deliveries.filter(d => d.role === c.role && d.wallMs >= Date.parse(from) && d.wallMs <= Date.parse(c.startedAt));
+  const reports = records.filter(r => r.value.type === 'actor-usage');
+  const textBytesFor = (type: string) => records.filter(r => r.value.type === type)
+    .reduce((sum, r) => sum + Buffer.byteLength(r.value.text ?? (r.value.summary ?? []).join('\n')), 0);
+  let duplicatedCurrentStateBytes = 0;
+  for (const { body } of ds) for (const key of ['cargo', 'logistics', 'equipment', 'account', 'job', 'ammo', 'service']) {
+    if (body[key] !== undefined && body.currentTelemetry && JSON.stringify(body[key]) === JSON.stringify(body.currentTelemetry[key])) duplicatedCurrentStateBytes += bytes(body[key]);
+  }
+  return { role: c.role, from, to: c.startedAt, bundles: ds.length,
+    textBytes: ds.reduce((sum, d) => sum + d.textBytes, 0), images: ds.reduce((sum, d) => sum + d.imageCount, 0),
+    fieldValueJsonBytes: fieldBytes(ds), duplicatedCurrentStateBytes,
+    toolArgumentJsonBytes: records.filter(r => r.value.type === 'tool').reduce((sum, r) => sum + bytes(r.value.args ?? r.value.arguments), 0),
+    emittedSummaryBytes: textBytesFor('recorded-reasoning-summary'), emittedOutputBytes: textBytesFor('actor-message'),
+    firstUsage: reports[0]?.value ?? null, lastUsage: reports.at(-1)?.value ?? null };
+});
 const byRole = Object.fromEntries(roles.map(role => {
   const ds = deliveries.filter(d => d.role === role), gs = gaps.filter(g => g.role === role);
   const us = usage.get(role) ?? [];
   return [role, { bundles: ds.length, textBytes: ds.reduce((sum, d) => sum + d.textBytes, 0),
+    fieldValueJsonBytes: fieldBytes(ds),
     textBytesPerBundle: stats(ds.map(d => d.textBytes)), deliveredImages: ds.reduce((sum, d) => sum + d.imageCount, 0),
     acquisitionToDeliveryMs: stats(ds.map(d => Date.parse(d.body.deliveredAt) - Date.parse(d.body.sensors?.timestamp?.capturedAt))),
     nativeCompletionToNextCallMs: stats(gs.flatMap(g => g.from.completedMs === undefined ? [] : [g.callMs - g.from.completedMs])),
@@ -140,13 +166,14 @@ const summary = { scenario: result.scenario, seconds: result.seconds, model: res
     duplicatedRangeTables, referenceRangeTables, potentialRangeBytesSaved, sharedRangeBytesSaved,
     deliveredImages: deliveries.reduce((sum, d) => sum + d.imageCount, 0), recordedAcquisitions: images.length,
     imageFileBytes: imageFiles.reduce((sum, f) => sum + (f.bytes ?? 0), 0), missingImageFiles: imageFiles.filter(f => f.bytes === null).length },
-  byRole, compactions, incompleteCompactions: [...started.values()],
+  byRole, compactions, contextContributions, incompleteCompactions: [...started.values()],
   limitations: [
     'UTF-8 text bytes measure retained redacted model tool-result text, not tokenizer counts. Native usage is backend-reported and includes growing/cached context; per-field or image token attribution is unavailable.',
     'Images are actual acquired replay files; JPEG bytes do not measure image tokens. Historical audit limits can truncate evidence.',
     'Gap durations include backend processing, transport and dispatch, not private reasoning alone. Terminal gaps without a next call are excluded; unfinished compactions are separate.',
     'Motion/job/service work is classified from preceding replay samples and interpolated wall/simulation delivery anchors; orientation-only work and routines without movement are not represented. Idle holding can be intentional, especially in haul fixtures.',
     'Volume savings and single-run timing differences do not establish latency causality. No current physics or renderer code is imported to reinterpret historical evidence.',
+    'Context contributions count recorded additions since trial start or the preceding completed compaction. They do not reveal which history the backend retained, hidden reasoning, image token costs or actual compaction contents.',
   ] };
 await writeFile(resolve(directory, windowSeconds === null ? 'decision-latency.json' : `decision-latency-${windowSeconds}s.json`), JSON.stringify(summary, null, 2));
 console.log(JSON.stringify({ ...summary, volume: { ...summary.volume, fieldValueJsonBytes: undefined },
