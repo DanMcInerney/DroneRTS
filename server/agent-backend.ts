@@ -1,6 +1,7 @@
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { Role, ToolResult } from '../shared/types.ts';
 import type { FleetRoster } from '../shared/fleet.ts';
+import type { CockpitToolEvidence } from '../shared/cockpit.ts';
 
 /** The simulated onboard brain is replaceable; its observation boundary is not. */
 export interface AgentBackendConfiguration {
@@ -30,6 +31,7 @@ export interface AgentBackendOptions {
   toolHandler: (role: Role, name: string, args: Record<string, unknown>) => Promise<ToolResult>;
   onStatus: (status: Record<string, unknown>) => void;
   onEvent: (event: Record<string, unknown>) => void;
+  onToolEvidence?: (event: CockpitToolEvidence) => void;
 }
 
 /** Providers must preserve fresh tool/next-turn boundaries, actor identity, and revocable capabilities.

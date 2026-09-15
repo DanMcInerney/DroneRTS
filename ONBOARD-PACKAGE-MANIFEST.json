@@ -416,8 +416,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 13347,
-      "sha256": "6f972b94b481f46f5b0afb7cb4b4b7777630f0e214a64970462c756fad6db262"
+      "bytes": 14216,
+      "sha256": "7bb370fd07ec4c4f3188cba8c8fed18a4a87873b0a1b38d0960b61b0ee7f5dff"
     },
     {
       "path": "server/radio-transfer.ts",
@@ -452,9 +452,9 @@
       "sha256": "4f878a346a451c68f65d2b17b9f97421030329a89d64c1c119bb8ae8b2b5525c"
     }
   ],
-  "artifactBytes": 1582903,
+  "artifactBytes": 1583772,
   "manifestBytes": 17307,
-  "installedBytes": 1600210,
+  "installedBytes": 1601079,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],

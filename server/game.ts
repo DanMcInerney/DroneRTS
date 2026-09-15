@@ -124,6 +124,8 @@ export class FleetGame extends EventEmitter {
 
   private drone(id: DroneId) { return this.state.drones.find(drone => drone.id === id)!; }
   receivedMission(id: DroneId) { return this.droneMissions[id]; }
+  /** Player inspection never allocates an onboard workspace. */
+  existingOnboardWorkspace(id: DroneId) { return this.workspaces.get(id); }
   onboardWorkspace(id: DroneId): OnboardWorkspace {
     if (!DRONE_IDS.includes(id)) throw new Error('Unknown onboard identity');
     let workspace = this.workspaces.get(id);

@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { FleetMcpServer } from './runtime-mcp.ts';
 import { AppServerRpc } from './runtime-rpc.js';
+import { RuntimeReasoning, REASONING_CONFIG, REASONING_CONFIG_TOML } from './runtime-reasoning.ts';
 import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
 import type { ToolResult } from '../shared/types.js';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
@@ -40,6 +41,7 @@ export class CodexFleetRuntime implements AgentBackend {
   private startupError?: string;
   private denied = 0;
   private toolCalls = 0;
+  private readonly reasoning = new RuntimeReasoning(event => this.options.onEvent({ ...event, role: this.roles.get(event.threadId) }));
   private readonly roster: FleetRoster;
   private readonly drones;
   private readonly droneTools;
@@ -80,7 +82,7 @@ export class CodexFleetRuntime implements AgentBackend {
       await writeFile(hookPath, `let input='';for await(const chunk of process.stdin) input+=chunk;try {const r=await fetch(${JSON.stringify(`${baseUrl}/policy/${policyToken}`)},{method:'POST',headers:{'content-type':'application/json'},body:input,signal:AbortSignal.timeout(10000)});if(!r.ok)throw Error('Policy unavailable');process.stdout.write(await r.text());}catch{process.stderr.write('Fleet policy unavailable: tool blocked.');process.exitCode=2;}`);
       const hookCommand = `node "${hookPath}"`;
       const unixCommand = `'${process.execPath.replace(/'/g, "'\\''")}' '${hookPath.replace(/'/g, "'\\''")}'`;
-      const config = `model = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\napproval_policy = "never"\nsandbox_mode = "read-only"\nweb_search = "disabled"\nproject_doc_max_bytes = 0\ncli_auth_credentials_store = "file"\n[features]\nshell_tool = false\nmulti_agent = true\nhooks = true\n[agents]\nmax_concurrent_threads_per_session = ${this.drones.length}\ndefault_subagent_model = ${quoted(MODEL)}\ndefault_subagent_reasoning_effort = ${quoted(EFFORT)}\n[tools]\nview_image = false\n[mcp_servers.fleet_parent]\nurl = ${quoted(`${baseUrl}/mcp/${tokens.parent}`)}\nrequired = true\ntool_timeout_sec = 60\n[[hooks.PreToolUse]]\nmatcher = ".*"\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = ${quoted(unixCommand)}\ncommandWindows = ${quoted(hookCommand)}\ntimeout = 12\n`;
+      const config = `model = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\n${REASONING_CONFIG_TOML}approval_policy = "never"\nsandbox_mode = "read-only"\nweb_search = "disabled"\nproject_doc_max_bytes = 0\ncli_auth_credentials_store = "file"\n[features]\nshell_tool = false\nmulti_agent = true\nhooks = true\n[agents]\nmax_concurrent_threads_per_session = ${this.drones.length}\ndefault_subagent_model = ${quoted(MODEL)}\ndefault_subagent_reasoning_effort = ${quoted(EFFORT)}\n[tools]\nview_image = false\n[mcp_servers.fleet_parent]\nurl = ${quoted(`${baseUrl}/mcp/${tokens.parent}`)}\nrequired = true\ntool_timeout_sec = 60\n[[hooks.PreToolUse]]\nmatcher = ".*"\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = ${quoted(unixCommand)}\ncommandWindows = ${quoted(hookCommand)}\ntimeout = 12\n`;
       const compatibleConfig = config.replace(`max_concurrent_threads_per_session = ${this.drones.length}`, `max_threads = ${this.drones.length}\nmax_depth = 1`)
         .replace(`default_subagent_model = ${quoted(MODEL)}\ndefault_subagent_reasoning_effort = ${quoted(EFFORT)}\n`, '')
         .replace('hooks = true', 'hooks = true\napps = false\nplugins = false\nimage_generation = false');
@@ -88,7 +90,7 @@ export class CodexFleetRuntime implements AgentBackend {
       await writeFile(join(runHome, 'config.toml'), (compatibleConfig + rolesConfig).replaceAll('tool_timeout_sec = 60', 'tool_timeout_sec = 60\ndefault_tools_approval_mode = "approve"'));
       for (const role of this.drones) {
         const type = droneAgentType(role);
-        const agentConfig = `name = ${quoted(type)}\ndescription = ${quoted(`The ${role} simulation actor. Spawn exactly once, with clean context.`)}\nmodel = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\ndeveloper_instructions = ${quoted(droneInstructions(role, this.roster, this.options.team))}\n[agents]\nenabled = false\n[features]\nmulti_agent = false\nshell_tool = false\n[mcp_servers.fleet_parent]\nenabled = false\n[mcp_servers.fleet_${type}]\nurl = ${quoted(`${baseUrl}/mcp/${tokens[role]}`)}\nrequired = true\ntool_timeout_sec = 60\n`;
+        const agentConfig = `name = ${quoted(type)}\ndescription = ${quoted(`The ${role} simulation actor. Spawn exactly once, with clean context.`)}\nmodel = ${quoted(MODEL)}\nmodel_reasoning_effort = ${quoted(EFFORT)}\n${REASONING_CONFIG_TOML}developer_instructions = ${quoted(droneInstructions(role, this.roster, this.options.team))}\n[agents]\nenabled = false\n[features]\nmulti_agent = false\nshell_tool = false\n[mcp_servers.fleet_parent]\nenabled = false\n[mcp_servers.fleet_${type}]\nurl = ${quoted(`${baseUrl}/mcp/${tokens[role]}`)}\nrequired = true\ntool_timeout_sec = 60\n`;
         await writeFile(join(runHome, 'agents', `${type}.toml`), agentConfig.replace('[agents]\nenabled = false\n', '').replace('[mcp_servers.fleet_parent]\nenabled = false', `[mcp_servers.fleet_parent]\nurl = ${quoted(`${baseUrl}/mcp/${tokens.parent}`)}\nenabled = false`).replaceAll('tool_timeout_sec = 60', 'tool_timeout_sec = 60\ndefault_tools_approval_mode = "approve"'));
       }
       this.rpc = new AppServerRpc(message => this.onMessage(message), message => {
@@ -103,7 +105,7 @@ export class CodexFleetRuntime implements AgentBackend {
       if (!luna || !luna.supportedReasoningEfforts?.some((e: any) => e.reasoningEffort === EFFORT)) throw new Error('Installed Codex did not advertise gpt-5.6-luna with xhigh. No inference was started.');
       if (this.startupError) throw new Error(this.startupError);
       this.options.onEvent({ type: 'model-verified', model: MODEL, effort: EFFORT, imageSupported: luna.inputModalities?.includes('image') });
-      const thread = await this.rpc.request('thread/start', { cwd: workDir, model: MODEL, allowProviderModelFallback: false, approvalPolicy: 'never', sandbox: 'read-only', baseInstructions: 'You are an actor in a browser drone simulation. Follow your role-specific developer instructions. Use tools directly, keep reasoning brief, and wait for events when idle. Continue your event loop while the simulation is active. All actors use gpt-5.6-luna with xhigh reasoning.', developerInstructions: this.parentInstructions, config: { model_reasoning_effort: EFFORT, bypass_hook_trust: true }, ephemeral: true });
+      const thread = await this.rpc.request('thread/start', { cwd: workDir, model: MODEL, allowProviderModelFallback: false, approvalPolicy: 'never', sandbox: 'read-only', baseInstructions: 'You are an actor in a browser drone simulation. Follow your role-specific developer instructions. Use tools directly, keep reasoning brief, and wait for events when idle. Continue your event loop while the simulation is active. All actors use gpt-5.6-luna with xhigh reasoning.', developerInstructions: this.parentInstructions, config: { model_reasoning_effort: EFFORT, ...REASONING_CONFIG, bypass_hook_trust: true }, ephemeral: true });
       this.assertActive();
       this.threadId = thread.thread.id;
       this.roles.set(this.threadId!, 'parent');
@@ -111,7 +113,7 @@ export class CodexFleetRuntime implements AgentBackend {
       this.options.onStatus({ cliVersion: thread.thread.cliVersion });
       if (process.env.FLEET_RUNTIME_PREFLIGHT === '1') return;
       this.options.onStatus({ status: 'starting', message: `Luna verified. Bootstrapping ${this.drones.length} native drone agents…`, threadId: this.threadId, children: [] });
-      const turn = await this.rpc.request('turn/start', { threadId: this.threadId, model: MODEL, effort: EFFORT, input: [{ type: 'text', text: this.parentInstructions, text_elements: [] }] });
+      const turn = await this.rpc.request('turn/start', { threadId: this.threadId, model: MODEL, effort: EFFORT, summary: 'auto', input: [{ type: 'text', text: this.parentInstructions, text_elements: [] }] });
       this.activeTurns.set(this.threadId!, turn.turn.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -192,6 +194,7 @@ export class CodexFleetRuntime implements AgentBackend {
       roles: ['parent', ...this.drones], active: () => !this.stopped,
       tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: event => this.options.onEvent(event as Record<string, unknown>),
       onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
+      onToolEvidence: this.options.onToolEvidence,
       call: async (role, name, args) => {
         this.options.onEvent({ type: 'tool', role, name, arguments: args });
         this.toolCalls++;
@@ -257,6 +260,7 @@ export class CodexFleetRuntime implements AgentBackend {
       if (role && this.retired.has(role)) void this.retireDrone(role);
     }
     if (message.method === 'turn/completed') {
+      this.reasoning.flush(p.threadId);
       this.activeTurns.delete(p.threadId);
       if (!this.stopped) {
         const role = this.roles.get(p.threadId) ?? 'unknown actor';
@@ -275,7 +279,7 @@ export class CodexFleetRuntime implements AgentBackend {
       if (!this.toolCalls && [...this.usage.values()].reduce((a, b) => a + b, 0) > 40000) this.failRuntime('Bootstrap produced no game-tool calls after the token limit. Stopped to prevent wasted inference.');
     }
     // Activity metadata distinguishes pending tools and observed compaction from
-    // silent native-turn intervals. Never log reasoning bodies or token deltas.
+    // silent native-turn intervals. Readable reasoning is captured separately.
     if (['item/started', 'item/completed'].includes(message.method)
       && ['reasoning', 'contextCompaction', 'mcpToolCall'].includes(p.item?.type)) {
       this.options.onEvent({ type: 'actor-activity', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
@@ -283,11 +287,9 @@ export class CodexFleetRuntime implements AgentBackend {
     }
     if (message.method === 'thread/compacted') this.options.onEvent({ type: 'actor-context-compacted', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId, observedAtMs: performance.now() });
     if (message.method === 'item/completed' && p.item?.type === 'collabAgentToolCall') this.options.onEvent({ type: 'native-agent-call', tool: p.item.tool, status: p.item.status, model: p.item.model, effort: p.item.reasoningEffort, children: p.item.receiverThreadIds });
-    if (message.method === 'item/completed' && p.item?.type === 'agentMessage') this.options.onEvent({ type: 'actor-message', role: this.roles.get(p.threadId), text: p.item.text?.slice(0, 24_000) });
-    if (message.method === 'item/completed' && p.item?.type === 'reasoning') {
-      const summary = Array.isArray(p.item.summary) ? p.item.summary.slice(0, 32).map((part: unknown) => typeof part === 'string' ? part.slice(0, 6000) : String((part as { text?: unknown })?.text ?? '').slice(0, 6000)).filter(Boolean) : [];
-      this.options.onEvent({ type: 'recorded-reasoning-summary', role: this.roles.get(p.threadId), threadId: p.threadId, itemId: p.item.id, summary, availability: summary.length ? 'Runtime-provided summary' : 'No reasoning summary was provided by this runtime' });
-    }
+    if (message.method === 'item/agentMessage/delta') this.options.onEvent({ type: 'actor-message-delta', role: this.roles.get(p.threadId), itemId: p.itemId, text: typeof p.delta === 'string' ? p.delta.slice(0, 24_000) : '' });
+    this.reasoning.accept(message.method, p);
+    if (message.method === 'item/completed' && p.item?.type === 'agentMessage') this.options.onEvent({ type: 'actor-message', role: this.roles.get(p.threadId), itemId: p.item.id, text: p.item.text?.slice(0, 24_000) });
     if (message.method === 'item/completed' && p.item?.type === 'mcpToolCall') this.options.onEvent({ type: 'mcp-result', role: this.roles.get(p.threadId), tool: p.item.tool, status: p.item.status, error: p.item.error });
     if (message.method === 'mcpServer/startupStatus/updated') {
       this.options.onEvent({ type: 'mcp-startup', ...p });
@@ -331,7 +333,7 @@ export class CodexFleetRuntime implements AgentBackend {
       this.turnCatalogs.set(role as FleetRole, JSON.stringify(this.toolsForRole(role as FleetRole)));
       this.catalogYields.delete(role as FleetRole);
       this.options.onEvent({ type: catalogRefresh ? 'catalog-turn-resumed' : 'actor-resumed', role, attempt: count });
-      const turn = await this.rpc?.request('turn/start', { threadId, model: MODEL, effort: EFFORT, input: [{ type: 'text', text: catalogRefresh
+      const turn = await this.rpc?.request('turn/start', { threadId, model: MODEL, effort: EFFORT, summary: 'auto', input: [{ type: 'text', text: catalogRefresh
         ? 'Your controller interface is refreshed. Continue your existing drone event loop with your current mission, received observations and currently callable fleet tools.'
         : role === 'parent'
         ? 'Continue your existing mechanical relay event loop. Do not create additional actors. Call forward_next_instruction until stopped.'
@@ -370,6 +372,7 @@ export class CodexFleetRuntime implements AgentBackend {
       await this.rpc.stop();
       this.rpc = undefined;
     }
+    this.reasoning.flush();
     await this.mcp?.stop(); this.mcp = undefined;
     if (this.runDir) {
       // Only remove the exact mkdtemp-created directory, never the user's Codex home.

@@ -35,6 +35,16 @@ export class OnboardWorkspace {
   private used(): number { let total = 0; for (const item of this.versions) total += item.bytes + item.metadataBytes; return total; }
   private describe(value: Version): WorkspaceFile { return { path: value.path, bytes: value.bytes, sha256: value.sha256, version: value.version, metadataBytes: value.metadataBytes }; }
   list(): WorkspaceFile[] { this.check(); return [...this.files.values()].map(item => this.describe(item)).sort((a, b) => a.path.localeCompare(b.path)); }
+  /** Player inspection must not expire transfers, allocate storage or change actor state. */
+  inspect(): { entries: WorkspaceFile[]; status: OnboardStorageStatus } {
+    return { entries: this.revoked ? [] : [...this.files.values()].map(item => this.describe(item)).sort((a, b) => a.path.localeCompare(b.path)), status: this.describeStatus() };
+  }
+  inspectFile(path: string): { entry: WorkspaceFile; content: string } {
+    if (this.revoked) throw new OnboardStorageError('revoked', 'workspace', 'Onboard access was revoked.');
+    const value = this.files.get(workspacePath(path));
+    if (!value) throw new OnboardStorageError('not_found', 'workspace', 'Workspace file does not exist.');
+    return { entry: this.describe(value), content: value.content.toString('utf8') };
+  }
   stat(path: string): WorkspaceFile { this.check(); const value = this.files.get(workspacePath(path)); if (!value) throw new OnboardStorageError('not_found', 'workspace', 'Workspace file does not exist.'); return this.describe(value); }
   read(path: string): string { this.stat(path); return this.files.get(path)!.content.toString('utf8'); }
   write(path: string, content: string): WorkspaceFile {
@@ -131,6 +141,9 @@ export class OnboardWorkspace {
   }
   status(): OnboardStorageStatus {
     this.expireTransfers();
+    return this.describeStatus();
+  }
+  private describeStatus(): OnboardStorageStatus {
     const usage = (usedBytes: number, limitBytes: number): PartitionUsage => ({ usedBytes, limitBytes, freeBytes: Math.max(0, limitBytes - usedBytes) });
     return { runtime: usage(this.options.runtimeBytes ?? 0, ONBOARD_LIMITS.runtime), workspace: usage(this.used(), ONBOARD_LIMITS.workspace), radio: usage(this.options.radioBytes?.() ?? 0, ONBOARD_LIMITS.radio), staging: usage(ONBOARD_LIMITS.networkTransaction + [...this.staging.values()].reduce((a,b) => a+b, 0), ONBOARD_LIMITS.staging), logs: usage(this.logBytes + (this.options.eventBytes?.() ?? 0), ONBOARD_LIMITS.logs), files: this.files.size, retainedVersions: [...this.versions].filter(value => this.files.get(value.path) !== value).length, revoked: this.revoked };
   }

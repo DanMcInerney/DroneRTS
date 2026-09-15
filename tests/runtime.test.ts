@@ -48,15 +48,18 @@ test('cargo briefing follows authoritative service calibration without injecting
   assert.doesNotMatch(RTS_BRIEFING, /translucent yellow|automatically mines|miner_upgrade|central depot|scout first|travel north/);
 });
 
-test('runtime records only provided reasoning summaries, never hidden reasoning contents', () => {
+test('runtime routes readable native reasoning and summaries, omitting encrypted payloads', () => {
   const { internal, events } = fixture();
   internal.roles.set('thread-drone', 'drone-1');
-  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'summary-item', summary: ['Visible runtime summary'], content: ['hidden model reasoning'], encryptedContent: 'ciphertext' } } });
-  assert.equal(events.at(-1).type, 'recorded-reasoning-summary');
-  assert.deepEqual(events.at(-1).summary, ['Visible runtime summary']);
-  assert.ok(!JSON.stringify(events).includes('hidden model reasoning')); assert.ok(!JSON.stringify(events).includes('ciphertext'));
-  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', summary: [] } } });
-  assert.match(events.at(-1).availability, /No reasoning summary/);
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'summary-item', summary: ['Visible runtime summary'], content: ['Readable native reasoning'], encryptedContent: 'ciphertext' } } });
+  assert.equal(events.find(event => event.type === 'recorded-reasoning').text, 'Readable native reasoning');
+  assert.equal(events.find(event => event.type === 'recorded-reasoning-summary').text, 'Visible runtime summary');
+  assert.ok(events.every(event => event.role === 'drone-1'));
+  assert.equal(events.at(-1).availability, 'both');
+  assert.ok(!JSON.stringify(events).includes('ciphertext'));
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'thread-drone', item: { type: 'reasoning', id: 'empty', summary: [] } } });
+  assert.equal(events.at(-1).availability, 'unavailable');
+  assert.match(events.at(-1).text, /No readable reasoning/);
 });
 
 test('actor activity identifies compaction and pending tool intervals without retaining private content or changing control', () => {
@@ -77,7 +80,8 @@ test('actor activity identifies compaction and pending tool intervals without re
   internal.onMessage({ method: 'item/reasoning/textDelta', params: { threadId: 'child', delta: 'PRIVATE' } });
   internal.onMessage({ method: 'thread/compacted', params: { threadId: 'child', turnId: 'turn-1', content: 'PRIVATE' } });
   assert.equal(events.at(-1).type, 'actor-context-compacted');
-  assert.doesNotMatch(JSON.stringify(events), /PRIVATE|SECRET/);
+  assert.doesNotMatch(JSON.stringify(events.filter(event => event.type === 'actor-activity' || event.type === 'actor-context-compacted')), /PRIVATE|SECRET/);
+  assert.doesNotMatch(JSON.stringify(events), /SECRET/);
   assert.deepEqual(runtime.toolsForRole('drone-1'), catalog);
   assert.equal(internal.activeTurns.size, 0); assert.equal(internal.resumptions.size, 0);
 });
@@ -218,6 +222,7 @@ test('an early child completion resumes the same actor with fixed model and no n
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(requests.length, 1); assert.equal(requests[0].method, 'turn/start');
   assert.equal(requests[0].params.threadId, 'child'); assert.equal(requests[0].params.model, MODEL); assert.equal(requests[0].params.effort, EFFORT);
+  assert.equal(requests[0].params.summary, 'auto');
   assert.doesNotMatch(requests[0].params.input[0].text, /Cincinnati|resource|enemy|sector/);
   assert.equal(events.some(event => event.status === 'error'), false);
 });

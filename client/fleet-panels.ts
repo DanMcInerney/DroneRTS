@@ -53,6 +53,14 @@ export class FleetPanels {
       <footer class="feed-footer"><div class="activity"><span class="activity-dot"></span><span class="activity-text">Awaiting launch</span></div><div class="coordinates"><span>X <b class="coord-x">—</b></span><span>Y <b class="coord-y">—</b></span><span>Z <b class="coord-z">—</b></span></div></footer>`;
     const destroyed = document.createElement('div'); destroyed.className = 'destroyed-overlay'; destroyed.innerHTML = '<strong>SIGNAL LOST</strong><span>DRONE ELIMINATED</span>'; card.querySelector('.viewport')!.append(destroyed);
     card.querySelector('h2')!.textContent = identity.label.toUpperCase();
+    const cockpit = document.createElement('a'); cockpit.className = 'feed-cockpit-link'; cockpit.href = `#cockpit/${encodeURIComponent(id)}`;
+    cockpit.textContent = 'Cockpit ↗'; cockpit.setAttribute('aria-label', `Open ${identity.label} cockpit`);
+    card.querySelector('.feed-header')!.append(cockpit);
+    card.addEventListener('click', event => {
+      if ((event.target as HTMLElement).closest('a,button,input,select,textarea,summary') || window.getSelection()?.toString()) return;
+      location.hash = `cockpit/${encodeURIComponent(id)}`;
+    });
+    card.classList.add('cockpit-accessible');
     card.querySelector<HTMLElement>('.viewport')!.id = `view-${suffix}`;
     card.querySelector<HTMLElement>('.drone-dot')!.style.background = identity.color;
     const mapItem = document.createElement('div'); mapItem.className = 'map-fleet-item'; mapItem.dataset.droneId = id;
