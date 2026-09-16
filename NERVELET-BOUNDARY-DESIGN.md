@@ -353,5 +353,5 @@ The objective is a better tradeoff among mission performance, reaction time, res
 - [server/game.ts](server/game.ts), [server/camera-channel.ts](server/camera-channel.ts): acquisition and cancellation.
 - [server/observation-format.ts](server/observation-format.ts): lossless drone-specific wire encoding.
 - [server/local-sensors.ts](server/local-sensors.ts), [server/rts.ts](server/rts.ts): domain sensing and world simulation; acoustic work is a new opt-in module.
-- [scripts/setup-nervelet.mjs](scripts/setup-nervelet.mjs): private compatibility build to remove after upstream qualification.
+- [scripts/setup-nervelet.mjs](https://github.com/DanMcInerney/DroneRTS/blob/2a7ededf3c2a36d2d713083afd3e715abf7b28f3/scripts/setup-nervelet.mjs): private compatibility build to remove after upstream qualification.
 - [ONBOARD.md](ONBOARD.md), [shared/mission.ts](shared/mission.ts), [ONBOARD-PACKAGE-MANIFEST.json](ONBOARD-PACKAGE-MANIFEST.json): sensor briefing, actor knowledge and resource accounting.

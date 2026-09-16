@@ -34,8 +34,8 @@ export function measureOnboardManifest(root = resolve(dirname(fileURLToPath(impo
     if (!packageRoot) throw new Error(`Missing onboard application dependency ${name}; run npm ci.`);
     if (visited.has(packageRoot)) return; visited.add(packageRoot);
     const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as { name: string; version: string; license: string; dependencies?: Record<string, string> };
-    if (pkg.license !== 'MIT' && !(pkg.name === 'fast-uri' && pkg.license === 'BSD-3-Clause') && pkg.name !== 'nervelet') throw new Error(`Unreviewed onboard package license: ${pkg.name} ${pkg.license}`);
-    walk(packageRoot, pkg.name, pkg.version, pkg.license ?? 'User-owned Nervelet source; no upstream license declared');
+    if (pkg.license !== 'MIT' && !(pkg.name === 'fast-uri' && pkg.license === 'BSD-3-Clause')) throw new Error(`Unreviewed onboard package license: ${pkg.name} ${pkg.license}`);
+    walk(packageRoot, pkg.name, pkg.version, pkg.license);
     for (const dependency of Object.keys(pkg.dependencies ?? {})) visit(dependency, packageRoot);
   };
   // The umbrella dev package includes unsupported unused variants and exceeds the partition.

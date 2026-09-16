@@ -21,7 +21,7 @@ Each team has a complete four-peer graph: three drone bridges and one operator. 
 
 ## Setup and scope
 
-Run `npm run nervelet:setup`, `npm ci`, `npm run network:setup`, then `npm run dev`. Setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Native integration has passed with Python 3.12.4 and, in the Nervelet validation, 3.14.6. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
+Run `npm ci`, `npm run network:setup`, then `npm run dev`. Nervelet installs from its pinned npm release. Network setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Native integration has passed with Python 3.12.4 and, in the Nervelet validation, 3.14.6. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
 
 Every bridge opens an OS-assigned loopback TCP port, uses Zenoh `peer` mode, explicit peer endpoints, and no multicast/gossip discovery or central router. Native sessions exchange data even while no model tool is running. See [Zenoh deployment documentation](https://zenoh.io/docs/getting-started/deployment/) and its [Python implementation](https://github.com/eclipse-zenoh/zenoh-python).
 

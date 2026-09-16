@@ -40,7 +40,7 @@ flowchart TB
 
 Use `f0c2de60847ab6889c7cc3b95e646f262697861e` as the reviewed candidate; compare any later upstream changes before changing the pin. Record the final commit, package SHA-256 and lockfile integrity. Version 0.2.0 alone does not distinguish this implementation from the current dependency.
 
-Update [scripts/setup-nervelet.mjs](scripts/setup-nervelet.mjs) to build/pack that exact commit without rewriting library source. Remove both compatibility patches. Keep this small bootstrap while the upstream distribution remains unpublished; delete it only when a reproducible built package is directly available. Do not use an absolute dependency on the author's working checkout or track a moving branch.
+Update [scripts/setup-nervelet.mjs](https://github.com/DanMcInerney/DroneRTS/blob/2a7ededf3c2a36d2d713083afd3e715abf7b28f3/scripts/setup-nervelet.mjs) to build/pack that exact commit without rewriting library source. Remove both compatibility patches. Keep this small bootstrap while the upstream distribution remains unpublished; delete it only when a reproducible built package is directly available. Do not use an absolute dependency on the author's working checkout or track a moving branch.
 
 Run a fresh isolated install and the deployed/transitive manifest check. Preserve the existing 8 MiB runtime partition and all other quotas. Do not install optional Claude or serial dependencies simply because the package exposes those integrations.
 

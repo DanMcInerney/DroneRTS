@@ -1,6 +1,6 @@
 # Nervelet integration
 
-DroneRTS embeds Nervelet **0.2.0**, exact revision `6c36b0a4845c72ac2aa9fba85df7ea3d8389ff8c`, in its existing Node process. Version 0.2.0 alone does not identify this implementation. `TeamSession` creates one `DroneNervelet` environment/Bridge per authenticated pilot. Codex still owns the two native parents and six clean-context Luna/xhigh children. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the current pin and checks; [interface QA](NERVELET-INTERFACE-QA.md) and [reliability QA](RELIABILITY-QA.md) retain earlier qualifications. [Camera-age correction](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate; [upgrade qualification](NERVELET-UPGRADE-QA.md) preserves earlier measurements.
+DroneRTS embeds the MIT-licensed **Nervelet 0.2.0 npm release**, pinned exactly with registry integrity in `package-lock.json`, in its existing Node process. [Npm qualification](NERVELET-NPM-QA.md) records its package identity and byte-for-byte compiled-code comparison with the previously qualified source revision `6c36b0a4845c72ac2aa9fba85df7ea3d8389ff8c`. `TeamSession` creates one `DroneNervelet` environment/Bridge per authenticated pilot. Codex still owns the two native parents and six clean-context Luna/xhigh children. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md), [interface QA](NERVELET-INTERFACE-QA.md) and [reliability QA](RELIABILITY-QA.md) retain earlier qualifications. [Camera-age correction](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate; [upgrade qualification](NERVELET-UPGRADE-QA.md) preserves earlier measurements.
 
 ## Before and after
 
@@ -23,15 +23,14 @@ The model-facing API deliberately has no separate `step` tool. For example, `wai
 Requires **Node 24+**. On a fresh checkout:
 
 ```sh
-npm run nervelet:setup
 npm ci
 npm run network:setup
 npm run dev
 ```
 
-Nervelet is unpublished. Direct Git installation omits `dist/`. `scripts/setup-nervelet.mjs` checks out the exact revision in its ignored `.runtime/nervelet-source-<revision-prefix>/` directory, builds/packs it without source patches, and verifies SHA-256 `c49c3ded568870692d507f039be7a5a635b07bffa0c7e1ac6e2038dc73060ad7`. The dependency is `.runtime/nervelet-6c36b0a4845c72ac2aa9fba85df7ea3d8389ff8c.tgz`; the lockfile also pins SHA-512 integrity. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the exact archive and fresh-install evidence.
+`npm ci` downloads the built package from `https://registry.npmjs.org/nervelet/-/nervelet-0.2.0.tgz` and checks the lockfile's SHA-512 integrity. The archive's SHA-256 is `55e9e3bb49062700d5d9a0de5c56e81c4522354d5e70edb162eac43e7fb342cc`. It includes `dist/`, type declarations and the MIT license; no source checkout, `NERVELET_SOURCE`, local archive or bootstrap command is required.
 
-The current compact-bundle pin is preserved on upstream `main` through [Nervelet PR #7](https://github.com/DanMcInerney/nervelet/pull/7). Setup uses `NERVELET_SOURCE` when provided, otherwise `~/tools/nervelet` if available, then GitHub. A selected local clone must contain the exact pin; fetch its current upstream or set `NERVELET_SOURCE=https://github.com/DanMcInerney/nervelet.git` before setup. No version-only or fallback dependency is substituted. The verified tarball is built locally, not published to npm.
+The npm release follows [Nervelet PR #8](https://github.com/DanMcInerney/nervelet/pull/8). All 56 compiled JavaScript/type declaration files match the prior qualified package. Historical source-build reports retain their original archive hashes; those identify the old package and must not be substituted for the npm archive's integrity. Dependency upgrades require qualification and a regenerated onboard manifest.
 
 The library supplies configurable byte limits, `retainCommandArguments:false`, `commandDigest`, checked immutable profiles, result reservations and revision-bound acknowledgement. `submission:'host'`, `confirmSubmission(bundleId)` and `failSubmission(bundleId,error)` keep final submission separate from assembly, model acknowledgement and action completion. Reconciliation can invalidate an assembled generation, in which case settlement joins the old native turn before requesting new input. Serial bindings remain optional; normal application installs omit them and Claude SDKs. Escaped 64 KiB files and original execution results remain supported without retaining large command arguments or replaying uncertain effects.
 
@@ -83,7 +82,7 @@ An individual read reserves 144 KiB retained data and 480 KiB escaped result del
 
 Optional acoustics still reserves **8 KiB** per drone in diagnostics/cache. The other 512 KiB remains for unread local events, including acoustic observations. The private world-stimulus queue is bounded to 32 with saturation counters; acquired evidence is never silently evicted. Sensor CPU/detection counters are player-only and reset with a match. The 128 KiB inbox slice, 4 MiB radio, 2 MiB workspace and 1 MiB staging limits remain unchanged. Ordinary/recovery text caps remain 512/640 KiB, command input 400 KiB, and one decoded image 512 KiB. Fresh observation bundles remain at every direct fleet-tool boundary.
 
-`ONBOARD-PACKAGE-MANIFEST.json` measures Nervelet, Ajv, their required dependencies, notices and adapter code. Node/Python and the original native transports retain their existing platform boundary. Nervelet declares no license; the manifest records that explicitly. Ajv's `fast-uri` dependency retains its BSD-3-Clause notice.
+`ONBOARD-PACKAGE-MANIFEST.json` measures Nervelet, Ajv, their required dependencies, notices and adapter code, including Nervelet's shipped MIT license. Node/Python and the original native transports retain their existing platform boundary. Ajv's `fast-uri` dependency retains its BSD-3-Clause notice.
 
 ## Evidence limits
 
