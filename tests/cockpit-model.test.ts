@@ -1,9 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { COCKPIT_EVENT_LIMIT, mergeCockpitEvents, outputRows } from '../client/cockpit-model.ts';
+import { COCKPIT_EVENT_LIMIT, mergeCockpitEvents, outgoingSendAttempts, outputRows } from '../client/cockpit-model.ts';
 import type { CockpitEvent } from '../shared/cockpit.ts';
 
 const event = (sequence: number, extra: Partial<CockpitEvent> = {}): CockpitEvent => ({ sequence, at: '2026-09-14T12:00:00Z', kind: 'call', name: 'observe', ...extra });
+
+test('radio outbox includes standalone and every batched send with original call and operation provenance', () => {
+  const direct = { to: 'all', kind: 'status', text: 'Online.' };
+  const first = { to: ['drone-2', 'drone-3'], kind: 'chat', text: 'A visible apron.' };
+  const second = { to: 'drone-3', kind: 'chat', text: 'My observed cargo is empty.' };
+  const events = [event(1, { name: 'send', data: { arguments: direct } }), event(2, { name: 'exchange', data: { arguments: {
+    command_id: 'c2', operations: [{ id: 'look', tool: 'act', args: { kind: 'look' } },
+      { id: 'mail-a', tool: 'send', args: first }, { id: 'mail-b', tool: 'send', args: second }],
+  } } }), event(3, { kind: 'result', name: 'exchange', data: { rejected: true } })];
+  assert.deepEqual(outgoingSendAttempts(events), [
+    { sequence: 1, at: events[0].at, arguments: direct, source: { tool: 'send' } },
+    { sequence: 2, at: events[1].at, arguments: first, source: { tool: 'exchange', commandId: 'c2', operationIndex: 2, operationId: 'mail-a' } },
+    { sequence: 2, at: events[1].at, arguments: second, source: { tool: 'exchange', commandId: 'c2', operationIndex: 3, operationId: 'mail-b' } },
+  ]);
+  assert.equal(events[1].name, 'exchange');
+});
+
+test('radio outbox ignores non-call evidence and malformed batches while retaining historical argument wrappers', () => {
+  const args = { to: 'all', text: 'Historical send.' };
+  const sends = outgoingSendAttempts([
+    event(1, { name: 'send', data: { args } }), event(2, { name: 'send', data: args }),
+    event(3, { kind: 'result', name: 'send', data: { arguments: args } }),
+    event(4, { name: 'observe', data: { operations: [{ tool: 'send', args }] } }),
+    event(5, { name: 'exchange', data: { arguments: { operations: 'omitted' } } }),
+    event(6, { name: 'exchange', data: { arguments: { operations: [null, 1, {}, { tool: 'observe' }, { tool: 'send', args }] } } }),
+    event(7, { name: 'exchange' }),
+  ]);
+  assert.deepEqual(sends.map(send => send.sequence), [1, 2, 6]);
+  assert.ok(sends.every(send => send.arguments === args));
+  assert.deepEqual(sends[2].source, { tool: 'exchange', operationIndex: 5 });
+});
 
 test('cockpit retry windows deduplicate sequence IDs and retain newest bounded evidence', () => {
   const previous = Array.from({ length: COCKPIT_EVENT_LIMIT }, (_, index) => event(index));

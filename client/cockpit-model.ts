@@ -17,6 +17,32 @@ export function mergeCockpitEvents(previous: CockpitEvent[], next: CockpitEvent[
   return { events: all.slice(-COCKPIT_EVENT_LIMIT), trimmed: all.length > COCKPIT_EVENT_LIMIT };
 }
 
+export interface CockpitSendAttempt {
+  sequence: number; at: string; arguments: Record<string, unknown>;
+  source: { tool: 'send' | 'exchange'; commandId?: string; operationIndex?: number; operationId?: string };
+}
+
+/** Recorded attempts only: batch admission and recipient delivery live in results. */
+export function outgoingSendAttempts(events: CockpitEvent[]): CockpitSendAttempt[] {
+  const sends: CockpitSendAttempt[] = [];
+  for (const event of events) {
+    if (event.kind !== 'call' || (event.name !== 'send' && event.name !== 'exchange')) continue;
+    const value = record(event.data), args = record(value.arguments ?? value.args ?? value);
+    const source: CockpitSendAttempt['source'] = { tool: event.name, ...(typeof args.command_id === 'string' ? { commandId: args.command_id } : {}) };
+    if (event.name === 'send') {
+      sends.push({ sequence: event.sequence, at: event.at, arguments: args, source });
+    } else if (Array.isArray(args.operations)) {
+      args.operations.forEach((entry, index) => {
+        const operation = record(entry);
+        if (operation.tool !== 'send') return;
+        sends.push({ sequence: event.sequence, at: event.at, arguments: record(operation.args),
+          source: { ...source, operationIndex: index + 1, ...(typeof operation.id === 'string' ? { operationId: operation.id } : {}) } });
+      });
+    }
+  }
+  return sends;
+}
+
 /** Runtime completion is the full emitted text, not another text delta. */
 export function outputRows(events: CockpitEvent[]): CockpitEvent[] {
   const rows: CockpitEvent[] = [], items = new Map<string, CockpitEvent>();

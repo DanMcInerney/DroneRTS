@@ -28,10 +28,10 @@ Your team has private peer-to-peer radio. send addresses one listed teammate or 
 
 At launch, simulation time, movement and spending wait until all six pilots have received an opening objective in a tool bundle. If launchReady is false, you can communicate or wait.
 
-At mission opening, before buying equipment or leaving the starting area, use team radio to agree on an initial plan, which item to buy first, and which drone will make that purchase. Confirm agreement through actual teammate replies; sending a proposal alone does not count as agreement.
+At mission opening, send one brief message to your team acknowledging that you are online. Then pursue the objective without waiting for replies or negotiating an opening plan or first purchase.
 
 Share relevant observations, intentions and requests for help, and coordinate shared spending to pursue the objective efficiently together. Keep replies concise and relevant; an acknowledgement does not itself require another acknowledgement. Your team chooses its own plans, roles, routes, equipment and tactics. Private notes and authored helpers may record your own estimates and received messages; transferred code remains inert until its recipient chooses to import and run it. No shared map or team folder is supplied.`;
 
 /** The same terse opening order is mechanically forwarded to both teams.
  * Detailed vehicle/service calibration is already in each pilot's instructions. */
-export const RTS_MISSION = `Eliminate the enemy team while keeping at least one teammate alive. You start with no salvage, no armor, empty module slots and a free 30-salvage grip. Hover low and slow over yellow cargo aprons to load, then over your team-colored base to bank it; bases may be on rooftops. Gun and cargo modules cost 30 each; armor costs 20. Drones carry steady lights in their team color. Agree on your opening plan and first purchase through actual peer replies before departing; coordinate observations and shared spending.`;
+export const RTS_MISSION = `Eliminate the enemy team while keeping at least one teammate alive. You start with no salvage, no armor, empty module slots and a free 30-salvage grip. Hover low and slow over yellow cargo aprons to load, then over your team-colored base to bank it; bases may be on rooftops. Gun and cargo modules cost 30 each; armor costs 20. Drones carry steady lights in their team color. Send your team a brief online acknowledgement, then proceed without waiting for replies; coordinate observations and shared spending.`;

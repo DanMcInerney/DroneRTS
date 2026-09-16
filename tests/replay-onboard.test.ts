@@ -85,3 +85,19 @@ test('radio display distinguishes stored and input stages from actual replies an
   assert.match(bundled, /In input:/); assert.match(bundled, /Actual reply:/);
   assert.deepEqual(visibleRadioMessages([radio, { ...radio, id: 'red', from: 'drone-4' }, { ...radio, id: 'private', to: 'drone-2' }, { ...radio, id: 'blue-all', to: 'all' }], 'operator', 'team').map(message => message.id), ['m1', 'blue-all']);
 });
+
+test('replay hides residual jammer fields in cargo rules and preserves historical on/off state', () => {
+  for (const jamming of [false, true]) {
+    const drone = { ...actor, jamming };
+    for (const rulesVersion of ['cargo-v1', 'cargo-v2', 'cargo-v3'] as const) {
+      assert.ok(!recordedOperations(drone, { resources: [], rulesVersion }).some(line => line.startsWith('Jammer')));
+      assert.ok(!recordedOperations(drone, { resources: [] }, rulesVersion).some(line => line.startsWith('Jammer')));
+    }
+    const label = `Jammer ${jamming ? 'on' : 'off'}`;
+    assert.ok(recordedOperations(drone).includes(label));
+    assert.ok(recordedOperations(drone, { resources: [], rulesVersion: 'cube-v1' }).includes(label));
+    assert.ok(recordedOperations(drone, { resources: [], rulesVersion: 'cargo-v3' }, 'cube-v1').includes(label));
+    assert.ok(!recordedOperations(drone, { resources: [], rulesVersion: 'cube-v1' }, 'cargo-v3').includes(label));
+  }
+  assert.ok(!recordedOperations(actor).some(line => line.startsWith('Jammer')));
+});

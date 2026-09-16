@@ -27,9 +27,10 @@ export function chargingPresentation(drone: Drone, battery = batteryPresentation
 
 /** Replays report the saved fields without guessing absent battery/radio state. */
 export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resources' | 'servicePads' | 'rulesVersion'>, rulesVersion?: string): string[] {
+  const cargoRules = isCargoRules(rulesVersion ?? match?.rulesVersion);
   // Explicit recorded cube sizes mark the revision that increased capacity.
   // Earlier records used 100/150 charge; do not reinterpret them with live tuning.
-  const modern = isCargoRules(rulesVersion ?? match?.rulesVersion) || match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
+  const modern = cargoRules || match?.resources.some(node => node.zoneSize !== undefined) || match?.servicePads?.some(pad => pad.zoneSize !== undefined);
   const battery = batteryPresentation(drone, modern ? undefined : drone.equipment?.battery ? 150 : 100), service = servicePresentation(drone.servicing);
   const charging = chargingPresentation(drone, battery);
   const onboard = onboardPresentation(drone);
@@ -39,7 +40,7 @@ export function recordedOperations(drone: Drone, match?: Pick<MatchState, 'resou
     battery ? `Battery ${battery.percent}%${battery.low ? ' · LOW' : ''}` : '',
     charging?.label ?? '',
     service ? `${service.label} · ${service.remaining.toFixed(1)}s remaining` : '',
-    drone.jamming !== undefined ? `Jammer ${drone.jamming ? 'on' : 'off'}` : '',
+    !cargoRules && drone.jamming !== undefined ? `Jammer ${drone.jamming ? 'on' : 'off'}` : '',
     drone.radioJammed !== undefined ? drone.radioJammed ? 'Radio jammed' : 'Radio clear' : '',
     onboard.cargo ?? '', onboard.logistics ?? '', onboard.job ?? '', onboard.source ?? '', onboard.storage ?? '',
   ].filter(Boolean);
