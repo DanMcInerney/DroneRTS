@@ -5,6 +5,7 @@ import { CARGO_CONFIG } from '../shared/rts';
 import { salvageCrate } from './salvage-model';
 import { graphicsAsset } from './graphics-assets';
 import { disposeGroup } from './city-scene';
+import { bindNavigationMaterial, navigationBeacon, navigationPhase } from './navigation-lights';
 
 export function makeDrone(id: string) {
   const color = dronePresentation(id).color;
@@ -19,7 +20,22 @@ export function makeDrone(id: string) {
   disposeGroup(legacy);
   const cargo = new THREE.Group(); cargo.name = 'carried-cargo';
   for (let i = 0; i < 2; i++) { const crate = salvageCrate(); crate.name = `carried-crate-${i}`; cargo.add(crate); }
-  group.add(cargo); return group;
+  group.add(cargo); addNavigationLights(group, id); return group;
+}
+
+function addNavigationLights(group: THREE.Group, id: string) {
+  const phase = navigationPhase(id), color = dronePresentation(id).color;
+  group.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    for (const material of [object.material].flat()) if (material.name === 'Team light') bindNavigationMaterial(material, 'drone', phase);
+  });
+  const lights = new THREE.Group(); lights.name = 'drone-beacons';
+  for (const y of [-0.075, 0.075]) {
+    const beacon = navigationBeacon(color, 0.024, 'drone', phase);
+    beacon.position.y = y; if (y < 0) beacon.rotation.x = Math.PI;
+    lights.add(beacon);
+  }
+  group.add(lights);
 }
 
 function makeLegacyDrone(id: string) {
@@ -75,7 +91,7 @@ function makeLegacyDrone(id: string) {
   const rail = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.025, 0.16), dark); rail.position.y = -0.1; rack.add(rail); group.add(rack);
   const cargo = new THREE.Group(); cargo.name = 'carried-cargo';
   for (let i = 0; i < 2; i++) { const crate = salvageCrate(); crate.name = `carried-crate-${i}`; cargo.add(crate); }
-  group.add(cargo);
+  group.add(cargo); addNavigationLights(group, id);
   return group;
 }
 

@@ -25,6 +25,8 @@ try {
     await writeFile(resolve(run.directory, `${name}.${image.startsWith('data:image/png')?'png':'jpg'}`),Buffer.from(image.split(',')[1],'base64'));
   }
   assert.deepEqual(errors,[]);
+  assert.notEqual(result.shots['team-navigation-flash-a'], result.shots['team-navigation-flash-b'], 'phase-correct model views must show blinking');
+  assert.notEqual(result.shots['drone-flash-acquired-on'], result.shots['drone-flash-acquired-off'], 'production 512x288 camera must see the flash change');
   const times: number[] = result.captureMs;
   const summary = { inference:false, fixture:true, rendererId:rendererIdentity(process.cwd()), cityStats:result.cityStats,
     camera:{width:512,height:288,samples:times.length,p50Ms:times[Math.floor(times.length*.5)],p95Ms:times[Math.floor(times.length*.95)],maxMs:times.at(-1)}, errors };

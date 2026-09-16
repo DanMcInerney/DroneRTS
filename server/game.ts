@@ -6,7 +6,7 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage, type GameEvent } from '../shared/types.ts';
 import { MATCH_DRONE_IDS as DRONE_IDS, teamForDrone, teamRoster, type TeamId } from '../shared/fleet.ts';
-import { BATTLEFIELD } from '../shared/battlefield.ts';
+import { BATTLEFIELD, BATTLEFIELD_BOUNDARIES } from '../shared/battlefield.ts';
 import { batteryCapacityFor, hasBatteries, cargoCapacityFor, startingEquipment, RTS_CONFIG, type EquipmentItem, type EquipmentModule, type MatchState } from '../shared/rts.ts';
 import { CITY } from '../shared/city.ts';
 import { cameraFovFor, DRONE_CAMERA } from '../shared/camera-profile.ts';
@@ -322,7 +322,7 @@ export class FleetGame extends EventEmitter {
     return {
       simTime: 0, mission: 0, running: false, speed: 1,
       completed: false, treasures: [], match: this.rules.newMatch(BATTLEFIELD.resources, BATTLEFIELD.servicePads),
-      obstacles: CITY.buildings.map(building => ({ ...building })),
+      obstacles: [...CITY.buildings, ...BATTLEFIELD_BOUNDARIES].map(building => ({ ...building })),
       drones: DRONE_IDS.map(id => ({ id, ...BATTLEFIELD.spawns[id], team: teamForDrone(id), alive: true,
         equipment: startingEquipment(), ammo: 0, cameraMode: 'wide', jamming: false, radioJammed: false,
         cargo: { amount: 0 }, velocity: { x: 0, y: 0, z: 0 },

@@ -41,9 +41,9 @@ Replay records stay separate from audit exports under `artifacts/replays/<sessio
 
 ## Economy and combat
 
-Both teams receive the same short opening commander order through the existing launch gate. Detailed calibration remains in each pilot’s vehicle briefing. Drones have steady team-colored navigation lights; historical recordings retain saved equipment and camera modes.
+Both teams receive the same short opening commander order through the existing launch gate. Detailed calibration remains in each pilot’s vehicle briefing. Drones have flashing team-colored navigation lights, cargo aprons have amber beacons, and bases have team-colored beacons. The lights obey ordinary visual occlusion; historical recordings retain saved equipment, geometry and camera modes.
 
-New matches use **cargo-v3**. Each team begins with zero salvage; drones start unarmored with empty module slots and a free cargo grip. Opposite west/east rooftop bases bracket three intersection caches: Vine/Fourth and Main/Fourth hold 120 each, and Walnut/Fourth holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible.
+New matches use **cargo-v3**. Each team begins with zero salvage; drones start unarmored with empty module slots and a free cargo grip. Opposite west/east rooftop bases bracket three rooftop caches: Westin and Atrium One hold 120 each, and Dixie Terminal North holds 600. Crates are matte yellow/ochre on dark pallets, with broad black cargo symbols and marked loading aprons. Stock is finite, the opening bases have no resource piles, and empty pallets remain visible. Four nearly transparent walls and a ceiling enclose the map and share the simulator's collision and finite-range sensing.
 
 Pickup requires the drone center over the marked apron, 0.6–2.4 local units above its surface, moving at most 0.3 local units per simulation second for three simulation seconds. One interval fills available capacity from available stock, with atomic reservations and partial final loads. The free grip carries 30 salvage; the cargo module carries 60. Loaded maximum speed is 20% lower. Cargo becomes shared credits only after two simulation seconds of the same low/slow service at a friendly base. Cancelling loading releases stock; cancelling unloading keeps cargo. Accessible crash-site drops can be collected by either team; inaccessible cargo is recorded lost.
 
@@ -73,7 +73,7 @@ These are initial simulator balance values. Historical cube-economy playtests do
 
 Each living drone has `observe`, `act`, `send`, `wait`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`. Historical equipped optics retain the `camera` interpretation in recordings. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
 
-`server/runtime-tools.ts` composes a compact role/compute/encoding prompt with the exact common briefing from `shared/mission.ts`. [DRONE-PROMPT.md](DRONE-PROMPT.md) documents that composition. Numeric onboard and routine limits come from their authoritative profiles; `shared/actor-environment.ts` describes the matching guest/host capability boundary for the cockpit. The current cargo-v3 rules and three-intersection rooftop-base layout supersede the earlier five-cache cargo-v2 revision; historical recordings keep their own geometry and rules.
+`server/runtime-tools.ts` composes a compact role/compute/encoding prompt with the exact common briefing from `shared/mission.ts`. [DRONE-PROMPT.md](DRONE-PROMPT.md) documents that composition. Numeric onboard and routine limits come from their authoritative profiles; `shared/actor-environment.ts` describes the matching guest/host capability boundary for the cockpit. The current cargo-v3 rules and three-cache rooftop layout supersede the earlier five-cache cargo-v2 revision; historical recordings keep their own geometry and rules.
 
 | Tool | Effect |
 | --- | --- |

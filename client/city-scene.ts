@@ -1,27 +1,12 @@
 import * as THREE from 'three';
 import { CITY } from '../shared/city';
-import type { CityPoint } from '../shared/city';
 import type { Obstacle, Treasure } from '../shared/types';
 import { graphicsCity } from './graphics-assets';
+import { createArenaBoundary, isArenaBoundary } from './arena-boundary';
+import { createUrbanGround } from './urban-ground';
 
 const radians = THREE.MathUtils.degToRad;
 const material = (color: THREE.ColorRepresentation) => new THREE.MeshStandardMaterial({ color, roughness: 0.88 });
-
-function polygon(points: CityPoint[], color: THREE.ColorRepresentation, height: number, holes: CityPoint[][] = []) {
-  const shape = new THREE.Shape();
-  points.forEach((point, index) => index ? shape.lineTo(point.x, -point.z) : shape.moveTo(point.x, -point.z));
-  shape.closePath();
-  for (const points of holes) {
-    const path = new THREE.Path();
-    points.forEach((point, index) => index ? path.lineTo(point.x, -point.z) : path.moveTo(point.x, -point.z));
-    path.closePath(); shape.holes.push(path);
-  }
-  const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), material(color));
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = height;
-  mesh.receiveShadow = true;
-  return mesh;
-}
 
 function sign(text: string, width: number, color = '#143e43') {
   const canvas = document.createElement('canvas');
@@ -40,54 +25,9 @@ function sign(text: string, width: number, color = '#143e43') {
 /** Static city geometry. Building surfaces share exactly the simulator's oriented boxes. */
 export function createCity(buildings: Obstacle[]) {
   const group = new THREE.Group();
-  const width = CITY.bounds.x[1] - CITY.bounds.x[0], depth = CITY.bounds.z[1] - CITY.bounds.z[0];
-  // A small scenic margin avoids a floating slab at the flight envelope.
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(width + 800, depth + 800), material('#9b9e92'));
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.set((CITY.bounds.x[0] + CITY.bounds.x[1]) / 2, 0, (CITY.bounds.z[0] + CITY.bounds.z[1]) / 2);
-  ground.receiveShadow = true;
-  group.add(ground);
-  if (CITY.river.length > 2) {
-    group.add(polygon(CITY.river, '#377e91', 0.025, CITY.riverHoles));
-    const shoreline = CITY.river.map(point => new THREE.Vector3(point.x, 0.029, point.z));
-    shoreline.push(shoreline[0].clone());
-    group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(shoreline), new THREE.LineBasicMaterial({ color: '#8fac9c', transparent: true, opacity: 0.6 })));
-  }
-  for (const park of CITY.parks) {
-    if (park.points.length > 2) group.add(polygon(park.points, park.color ?? '#82ac70', 0.05));
-  }
-  // Broad value separation survives the finite-resolution acquired cameras.
-  const asphalt = material('#444a4e');
-  const paving = material('#aaa9a1');
-  const roadMatrices: THREE.Matrix4[][] = [[], []];
-  const roadDummy = new THREE.Object3D();
-  const markings: THREE.Vector3[] = [];
-  for (const road of CITY.roads) {
-    for (let i = 1; i < road.points.length; i++) {
-      const a = road.points[i - 1], b = road.points[i];
-      const length = Math.hypot(b.x - a.x, b.z - a.z);
-      if (length < 0.02) continue;
-      const angle = Math.atan2(b.x - a.x, b.z - a.z);
-      for (const [index, width, height] of [[0, road.width + 0.65, 0.035], [1, road.width, 0.045]]) {
-        roadDummy.rotation.set(-Math.PI / 2, 0, angle);
-        roadDummy.position.set((a.x + b.x) / 2, height, (a.z + b.z) / 2);
-        roadDummy.scale.set(width, length, 1); roadDummy.updateMatrix();
-        roadMatrices[index].push(roadDummy.matrix.clone());
-      }
-      if (road.width >= 1.2) for (let distance = 0.7; distance + 0.6 < length; distance += 1.7) {
-        for (const offset of [0, 0.65]) {
-          const t = (distance + offset) / length;
-          markings.push(new THREE.Vector3(a.x + (b.x - a.x) * t, 0.055, a.z + (b.z - a.z) * t));
-        }
-      }
-    }
-  }
-  [paving, asphalt].forEach((surface, index) => {
-    const strips = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), surface, roadMatrices[index].length);
-    roadMatrices[index].forEach((matrix, offset) => strips.setMatrixAt(offset, matrix));
-    strips.instanceMatrix.needsUpdate = true; strips.receiveShadow = true; group.add(strips);
-  });
-  group.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(markings), new THREE.LineBasicMaterial({ color: '#c7bf96', transparent: true, opacity: 0.48 })));
+  group.add(createArenaBoundary(buildings));
+  buildings = buildings.filter(building => !isArenaBoundary(building));
+  group.add(createUrbanGround(buildings));
 
   const baked = graphicsCity(buildings);
   if (baked) group.add(baked);
@@ -186,6 +126,7 @@ export function disposeGroup(group: THREE.Group) {
   const textures = new Set<THREE.Texture>();
   group.traverse(object => {
     if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
+      if (object instanceof THREE.InstancedMesh) object.dispose();
       geometries.add(object.geometry);
       (Array.isArray(object.material) ? object.material : [object.material]).forEach(item => materials.add(item));
     }

@@ -11,6 +11,7 @@ import hashlib
 import random
 import struct
 import zlib
+import runpy
 import numpy as np
 from pathlib import Path
 from mathutils import Vector
@@ -255,7 +256,9 @@ def png(path, values):
     def chunk(kind, value):
         return struct.pack('>I',len(value))+kind+value+struct.pack('>I',zlib.crc32(kind+value))
     raw = b''.join(b'\x00'+row.tobytes() for row in data)
-    path.write_bytes(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b''))
+    temporary = path.with_suffix('.png.tmp')
+    temporary.write_bytes(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw,9))+chunk(b'IEND',b''))
+    temporary.replace(path)
 
 
 def facade_material(name, wall, curtain=False, historic=False):
@@ -277,10 +280,16 @@ def facade_material(name, wall, curtain=False, historic=False):
     reveal = (u>=l-3)&(u<=r+3)&(v>=bottom-3)&(v<=top+3)
     window = (u>=l)&(u<=r)&(v>=bottom)&(v<=top)
     rgb[reveal]=(.19,.23,.24)
-    # A continuous sky gradient and restrained bay variation replace checkerboards.
-    shade = ((v-bottom)/(top-bottom)*.035 + ((xx//128+yy//128)%3)*.012)[:,:,None]
-    reflection = np.ones((n,n,3))*np.array([.34,.43,.48])+shade
+    # Independent panes, reflected skyline silhouettes and partial blinds. The
+    # artwork is original, not satellite pixels wrapped around a building.
+    panes = rng.uniform(-.055, .045, (4,4))
+    shade = ((v-bottom)/(top-bottom)*.09 + panes[yy//128,xx//128])[:,:,None]
+    reflection = np.ones((n,n,3))*np.array([.25,.35,.41])+shade
+    silhouette = (v < 34 + 12*np.sin(xx/21) + 7*np.cos(xx/9)) & window
+    reflection[silhouette] *= .72
     rgb[window]=reflection[window]
+    blinds = window & (v > 82) & ((xx//128 + yy//128*3)%5 == 1)
+    rgb[blinds]=(.55,.55,.49)
     orm[window,1]=.28; orm[window,2]=.42
     frame=(window & ((u==l)|(u==r)|(v==bottom)|(v==top)))
     rgb[frame]=(.59,.63,.63); orm[frame,1]=.4; orm[frame,2]=.4
@@ -319,6 +328,7 @@ masonry = [material('Masonry ' + str(i), c, .87) for i,c in enumerate(['#ae9e86'
 carew = material('Carew buff brick', '#bca080', .85)
 limestone = material('Limestone trim', '#c8bca5', .82)
 roof = material('Roof membrane', '#616a6c', .95)
+roof_tiles = runpy.run_path(str(ROOT/'scripts/graphics-surfaces.py'))['roof_materials'](bpy, SOURCE, material, png)
 seam = material('Roof seams', '#788183', .88)
 recess = material('Recess shadow', '#29373b', .8)
 frames = material('Aluminum mullions', '#829397', .36, .5)
@@ -339,13 +349,25 @@ for index, b in enumerate(city['buildings']):
     wall = carew if historic else glasswall if curtain else masonry[index % len(masonry)]
     facade = carew_facade if historic else glass_facade if curtain else facades[index % len(facades)]
     batch.cube(0,h/2,0,w,h,d,wall,transform)
-    # Flush roof seams, drainage bands and inset access hatches; no false roof obstacles.
-    batch.quad([transform(p) for p in [(-w/2,h+.001,-d/2),(-w/2,h+.001,d/2),(w/2,h+.001,d/2),(w/2,h+.001,-d/2)]], roof)
+    # Satellite references show pale membranes, dark tar and warm gravel, not a
+    # uniform gray roof. Keep modeled service roofs perfectly clear and flat.
+    roof_surface = roof_tiles[index % len(roof_tiles)]
+    def roof_panel(x,z,pw,pd,mat,y=h+.002):
+        batch.quad([transform(p) for p in [(x-pw/2,y,z-pd/2),(x-pw/2,y,z+pd/2),
+                   (x+pw/2,y,z+pd/2),(x+pw/2,y,z-pd/2)]],mat)
+    batch.quad([transform(p) for p in [(-w/2,h+.001,-d/2),(-w/2,h+.001,d/2),(w/2,h+.001,d/2),(w/2,h+.001,-d/2)]],
+               roof_surface, [(0,0),(0,d/4),(w/4,d/4),(w/4,0)])
+    # Coping and drain bands lie on the roof surface, not above its safe volume.
+    for zz in [-d/2+.025, d/2-.025]:
+        roof_panel(0,zz,w,.045,limestone)
+        roof_panel(0,zz-math.copysign(.04,zz),w-.10,.035,recess)
+    for xx in [-w/2+.025, w/2-.025]:
+        roof_panel(xx,0,.045,d,limestone)
     for x in range(1, max(1, int(w / .6))):
         xx = -w/2 + x*.6
-        batch.cube(xx,h+.0013,0,.007,.0004,d*.94,seam,transform)
-    batch.cube(w*.18,h+.0015,d*.12,w*.20,.001,d*.17,recess,transform)
-    batch.cube(w*.18,h+.002,d*.12,w*.18,.0005,d*.15,seam,transform)
+        roof_panel(xx,0,.007,d*.94,seam)
+    roof_panel(w*.18,d*.12,w*.20,d*.17,recess)
+    roof_panel(w*.18,d*.12,w*.18,d*.15,seam,h+.0025)
     floors = max(1, round(h / .36))
     floor_height = h / floors
     for face in range(4):
@@ -364,11 +386,26 @@ for index, b in enumerate(city['buildings']):
         # Base stone band, storefront rhythm and top cornice emphasize real floors.
         if not curtain:
             panel(0,h-.045,across,.05,limestone,.002)
+            panel(0,h-.10,across,.024,recess,.0022)
+            # Modeled tiered cornices, pilasters, belt courses and storefronts
+            # retain the sourced body silhouette rather than generic cubes.
+            for row in range(3, floors, 3 if historic else 5):
+                panel(0,row*floor_height,across,.014,limestone,.0025)
+            if historic:
+                for col in range(0,columns+1,3):
+                    u=max(-across/2+.018,min(across/2-.018,-across/2+col*bay))
+                    panel(u,h/2,.031,h-.12,limestone,.003)
             if base == 0:
-                panel(0,.09,across,.18,recess,.0018)
+                panel(0,.15,across,.30,recess,.0018)
+                for col in range(max(1, round(across/.65))):
+                    u=-across/2+(col+.5)*across/max(1,round(across/.65))
+                    panel(u,.135,min(.45,across*.25),.23,glasswall,.0023)
+                    panel(u,.285,min(.50,across*.27),.028,limestone,.003)
         else:
             for col in range(0,columns+1,4):
                 panel(max(-across/2+.009,min(across/2-.009,-across/2+col*bay)),h/2,.018,h,frames,.002)
+            for row in range(2,floors,3):
+                panel(0,row*floor_height,across,.013,frames,.0025)
         # Tiara reference is a flush crown lattice over solid glass: the source
         # crown remains an opaque collision box, never an apparent fly-through.
         if b['id'] == 'great-american-tower-crown':
@@ -377,6 +414,15 @@ for index, b in enumerate(city['buildings']):
                 panel(u,h/2,.027,h,limestone,.002)
             for row in range(1,7):
                 panel(0,h*row/7,across,.027,limestone,.002)
+            # Diagonal pale braces make the solid crown's lattice readable from
+            # the street. They do not suggest an unmodeled fly-through opening.
+            for col in range(8):
+                lo=-across/2+across*col/8
+                hi=lo+across/8
+                def face_point(u,y):
+                    return [(u,y,d/2+.003),(w/2+.003,y,-u),(-u,y,-d/2-.003),(-w/2-.003,y,u)][face]
+                for ya,yb in [(0,h),(h,0)]:
+                    batch.quad([transform(face_point(u,y)) for u,y in [(lo,ya),(lo+.020,ya),(hi,yb),(hi-.020,yb)]], limestone)
 batch.build(root)
 root['source'] = 'shared/city-data.json; OpenStreetMap contributors (ODbL); original facade artwork'
 export('cincinnati')

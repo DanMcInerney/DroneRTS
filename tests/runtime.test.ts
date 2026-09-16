@@ -51,7 +51,13 @@ test('cargo briefing follows authoritative service calibration without injecting
   assert.ok(RTS_BRIEFING.includes(`between ${CARGO_CONFIG.hoverMin} and ${CARGO_CONFIG.hoverMax} local units`));
   assert.ok(RTS_BRIEFING.includes(`${CARGO_CONFIG.pickupDuration} simulation seconds`));
   assert.match(RTS_BRIEFING, /credit your shared team account only on completion/);
-  assert.match(RTS_BRIEFING, /Confirm agreement through actual teammate replies/);
+  assert.match(RTS_BRIEFING, /send one brief message to your team acknowledging that you are online/);
+  assert.match(RTS_BRIEFING, /pursue the objective without waiting for replies/);
+  assert.match(RTS_MISSION, /Send your team a brief online acknowledgement/);
+  assert.match(RTS_MISSION, /proceed without waiting for replies/);
+  for (const instructions of [RTS_BRIEFING, RTS_MISSION]) {
+    assert.doesNotMatch(instructions, /Confirm agreement through actual teammate replies|Agree on your opening plan|before departing/);
+  }
   assert.doesNotMatch(RTS_BRIEFING, /translucent yellow|automatically mines|miner_upgrade|central depot|scout first|travel north/);
 });
 
