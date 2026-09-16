@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",
@@ -10,12 +13,14 @@
     "start": "tsx server/index.ts --production",
     "test": "node --import tsx scripts/run-tests.ts",
     "network:setup": "node scripts/setup-network.mjs",
+    "nervelet:setup": "node scripts/setup-nervelet.mjs",
     "onboard:manifest": "node --import tsx scripts/onboard-manifest.ts"
   },
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "express": "^5.1.0",
+    "nervelet": "file:.runtime/nervelet-4356691bede0e2810cb7d2c453a7f2ec3ff61396.tgz",
     "quickjs-emscripten-core": "0.32.0",
     "three": "^0.183.2",
     "ws": "^8.19.0",

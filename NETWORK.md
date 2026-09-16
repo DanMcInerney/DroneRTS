@@ -21,13 +21,17 @@ Each team has a complete four-peer graph: three drone bridges and one operator. 
 
 ## Setup and scope
 
-Run `npm ci`, `npm run network:setup`, then `npm run dev`. Setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Tested interpreter: Python 3.12.4. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
+Run `npm run nervelet:setup`, `npm ci`, `npm run network:setup`, then `npm run dev`. Setup creates a project `.venv` and installs pinned `eclipse-zenoh==1.10.1` and `pymavlink==2.4.49`. Native integration has passed with Python 3.12.4 and, in the Nervelet validation, 3.14.6. Set `FLEET_PYTHON` to an existing interpreter with these dependencies if using a different environment. Default gameplay requires the protocols; there is no automatic in-memory fallback.
 
 Every bridge opens an OS-assigned loopback TCP port, uses Zenoh `peer` mode, explicit peer endpoints, and no multicast/gossip discovery or central router. Native sessions exchange data even while no model tool is running. See [Zenoh deployment documentation](https://zenoh.io/docs/getting-started/deployment/) and its [Python implementation](https://github.com/eclipse-zenoh/zenoh-python).
 
 Each drone's control/telemetry pair exchanges actual binary MAVLink 2 UDP datagrams. Decoded setpoints determine movement; decoded own pose, velocity and camera orientation feed local sensing. The browser acquires the separate camera sample. The vehicle interface now documents its coordinate frame, calibration and limits; battlefield geometry stays private. This is a small simulated endpoint profile, not PX4/ArduPilot SITL. Exact messages and limits are in [MAVLINK.md](MAVLINK.md). Zenoh, pymavlink, host Python/OS and the vehicle bridges are fixed platform infrastructure, outside the guest library partition; this does not claim their whole installation fits the 8 MiB application package.
 
 ## Delivery rules
+
+Native pilots now retain received mail until they echo the Nervelet bundle ID containing it. `bundledBy` still records actual result inclusion, while native `consume` occurs on that later acknowledgement. Stable redelivery IDs distinguish uncertain results. See [Nervelet integration](NERVELET-INTEGRATION.md); historical recordings retain their original assembly-time consumption meaning.
+
+The upgraded host records `bundledBy` and launch delivery only after successful final MCP HTTP submission (or accepted same-session emergency input), including text-only objective results whose capture was cancelled. Assembly, failed output and client disconnect do not count. Acknowledgement consumes only the included FIFO slice; an urgent capsule may reference a retained event behind that slice without consuming or promoting it. Native sample cancellation removes only its own RPC request and ignores late telemetry; it does not replay or claim to undo a previously accepted command.
 
 `shared/fleet.ts` owns the explicit blue/red and combined match rosters. `server/team-session.ts` creates two `FleetNetwork` instances with separate random `networkId` UUIDs under the same match session. Worker membership, broadcast recipients and acknowledgement expectations derive from each team's roster; Python validates it at startup. Namespaced topics, endpoints and SQLite stores remain separate. MCP tool destinations and game receive checks also reject opposing-team roles. `DEFAULT_FLEET` is still the three-member blue roster for reusable single-network adapters; `MATCH_FLEET` is the complete six-drone match.
 

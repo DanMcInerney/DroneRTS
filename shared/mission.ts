@@ -1,9 +1,14 @@
 import { CARGO_CONFIG, RTS_CONFIG } from './rts.ts';
 import { DRONE_CAMERA } from './camera-profile.ts';
 import { ONBOARD_PROFILE } from './onboard.ts';
+import { ACOUSTIC_PROFILE } from './acoustic-profile.ts';
+
+export const ACOUSTIC_BRIEFING = `Optional ${ACOUSTIC_PROFILE.version} local acoustic experiment: dated acoustic_impulse events are uncertain sound detections, sometimes labeled possibleShot. Detection is finite (up to ${ACOUSTIC_PROFILE.maxDistanceMeters} meters in the model), delayed by sound propagation and degraded by obstructions, noise and missed detections. Urban/mechanical impulses can cause false positives. No bearing, range, shooter, team, trajectory or targeting intent is measured. Absence of an event does not prove silence or safety. The detector models impulsive muzzle sound, not a guaranteed supersonic projectile crack. Sound alone does not cancel valid local work or select a maneuver. Only an explicitly enabled attention policy may interrupt a turn; the mission stays unchanged.`;
 
 /** Common recognition, vehicle interaction and teamwork; no battlefield locations or tactics. */
 export const RTS_BRIEFING = `Your vehicle reports simulator-local XYZ: positive X is east, positive Y is up, and positive Z is south. One local unit represents ${ONBOARD_PROFILE.metersPerSimulationUnit} meters. Heading is clockwise from north in degrees: 0 faces negative Z and 90 faces positive X. Camera pitch is separate from body attitude; negative pitch looks downward and -90 is straight down. Camera samples are ${DRONE_CAMERA.width} by ${DRONE_CAMERA.height} pixels, with vertical field of view ${DRONE_CAMERA.fov} degrees. Your controller reports profile limits and finite range-sensor coverage. These are vehicle calibration, not battlefield knowledge.
+
+Each delivered image depicts its recorded acquisition time and pose; rendering, transport and your reasoning take time while local work continues. Camera ageMs is elapsed host time at bundle assembly. Camera fresh:false marks an age over two seconds or an unavailable/stalled sample; age alone does not invalidate supplied pixels or require another observation. Current telemetry is separately timestamped. Missing images are explicit and never replaced with cached pixels.
 
 Salvage appears as matte industrial yellow/ochre crates on dark pallets, with a broad black cargo symbol on the top and sides. Painted loading aprons show the usable horizontal service area; you need not align with a tiny crate. Empty pallets remain visible. Each crate is worth ${CARGO_CONFIG.crateValue} salvage. Your free gripper holds ${CARGO_CONFIG.gripCapacity}; an equipped cargo module holds ${CARGO_CONFIG.moduleCapacity} total.
 
@@ -25,7 +30,7 @@ At launch, simulation time, movement and spending wait until all six pilots have
 
 At mission opening, before buying equipment or leaving the starting area, use team radio to agree on an initial plan, which item to buy first, and which drone will make that purchase. Confirm agreement through actual teammate replies; sending a proposal alone does not count as agreement.
 
-Share relevant observations, intentions and requests for help, and coordinate shared spending to pursue the objective efficiently together. Your team chooses its own plans, roles, routes, equipment and tactics. Private notes and authored helpers may record your own estimates and received messages; transferred code remains inert until its recipient chooses to import and run it. No shared map or team folder is supplied.`;
+Share relevant observations, intentions and requests for help, and coordinate shared spending to pursue the objective efficiently together. Keep replies concise and relevant; an acknowledgement does not itself require another acknowledgement. Your team chooses its own plans, roles, routes, equipment and tactics. Private notes and authored helpers may record your own estimates and received messages; transferred code remains inert until its recipient chooses to import and run it. No shared map or team folder is supplied.`;
 
 /** The same terse opening order is mechanically forwarded to both teams.
  * Detailed vehicle/service calibration is already in each pilot's instructions. */

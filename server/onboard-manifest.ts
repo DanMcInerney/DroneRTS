@@ -5,7 +5,11 @@ import { fileURLToPath } from 'node:url';
 
 export interface OnboardArtifact { path: string; package: string; version: string; license: string; bytes: number; sha256: string }
 export interface OnboardPackageManifest { schema: 'drone-onboard-package/v1'; runtime: 'QuickJS WASM 0.32.0 release-sync'; platform: string; artifacts: OnboardArtifact[]; artifactBytes: number; manifestBytes: number; installedBytes: number; limitBytes: number; fits: boolean; optionalGuestLibraries: never[]; exclusions: string[] }
-const localFiles = ['server/onboard-manifest.ts', 'server/onboard-workspace.ts', 'server/routine-runner.ts', 'server/routine-worker.mjs', 'server/radio-transfer.ts', 'shared/onboard.ts'];
+const localFiles = ['server/onboard-manifest.ts', 'server/onboard-workspace.ts', 'server/routine-runner.ts', 'server/routine-worker.mjs', 'server/radio-transfer.ts', 'server/nervelet.ts', 'server/abort.ts', 'server/onboard-attention.ts', 'server/observation-format.ts', 'server/acoustic-sensor.ts', 'server/rts-geometry.ts', 'shared/acoustic-profile.ts', 'shared/onboard.ts'];
+// Runtime imports of the onboard adapter/briefing are charged as well, even when
+// their simulator-side implementation also serves other vehicles.
+localFiles.push('server/runtime-tools.ts', 'server/agent-backend.ts', 'server/drone-motion.ts', 'server/local-sensors.ts',
+  'shared/mission.ts', 'shared/fleet.ts', 'shared/rts.ts', 'shared/camera-profile.ts', 'shared/actor-environment.ts');
 const measuredBytes = new WeakMap<OnboardPackageManifest, Map<string, Buffer>>();
 /** Includes all installed files and every transitive runtime package, even unused variants/source maps. */
 export function measureOnboardManifest(root = resolve(dirname(fileURLToPath(import.meta.url)), '..')): OnboardPackageManifest {
@@ -30,13 +34,14 @@ export function measureOnboardManifest(root = resolve(dirname(fileURLToPath(impo
     if (!packageRoot) throw new Error(`Missing onboard application dependency ${name}; run npm ci.`);
     if (visited.has(packageRoot)) return; visited.add(packageRoot);
     const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as { name: string; version: string; license: string; dependencies?: Record<string, string> };
-    if (pkg.license !== 'MIT') throw new Error(`Unreviewed onboard package license: ${pkg.name} ${pkg.license}`);
-    walk(packageRoot, pkg.name, pkg.version, pkg.license);
+    if (pkg.license !== 'MIT' && !(pkg.name === 'fast-uri' && pkg.license === 'BSD-3-Clause') && pkg.name !== 'nervelet') throw new Error(`Unreviewed onboard package license: ${pkg.name} ${pkg.license}`);
+    walk(packageRoot, pkg.name, pkg.version, pkg.license ?? 'User-owned Nervelet source; no upstream license declared');
     for (const dependency of Object.keys(pkg.dependencies ?? {})) visit(dependency, packageRoot);
   };
   // The umbrella dev package includes unsupported unused variants and exceeds the partition.
   // These are the worker's actual import roots; the full installed contents of each are deployed.
   visit('quickjs-emscripten-core'); visit('@jitl/quickjs-wasmfile-release-sync');
+  visit('nervelet'); // Includes Ajv and all its runtime dependencies; no optional driver/serial imports.
   for (const path of localFiles) if (existsSync(join(root, path)) && statSync(join(root, path)).isFile()) addFile(join(root, path), 'DroneRTS onboard SDK', '1', 'Project source; local application');
   artifacts.sort((a,b) => a.path.localeCompare(b.path));
   const artifactBytes = artifacts.reduce((sum, item) => sum + item.bytes, 0);

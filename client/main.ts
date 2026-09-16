@@ -124,10 +124,12 @@ element('map-downtown').addEventListener('click', () => scene?.fitOverview());
 declare const __FLEET_RENDERER_ID__: string;
 function connect() {
   socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`);
+  const connection = socket;
+  const captures = new Map<string, ReturnType<typeof setTimeout>>();
   socket.addEventListener('open', () => {
     if (scene) socket?.send(JSON.stringify({ type: 'camera-ready', rendererId: __FLEET_RENDERER_ID__ }));
   });
-  socket.addEventListener('close', () => { setConnection(false); reconnectTimeout = setTimeout(connect, 1500); });
+  socket.addEventListener('close', () => { for (const timer of captures.values()) clearTimeout(timer); captures.clear(); setConnection(false); reconnectTimeout = setTimeout(connect, 1500); });
   socket.addEventListener('error', () => setConnection(false));
   socket.addEventListener('message', event => {
     try {
@@ -135,11 +137,21 @@ function connect() {
       if (message.type === 'camera-accepted') setConnection(true);
       if (message.type === 'camera-rejected') { setConnection(false); alertMessage(message.message); }
       if (message.type === 'state') renderState(message.state as WorldState);
+      if (message.type === 'capture-cancel') { clearTimeout(captures.get(message.requestId)); captures.delete(message.requestId); }
       if (message.type === 'capture') {
         if (message.rendererId !== __FLEET_RENDERER_ID__) throw new Error('Camera source changed. Reload the game browser.');
         if (!scene) throw new Error('Cannot return a camera observation because WebGL is unavailable.');
-        const image = scene.capture(message.droneId as string, message.pose as Pose, message.drones, message.match);
-        socket?.send(JSON.stringify({ type: 'capture-result', requestId: message.requestId, rendererId: __FLEET_RENDERER_ID__, image }));
+        if (captures.size >= 32) throw new Error('Camera queue is full.');
+        captures.set(message.requestId, setTimeout(() => {
+          captures.delete(message.requestId);
+          if (connection !== socket || connection.readyState !== WebSocket.OPEN || !scene) return;
+          // GPU work already executing is synchronous; abandoned results are also
+          // rejected by the server's request identity and cancellation boundary.
+          try {
+            const image = scene.capture(message.droneId as string, message.pose as Pose, message.drones, message.match);
+            connection.send(JSON.stringify({ type: 'capture-result', requestId: message.requestId, rendererId: __FLEET_RENDERER_ID__, image }));
+          } catch (error) { alertMessage(error instanceof Error ? error.message : String(error)); }
+        }, 0));
       }
     } catch (error) { alertMessage(error instanceof Error ? error.message : String(error)); }
   });

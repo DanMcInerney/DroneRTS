@@ -1,6 +1,32 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Camera-age correction — September 16, 2026, 05:08 UTC
+
+Read [CAMERA-AGE-POLICY-QA.md](CAMERA-AGE-POLICY-QA.md) for current behavior. A completed newly acquired image is delivered with its real timestamp/age even when older than two seconds. The age flag is descriptive; only missing/invalid captures trigger the one bounded retry. Physical range-sensor expiry and lifecycle guards are unchanged. **465 tests and production build pass**; runtime/SDK totals **3,546,848 / 8,388,608 bytes**.
+
+An actual native reasoning interruption resumed the same pilot with a **2,256 ms-old image**, which was acknowledged and followed by an uncertainty-preserving report. The later held-wait episode obtained no pixels after the bounded reacquisition and stopped explicitly. This remaining camera availability issue keeps attention opt-in; acoustics remains separately gated. No haul/battle qualification is claimed. The strict two-second age gate described in the historical upgrade entry below is superseded.
+
+## Nervelet upgrade — September 16, 2026, 03:20 UTC
+
+Read [NERVELET-UPGRADE-QA.md](NERVELET-UPGRADE-QA.md) first. The requested upgrade is implemented in `145b`, preserving the prior integration. Final checks: **463 application tests**, **97 upstream tests**, production build, clean package/bootstrap and fresh-install manifest checks pass. Exact Nervelet pin is `4356691bede0e2810cb7d2c453a7f2ec3ff61396`; the local upstream branch remains unpushed. Setup no longer patches library source. Deployed runtime/SDK is **3,546,105 / 8,388,608 bytes**.
+
+Both optional experiments remain off by default. Actual native child interruption and same-session image input were demonstrated, but the first replacement image was **3.103 s old**. The stricter final path confirms native termination in **23.3 ms**, then fails explicitly if one reacquisition still cannot meet the existing two-second camera freshness limit. Native held-wait/compaction qualification and acoustic calibration remain open. Fixtures cover these ownership/cancellation races without claiming native proof.
+
+The initial live trial exposed and fixed launch delivery when a submitted objective had no image after concurrent acquisition cancellation. The corrected 300-second single-haul trial reached sim **248.630**, all six alive, **zero pickups/deliveries**, all **840 salvage** conserved in caches. It recorded **48** five-second acquisition timeouts, 41 successful image commits and no compaction. Camera throughput/freshness is the immediate qualification gate; repeated/team hauling and battle were not attempted. The prior opposing-motion collision remains open. All owned native trial processes were stopped; no player service was restarted. Earlier sections below retain their recorded historical scopes.
+
 The braking repair and observation-volume work below have now been implemented in this worktree. Continue with the newest results in [RTS-PLAYTEST.md](RTS-PLAYTEST.md), then the remaining autonomy gates. Favor small changes in the existing module that owns the behavior. Preserve geographic scale, physical contact, finite sensors and independent pilot decisions.
+
+## Current simplification — September 16, 2026, 00:20 UTC
+
+See [NERVELET-SIMPLIFICATION.md](NERVELET-SIMPLIFICATION.md). Native pilots now have one batching interface (`exchange`) and optional conditions on `wait`; the extra `step` tool was removed. Recovery text shrank **55.3%** in the same-input fixture, and ordinary idle ticks no longer poll complete model snapshots. The full **439-test** suite and build passed after one intermittent existing QuickJS CPU-slice test failure and an unchanged retry. No live pilot test ran; hauling and actual latency remain unqualified on the simplified interface. The opposing-motion collision remains open. Resource limits and the original Nervelet checkout are unchanged.
+
+## Current Nervelet integration — September 15, 2026, 23:16 UTC
+
+Read [NERVELET-QA.md](NERVELET-QA.md) for current evidence and [NERVELET-INTEGRATION.md](NERVELET-INTEGRATION.md) for setup. Native pilots now use per-drone Nervelet bridges with acknowledged inbox slices, command receipts, recovery gates and conditional waits. The final **438 tests**, production build and prior browser fixture passed. The pinned unpublished dependency requires `npm run nervelet:setup` before `npm ci`; two documented compatibility options are patched during that build. Runtime package size is **3,400,091 / 8,388,608 bytes**; storage quotas remain fixed.
+
+The current cargo-v3 live single-haul trial timed out at **326.909 simulation seconds** with **zero pickups/deliveries**, all six alive and 840 stock conserved. All **117** images were delivered/saved; no runtime errors or replay warnings occurred. The pilots used `seen` and command IDs correctly. One invented observation sequence was rejected and recovered. The hauler navigated but never serviced salvage; parked peers repeatedly acknowledged unchanged findings. Its maximum completed-tool-to-next-call gap was **29.264 seconds**, without compaction. A repeated real native compaction has not been tested, and live pilots did not select the conditional `step` interface.
+
+The single-haul gate on this revision remains open. Inspect saved imagery/actions before attributing failure to perception, planning or the bridge; do not carry older hauling successes forward as current qualification. The opposing-motion collision issue below remains unchanged. Final receipt-storage accounting and removal of optics from current recovery instructions passed the full suite after the live trial; no further inference ran. All owned trial services were cleaned up.
 
 ## Current investigation — September 15, 2026 UTC
 

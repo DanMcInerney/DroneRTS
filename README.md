@@ -6,13 +6,20 @@ All eight gameplay actors—six drones and two mechanical relay parents—use **
 
 ## Run a match
 
-Requires Node.js 22.19+ (or 24+), Python (tested with 3.12.4), and an installed, signed-in Codex CLI. The Node minimum supplies per-thread CPU accounting for bounded routines. Python dependencies stay in the project `.venv`.
+The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, recovery and conditional waits. The current exact pin includes host-confirmed submission and cancellation; see [camera-age QA](CAMERA-AGE-POLICY-QA.md) and [upgrade QA](NERVELET-UPGRADE-QA.md) for measured results and limitations. The pinned source is available on upstream main through [Nervelet PR #4](https://github.com/DanMcInerney/nervelet/pull/4); setup builds its verified package locally because it is not published to npm.
+
+Requires Node.js 24+, Python (tested with 3.12.4 and 3.14.6), and an installed, signed-in Codex CLI. Nervelet requires Node 24; bounded routines also use per-thread CPU accounting. Python dependencies stay in the project `.venv`.
 
 ```sh
+npm run nervelet:setup
 npm ci
 npm run network:setup
 npm run dev
 ```
+
+Emergency attention and the acoustic sensor are independent, disabled-by-default experiments. Set `FLEET_ATTENTION=experimental` and/or `FLEET_ACOUSTIC=experimental` before starting the server to opt in; their qualification limits are documented in [the integration contract](NERVELET-INTEGRATION.md). Neither feature chooses flight or targeting actions.
+
+For bounded native qualification, `node --import tsx scripts/qualify-nervelet.ts attention` opens an isolated real Playwright camera, starts the existing six Luna/xhigh children and compares an ordinary notice with synthetic local emergency evidence. `haul-single`, `haul-repeat` and `haul-team` select autonomy trials in that order. `RTS_TRIAL_PORT` defaults to 4328; `RTS_TRIAL_SECONDS` is bounded to 30–600, and `RTS_TRIAL_LABEL` separates repeat evidence. The runner inspects 4317/4318 and its trial port, refuses occupied ports, uses managed artifacts and closes owned processes. A protocol fixture is not an autonomous hauling or acoustic-accuracy result.
 
 Open [the local game](http://127.0.0.1:4317) and click **Launch match**. Both teams receive the same elimination-and-resource objective and common briefing: visible crates and hauling, team-painted bases and service, drone recognition and vehicle calibration. The commander is an ordinary **blue-only chat** participant who can send messages and receive drone replies. Chat preserves the active objective; red continues independently.
 

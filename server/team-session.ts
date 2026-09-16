@@ -1,16 +1,18 @@
 import { randomUUID } from 'node:crypto';
+import { DroneNervelet } from './nervelet.ts';
+import { ATTENTION_LIMITS, OnboardAttentionPolicy } from './onboard-attention.ts';
 import { CodexFleetRuntime, type RuntimeOptions } from './runtime.ts';
-import { createDroneTools, MODEL, EFFORT } from './runtime-tools.ts';
+import { MODEL, EFFORT } from './runtime-tools.ts';
 import { FleetNetwork } from './network.ts';
 import { RadioTransfers, type TransferRequest } from './radio-transfer.ts';
 import { MavlinkAdapter } from './mavlink.ts';
 import type { FleetGame } from './game.ts';
 import { MATCH_FLEET, teamForDrone, teamRoster, type DroneId, type TeamId } from '../shared/fleet.ts';
-import type { NetworkState, RadioMessage, RuntimeState } from '../shared/types.ts';
+import type { GameEvent, NetworkState, RadioMessage, RuntimeState } from '../shared/types.ts';
 import type { CockpitToolEvidence } from '../shared/cockpit.ts';
 
 const TEAMS: TeamId[] = ['blue', 'red'];
-type RuntimeActor = Pick<CodexFleetRuntime, 'start' | 'stop' | 'retireDrone' | 'refreshTools'>;
+type RuntimeActor = Pick<CodexFleetRuntime, 'start' | 'stop' | 'retireDrone' | 'refreshTools'> & Partial<Pick<CodexFleetRuntime, 'requestAttention'>>;
 type NetworkActor = Pick<FleetNetwork, 'start' | 'stop' | 'state' | 'send' | 'consume' | 'link'> & Partial<Pick<FleetNetwork, 'storage'>>;
 type VehicleActor = Pick<MavlinkAdapter, 'start' | 'stop' | 'command' | 'sample'>;
 type Dependencies = {
@@ -33,6 +35,25 @@ export class TeamSession {
   private appliedLinks = new Map<DroneId, boolean>();
   private readonly interferenceChanged = () => { void this.reconcileRadio().catch(() => {}); };
   private runtimes = new Map<TeamId, RuntimeActor>();
+  private pilots = new Map<DroneId, DroneNervelet>();
+  private attentionPolicies = new Map<DroneId, OnboardAttentionPolicy>();
+  private readonly attentionEnabled = process.env.FLEET_ATTENTION === 'experimental';
+  private readonly localEvidence = ({ drone, event }: { drone: DroneId; event: GameEvent }) => {
+    if (!this.attentionEnabled || this.stopped || this.retired.has(drone) || !this.options.game.launchReady) return;
+    const pilot = this.pilots.get(drone);
+    if (!pilot || !this.options.game.toolCapabilities(drone).alive) return;
+    const policy = this.attentionPolicies.get(drone) ?? new OnboardAttentionPolicy(); this.attentionPolicies.set(drone, policy);
+    const evidence = policy.select(event, this.options.game.inboxes[drone].receivedAt(event.cursor), pilot.bridge);
+    if (!evidence) return;
+    const runtime = this.runtimes.get(teamForDrone(drone));
+    if (!runtime?.requestAttention) { this.fail('Configured backend cannot settle emergency attention'); return; }
+    void runtime.requestAttention(drone, pilot, evidence).catch(error => this.fail(`Attention request: ${String(error)}`));
+  };
+  private pilot(id: DroneId) {
+    let pilot = this.pilots.get(id);
+    if (!pilot) { pilot = new DroneNervelet(this.options.game, id, { submission: 'host', ...(this.attentionEnabled ? { attention: ATTENTION_LIMITS } : {}) }); this.pilots.set(id, pilot); }
+    return pilot;
+  }
   private networks = new Map<TeamId, NetworkActor>();
   private runtimeStates = new Map<TeamId, RuntimeState>();
   private networkStates = new Map<TeamId, NetworkState>();
@@ -58,6 +79,8 @@ export class TeamSession {
   };
 
   constructor(private options: { projectDir: string; game: FleetGame; onStatus: (status: RuntimeState) => void; onNetwork: (state: NetworkState) => void; onEvent: (type: string, event: unknown) => void; onToolEvidence?: (event: CockpitToolEvidence) => void; onFailure: (message: string) => void }, dependencies: Dependencies = {}) {
+    options.game.on('onboard-local-evidence', this.localEvidence);
+    options.onEvent('attention-config', { enabled: this.attentionEnabled, qualification: 'experimental', limits: ATTENTION_LIMITS });
     for (const team of TEAMS) {
       this.runtimeStates.set(team, { status: 'starting', message: `${team} team connecting`, model: MODEL, effort: EFFORT, children: [], usage: 0 });
       const network = (dependencies.network ?? (config => new FleetNetwork(config)))({ projectDir: options.projectDir, sessionId: options.game.sessionIdentity,
@@ -85,7 +108,7 @@ export class TeamSession {
         consume: (id, ids) => network.consume(id, ids), onEvent: event => options.onEvent('network', { team, ...(event as object) }),
       }));
       const runtime = (dependencies.runtime ?? (config => new CodexFleetRuntime(config)))({ projectDir: options.projectDir, roster: teamRoster(team), team,
-        toolHandler: async (role, name, args) => {
+        toolHandler: async (role, name, args, signal) => {
           if (role === 'parent') {
             try { return await options.game.forwardTeam(team); }
             catch (error) {
@@ -94,15 +117,20 @@ export class TeamSession {
             }
           }
           if (!teamRoster(team).some(member => member.id === role)) throw new Error('Actor identity is outside this team');
-          return options.game.tool(role, name, args);
+          if (this.stopped || this.retired.has(role)) return { content: [{ type: 'text', text: JSON.stringify({ stopped: true }) }] };
+          return this.pilot(role).call(name, args, signal);
         },
-        toolsForRole: role => teamRoster(team).some(member => member.id === role) ? createDroneTools(teamRoster(team), options.game.toolCapabilities(role), team) : [],
+        toolsForRole: role => role !== 'parent' && !this.stopped && !this.retired.has(role) && teamRoster(team).some(member => member.id === role) ? this.pilot(role).tools() : [],
         onStatus: status => {
           if (this.stopped) return;
           Object.assign(this.runtimeStates.get(team)!, status); this.publishRuntime();
           if (status.status === 'error') this.fail(`${team} runtime: ${String(status.message)}`);
         },
-        onEvent: event => options.onEvent('agent', { team, ...event }),
+        onEvent: event => {
+          if (['actor-context-compacted', 'actor-resumed', 'catalog-turn-resumed'].includes(String(event.type)) && teamRoster(team).some(member => member.id === event.role))
+            this.pilots.get(event.role as DroneId)?.refresh(String(event.type));
+          options.onEvent('agent', { team, ...event });
+        },
         onToolEvidence: event => options.onToolEvidence?.(event),
       });
       this.runtimes.set(team, runtime);
@@ -215,6 +243,7 @@ export class TeamSession {
   async retireDrone(id: DroneId) {
     if (this.stopped || this.retired.has(id)) return;
     this.retired.add(id);
+    await this.pilots.get(id)?.close();
     this.transfers.get(teamForDrone(id))?.retire(id);
     const team = teamForDrone(id);
     try { await Promise.all([this.runtimes.get(team)?.retireDrone(id), this.reconcileRadio()]); }
@@ -224,10 +253,12 @@ export class TeamSession {
   stop() {
     if (this.stopPromise) return this.stopPromise;
     this.stopped = true;
+    this.options.game.off('onboard-local-evidence', this.localEvidence);
     this.radioReady = false;
     for (const transfer of this.transfers.values()) transfer.stop();
     if (this.options.game.radioInterferenceChanged === this.interferenceChanged) this.options.game.radioInterferenceChanged = undefined;
     this.stopPromise = (async () => {
+      await Promise.allSettled([...this.pilots.values()].map(pilot => pilot.close()));
       await Promise.allSettled([...this.runtimes.values()].map(runtime => runtime.stop()).concat([...this.networks.values()].map(network => network.stop()), [this.vehicle.stop()]));
       if (this.options.game.radioTransport === this.radio) this.options.game.radioTransport = undefined;
       if (this.options.game.vehicleTransport === this.vehicle) this.options.game.vehicleTransport = undefined;

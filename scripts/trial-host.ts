@@ -19,7 +19,8 @@ import { BATTLEFIELD } from '../shared/battlefield.ts';
 import { DRONE_CAMERA } from '../shared/camera-profile.ts';
 import { arrangeTrial, type TrialScenario } from './trial-scenarios.ts';
 
-export async function createTrialHost(projectDir: string, directory: string, scenario: TrialScenario, port = 4318) {
+export async function createTrialHost(projectDir: string, directory: string, scenario: TrialScenario, port = 4318,
+  onAudit?: (type: string, value: any) => void) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4317) throw new Error('Invalid isolated trial port');
   const game = new FleetGame(), app = express(), server = createServer(app);
   const cockpit = createCockpit(game);
@@ -37,7 +38,10 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   let stopPromise: Promise<void> | undefined, starting = false;
   let closePromise: Promise<void> | undefined;
 
-  const audit = (type: string, value: unknown) => log.write(JSON.stringify({ wallTime: new Date().toISOString(), type, value: redactDiagnostic(value) }) + '\n');
+  const audit = (type: string, value: unknown) => {
+    log.write(JSON.stringify({ wallTime: new Date().toISOString(), type, value: redactDiagnostic(value) }) + '\n');
+    onAudit?.(type, value);
+  };
   const broadcast = () => {
     recorder?.recordFrame(game.state);
     const packet = JSON.stringify({ type: 'state', state: game.state });
@@ -83,7 +87,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
     socket.on('close', () => cameras.detach(socket));
   });
   game.capture = (...args) => cameras.capture(...args);
-  for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended']) game.on(event, value => audit(event, value));
+  for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended', 'nervelet-trace', 'acoustic-metrics']) game.on(event, value => audit(event, value));
   game.on('tool', ({ drone, name, args }) => { recorder?.recordFrame(game.state, true); recorder?.recordCommand(drone, name, args, game.state.simTime); });
   game.on('recorded-observation', value => recorder?.recordObservation(value));
   game.on('script-source', source => recorder?.recordScriptSource(source));

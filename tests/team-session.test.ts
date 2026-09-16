@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { TeamSession } from '../server/team-session.ts';
 import type { FleetGame } from '../server/game.ts';
 import type { RuntimeOptions } from '../server/runtime.ts';
@@ -13,13 +14,13 @@ function fixture(linkHook?: (id: DroneId, online: boolean) => Promise<void>, sta
   const runtimeOptions: RuntimeOptions[] = [], networkOptions: Array<ConstructorParameters<typeof FleetNetwork>[0]> = [];
   const sent: Array<{ team: string; message: RadioMessage }> = [], links: Array<{ id: DroneId; online: boolean }> = [], retired: string[] = [], stopped: string[] = [], failures: string[] = [], started: string[] = [];
   let vehicleRoster: unknown;
-  const game = { sessionIdentity: randomUUID(), state: { running: true, drones: MATCH_DRONE_IDS.map(id => ({ id, alive: true })) },
+  const game = Object.assign(new EventEmitter(), { sessionIdentity: randomUUID(), state: { running: true, drones: MATCH_DRONE_IDS.map(id => ({ id, alive: true })) },
     forwardTeam: async (team: string) => { relays.push(team); return { content: [] }; },
     tool: async (role: string) => { droneCalls.push(role); return { content: [] }; },
     toolCapabilities: () => ({ shop: false, gun: false, alive: true }),
     receivedMission: () => 1,
     receiveRadio: () => {},
-  } as unknown as FleetGame;
+  }) as unknown as FleetGame;
   const session = new TeamSession({ projectDir: process.cwd(), game, onStatus: state => statuses.push(state), onNetwork: state => networks.push(state), onEvent: () => {}, onFailure: error => failures.push(error) }, {
     runtime: options => { runtimeOptions.push(options); return { start: async () => { started.push(`${options.team}-runtime`); options.onStatus({ status: 'running', children: options.roster!.map(member => ({ id: `${member.id}-thread`, role: member.id })), usage: 10 }); }, stop: async () => { stopped.push(`${options.team}-runtime`); }, retireDrone: async id => { retired.push(id); }, refreshTools: async () => {} }; },
     network: options => {

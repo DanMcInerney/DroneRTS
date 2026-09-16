@@ -1,5 +1,24 @@
 import type { ToolResult } from '../shared/types.ts';
 
+// Symbols survive host object spreads but are never serialized into pilot input.
+export const resultSubmission = Symbol('fleet-result-submission');
+export type ResultSubmission = { submitted(): void; failed(error: unknown): void };
+export type SubmittedResult = ToolResult & { [resultSubmission]?: ResultSubmission };
+export const FLEET_OUTPUT_LIMITS = { text: 640 * 1024, media: 512 * 1024, images: 1 } as const;
+/** Exact JSON-RPC result envelope; encoded pixels have their own decoded byte quota. */
+export function verifyFleetResult(result: ToolResult, requestId: unknown = 'x'.repeat(128)) {
+  let mediaBytes = 0, encodedMediaBytes = 0, images = 0;
+  const content = result.content.map(item => {
+    if (item.type !== 'image') return item;
+    images++; mediaBytes += Buffer.byteLength(item.data, 'base64'); encodedMediaBytes += Buffer.byteLength(JSON.stringify(item.data)) - 2;
+    return { ...item, data: '' };
+  });
+  const textBytes = Buffer.byteLength(JSON.stringify({ jsonrpc: '2.0', id: requestId, result: { ...result, content } }));
+  if (textBytes > FLEET_OUTPUT_LIMITS.text || mediaBytes > FLEET_OUTPUT_LIMITS.media || images > FLEET_OUTPUT_LIMITS.images)
+    throw new Error(`Fleet result exceeds capacity (${textBytes} text bytes, ${mediaBytes} media bytes, ${images} images); observe for recovery, never replay uncertain commands.`);
+  return { textBytes, mediaBytes, wireBytes: textBytes + encodedMediaBytes };
+}
+
 // Wire-codebook only: exact signed unit directions, ordered X, then Y, then Z.
 // A nonstandard direction is always sent explicitly, never rounded to this grid.
 const xyz26 = [-1, 0, 1].flatMap(x => [-1, 0, 1].flatMap(y =>
@@ -17,7 +36,14 @@ export function compactObservation(result: ToolResult): ToolResult {
     if (item.type !== 'text') return item;
     let body: any;
     try { body = JSON.parse(item.text); } catch { return item; }
-    if (body?.protocol !== 'fleet-observation/2') return item;
+    return { ...item, text: JSON.stringify(compactObservationValue(body)) };
+  }) };
+}
+
+/** Keep typed observation data until the final transport encoding. */
+export function compactObservationValue<T>(body: T): T {
+    if ((body as any)?.protocol !== 'fleet-observation/2') return body;
+    const value: any = body;
     const pack = (ranges: any) => {
       if (!Array.isArray(ranges?.proximity) || !ranges.proximity.length || !ranges.proximity.every((r: any) =>
         keysAre(r, ['direction', 'distance', 'validity', 'coverage'])
@@ -34,16 +60,15 @@ export function compactObservation(result: ToolResult): ToolResult {
         maxDistance: sharedOrArray(proximity.map((r: any) => r.coverage.maxDistance)),
       } };
     };
-    body.protocol = 'fleet-observation/5';
-    body.sensors.ranges = pack(body.sensors.ranges);
-    if (body.currentTelemetry?.ranges) body.currentTelemetry.ranges = pack(body.currentTelemetry.ranges);
-    const captured = body.sensors.ranges?.proximity, current = body.currentTelemetry?.ranges?.proximity;
+    value.protocol = 'fleet-observation/5';
+    value.sensors.ranges = pack(value.sensors.ranges);
+    if (value.currentTelemetry?.ranges) value.currentTelemetry.ranges = pack(value.currentTelemetry.ranges);
+    const captured = value.sensors.ranges?.proximity, current = value.currentTelemetry?.ranges?.proximity;
     // Fresh acquisitions often measure identical tables. Share only exact
     // values within this result; each sample keeps its own origin, identity,
     // timestamp, freshness and downward reading. Never reuse an earlier bundle.
     if (captured?.directions && current?.directions && JSON.stringify(captured) === JSON.stringify(current)) {
-      body.currentTelemetry.ranges.proximity = { sameAs: 'sensors.ranges.proximity' };
+      value.currentTelemetry.ranges.proximity = { sameAs: 'sensors.ranges.proximity' };
     }
-    return { ...item, text: JSON.stringify(body) };
-  }) };
+    return body;
 }

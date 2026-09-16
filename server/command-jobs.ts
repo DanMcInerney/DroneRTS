@@ -52,6 +52,10 @@ export class CommandJobs {
     return job ? structuredClone(job) : null;
   }
   owner(id: DroneId) { return this.routes.get(id)?.owner; }
+  arguments(id: DroneId, jobId: string) {
+    const route = this.routes.get(id);
+    return route?.job.id === jobId ? { waypoints: structuredClone(route.points), profile: route.profile, mission: route.job.mission } : undefined;
+  }
   active(id: DroneId) { return this.routes.has(id); }
   valid(id: DroneId, owner: string) { return this.routes.get(id)?.owner === owner; }
 

@@ -1,5 +1,39 @@
 # RTS verification — September 14, 2026
 
+## Camera-age correction — September 16, 2026, 05:08 UTC
+
+[Camera-age QA](CAMERA-AGE-POLICY-QA.md) records **465 passing tests**, production build, and one bounded native stationary trial on isolated port 4318. Completed camera captures now retain their honest age without a hard two-second rejection. Same-session reasoning interruption delivered an actual **2,256 ms-old image** after **2.288 s**; the pilot acknowledged it and later reported the uncertain synthetic notice. The later held-wait episode failed to acquire replacement pixels within the existing bound and stopped at sim **70.077**, all six alive. No native turn overlap was observed; owned processes were stopped. Attention and acoustic sensing remain independently off by default. This qualifies delayed-image delivery in one native interruption, not the full emergency system, camera throughput, acoustic accuracy or autonomous gameplay.
+
+Source manifest: `b7c1c12ad97e03992b35e418fc66e1ebe55e401c044cad6bc67c0bb616b933f0`. Raw evidence is grouped under `artifacts/test-runs/2026-09-16T05-01-56-994Z-camera-age-policy-766374cd/`. The earlier strict-freshness entries below retain their historical meaning; that age policy is superseded.
+
+## Nervelet upgrade — September 16, 2026, 03:20 UTC
+
+[Upgrade QA](NERVELET-UPGRADE-QA.md) records the implementation, exact dependency, full failures and measurements. **463/463 application tests**, **97/97 upstream tests**, build and fresh-install/package checks pass. Current native source manifest is `638aa2d7b2ee9e4ffd640b16a0b4393a51d3557909e85ae4f92ac145cdfdf225`; the final suite adds a received-goal race regression after these trials.
+
+Four bounded native attempts used verified Luna/xhigh, real camera browsers, Zenoh/MAVLink, six clean pilots and two unchanged relay parents on free isolated port 4328 at 1x. The first haul exposed a launch-accounting race, which was fixed. The first stationary attention trial interrupted exactly one child, joined its matching terminal, resumed the same session with actual image/text and received an uncertainty-preserving radio response after **12.405 s**; however, its replacement image was already **3.103 s old**. With the final freshness guard, the second attention trial confirmed termination after **23.3 ms** and then stopped explicitly after unsuccessful fresh acquisition. It did not reach native held-wait qualification. Synthetic observations do not qualify the acoustic detector.
+
+The corrected single-haul trial timed out at sim **248.630** with all six alive, no pickup/delivery, no cargo and all **840 salvage** still in finite caches. Its hauler chose observations/movement and encountered blocked local jobs; no route, locator or solved routine was supplied. **48** acquisition timeouts and **41** successful image commits limit any perception/autonomy interpretation. There was no observed compaction or native turn overlap. Repeated haul, useful team haul and battle remain gated; the older successes below do not qualify this source. No sensor-accuracy or end-to-end latency improvement is claimed.
+
+Emergency attention and acoustics remain independently disabled by default. Native cleanup completed for every attempt. Managed raw evidence is grouped under `artifacts/test-runs/2026-09-16T02-12-59-225Z-nervelet-upgrade-65e4819e/`; checked-in historical reports remain intact.
+
+## Nervelet simplification — September 16, 2026, 00:20 UTC
+
+[The simplification report](NERVELET-SIMPLIFICATION.md) records removal of the redundant model-facing `step` API, optional conditions on `wait`, one batching path through `exchange`, shorter recovery instructions and event-driven idle waits. A same-input host fixture reduced recovery text from **28,170 to 12,595 bytes (55.3%)** and extra snapshots over 300 idle ticks from **300 to zero**. Full vehicle knowledge, exact goals, jobs and typed MCP tool schemas remain available. The common briefing now discourages acknowledgement-of-acknowledgement loops without prescribing tactics.
+
+All **439 tests**, TypeScript and production build passed. An initial QuickJS six-worker CPU-slice failure passed in isolation and on a full unchanged retry; the resource limits remain unchanged and the intermittent failure is recorded. No live inference ran, so no hauling or end-to-end latency improvement is claimed. The failed hauling trial below remains the latest live evidence. Source manifest: `7af105aebf3d4897ebffc5fff338e6fb552a0250f4edbdddce5b5d7f20f8952d`.
+
+## Nervelet integration — September 15, 2026, 23:16 UTC
+
+The six native pilots now use embedded Nervelet 0.2.0 for acknowledged event delivery, command receipts, recovery and conditional waits. Continuous simulation/sensors/radio/jobs and the Luna/xhigh native actor architecture remain. See [NERVELET-INTEGRATION.md](NERVELET-INTEGRATION.md) for before/after behavior and [NERVELET-QA.md](NERVELET-QA.md) for the complete findings.
+
+**Final validation:** 438 tests and TypeScript/Vite build passed; the deterministic browser fixture passed with actual six-camera, cargo-v3, service and layout checks. Runtime assets plus manifest measure 3,400,091 / 8,388,608 bytes. No quota grew. Final metadata-accounting and current-match recovery-catalog hardening followed the live trial and passed the final suite/build.
+
+The fixed-1×, 360-wall-second `haul-single` trial reached **326.909 simulation seconds** with all six alive, no collisions, no lost salvage, no runtime failures and no replay warnings. **It completed no pickup or delivery.** All **117** actual image acquisitions were delivered and saved; six separate bridge epochs, 115 acknowledgements and 41 command admissions were recorded. One incorrect originating observation sequence was rejected and the pilot recovered. Four outstanding waits cancelled during clean shutdown. No real native compaction occurred, and no pilot used the new `step` tool; recovery generations/conditional waits were tested with deterministic fixtures.
+
+Blue 1 flew about **658.9 m**, received an obstruction report and continued choosing its own waypoints, but did not complete physical service. Blue 2/3 repeatedly acknowledged unchanged no-findings reports. The hauler's completed-tool-to-next-call gap was p50 **5.639 s**, maximum **29.264 s**. Image age at delivery across the fleet was p50 **21.7 ms**, p95 **44.7 ms**. These are local observations, not evidence of reduced decision latency or autonomous success. Current cargo-v3/Nervelet has not passed its single-haul gate; repeated/team-haul/battle inference was deferred. The older opposing-motion collision issue remains open.
+
+Live source manifest: `08ed1cc5124ee1ccdda38d67aa736fd3e796f52e30a90b56d0e4fd1d3d11fdaf`. Grouped evidence: `artifacts/test-runs/2026-09-15T22-53-43-995Z-nervelet-edb47296/`. Existing offline trial/haul/latency analyzers and the additional Nervelet audit summary completed before retention cleanup. Owned actors/helpers/server/tab stopped; player port 4317 was unavailable and untouched. Historical findings below retain their original revisions.
+
 ## Cargo-v3 layout, equipment and lights — September 15, 2026, 14:50 UTC
 
 The user-authorized revision starts all six drones unarmored with zero shared salvage and removes optics from current purchases/tools/UI. Gun and cargo remain the two modules; armor remains purchasable. The same 512-character opening order reaches both teams through the existing native relay/launch gate; detailed vehicle calibration remains in each pilot's instructions. Historical rules and recorded equipment remain interpretable.

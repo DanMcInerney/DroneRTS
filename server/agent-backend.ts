@@ -28,7 +28,7 @@ export interface AgentBackendOptions {
   team?: 'blue' | 'red';
   backend?: AgentBackendConfiguration;
   toolsForRole?: (role: Role) => Tool[];
-  toolHandler: (role: Role, name: string, args: Record<string, unknown>) => Promise<ToolResult>;
+  toolHandler: (role: Role, name: string, args: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
   onStatus: (status: Record<string, unknown>) => void;
   onEvent: (event: Record<string, unknown>) => void;
   onToolEvidence?: (event: CockpitToolEvidence) => void;
