@@ -40,6 +40,44 @@ test('Blender exports match their source geography and checked-in checksums', as
   disposeGroup(city);
 });
 
+test('building roofs cover the sourced footprints once at their true height and still cast shadows', () => {
+  const city = graphicsCity(CITY.buildings)!;
+  city.updateMatrixWorld(true);
+  let roofArea = 0;
+  city.traverse(object => {
+    if (!(object instanceof THREE.Mesh)) return;
+    const material = object.material as THREE.MeshStandardMaterial;
+    const roof = material.name.startsWith('Roof ');
+    if (roof) {
+      assert.equal(material.polygonOffset, false, 'roof geometry must not be pulled through cargo markings');
+      assert.equal(object.castShadow, true, 'replacing a building cap must retain its solid roof shadow');
+    }
+    const positions = object.geometry.attributes.position, indices = object.geometry.index;
+    const count = indices?.count ?? positions.count;
+    const point = (index: number) => new THREE.Vector3().fromBufferAttribute(positions, indices ? indices.getX(index) : index).applyMatrix4(object.matrixWorld);
+    for (let i = 0; i < count; i += 3) {
+      const a = point(i), b = point(i + 1), c = point(i + 2);
+      const cross = b.clone().sub(a).cross(c.clone().sub(a));
+      if (cross.y <= 0 || Math.abs(cross.x) + Math.abs(cross.z) > 1e-6) continue;
+      assert.equal(roof, true, 'no wall cap or architectural overlay may duplicate the upward roof surface');
+      const center = a.clone().add(b).add(c).multiplyScalar(1 / 3);
+      assert.ok(CITY.buildings.some(building => {
+        if (Math.abs(center.y - (building.baseY ?? 0) - building.height) > 1e-5) return false;
+        const angle = THREE.MathUtils.degToRad(building.rotation ?? 0), dx = center.x - building.x, dz = center.z - building.z;
+        return Math.abs(Math.cos(angle) * dx - Math.sin(angle) * dz) <= building.width / 2 + 1e-5
+          && Math.abs(Math.sin(angle) * dx + Math.cos(angle) * dz) <= building.depth / 2 + 1e-5;
+      }), 'each visible roof triangle must lie at a sourced roof height and within its footprint');
+      roofArea += cross.y / 2;
+    }
+  });
+  const expectedArea = CITY.buildings.reduce((area, building) => area + building.width * building.depth, 0);
+  // Three adjacent source rectangles share small equal-height slivers. Their
+  // visible union loses only that duplicate area, never a second roof layer.
+  assert.ok(roofArea <= expectedArea + 1e-4 && roofArea >= expectedArea * .9999,
+    'roof area must exclude duplicate caps/patches while preserving the sourced footprints');
+  disposeGroup(city);
+});
+
 test('consumer airframe retains the flight envelope, team colors and independent disposable instances', () => {
   const blue = graphicsAsset('airframe', '#2799ba')!, red = graphicsAsset('airframe', '#bc5147')!;
   const size = new THREE.Box3().setFromObject(blue).getSize(new THREE.Vector3());

@@ -9,6 +9,8 @@ import { DroneVisuals } from './drone-visuals';
 import { CombatView } from './combat-view';
 import type { MatchState } from '../shared/rts';
 import { daylight } from './daylight';
+import { WreckView } from './wreck-view';
+import { wreckDisplayTime } from './wreck-model';
 
 export type DroneViewport = { droneId: string; view: HTMLElement };
 const radians = THREE.MathUtils.degToRad;
@@ -27,6 +29,7 @@ export class FleetScene {
   private treasureSignature = '';
   private drones = new DroneVisuals(this.scene);
   private combat = new CombatView(this.scene);
+  private wrecks = new WreckView(this.scene);
   private combatSignature = '';
   private state?: WorldState;
   private stateAt = 0;
@@ -79,7 +82,7 @@ export class FleetScene {
 
   update(state: WorldState) {
     if (this.state?.running !== state.running || state.simTime < (this.state?.simTime ?? 0)) this.frameDirty = true;
-    if (this.state?.simTime !== state.simTime || this.state?.running !== state.running) this.stateAt = performance.now();
+    if (this.state?.simTime !== state.simTime || this.state?.running !== state.running || this.state?.match?.phase !== state.match?.phase) this.stateAt = performance.now();
     this.state = state; this.poses.push(state, performance.now());
     const signature = JSON.stringify(state.obstacles);
     if (signature !== this.worldSignature) {
@@ -97,6 +100,7 @@ export class FleetScene {
     this.drones.reconcile(state.drones);
     const combatSignature = JSON.stringify([state.match?.rulesVersion, state.match?.resources, state.match?.servicePads, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.cargo, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
     if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match); this.frameDirty = true; }
+    this.wrecks.update(state.match, state.obstacles, state.simTime);
   }
 
   private poseCamera(camera: THREE.PerspectiveCamera, pose: Pose) {
@@ -124,6 +128,7 @@ export class FleetScene {
     // requested simulation timestamp, never this display-only animation clock.
     const lightTime = (this.state?.simTime ?? 0) + Math.max(0, time - this.stateAt) / 1000 * (this.state?.running ? this.state.speed : 1);
     this.drones.pose(displayed, lightTime, this.state?.match?.rulesVersion === 'cargo-v3'); this.combat.animate(lightTime);
+    if (this.state) this.wrecks.animate(wreckDisplayTime(this.state, (time - this.stateAt) / 1000));
     const box = (this.explorer.active ? this.explorer.view : this.container).getBoundingClientRect();
     this.renderer.setScissorTest(false); this.renderer.setClearColor(0x000000, 0); this.renderer.clear();
     if (this.explorer.active) {
@@ -166,10 +171,10 @@ export class FleetScene {
     const previousScissor = this.renderer.getScissor(new THREE.Vector4()), previousTest = this.renderer.getScissorTest();
     const pixels = new Uint8Array(width * height * 4);
     try {
-      this.combat.withSnapshot(match, () => this.drones.withSnapshot(droneId, drones, () => {
+      this.wrecks.withSnapshot(match, this.state?.obstacles ?? [], simTime, () => this.combat.withSnapshot(match, () => this.drones.withSnapshot(droneId, drones, () => {
         this.renderer.setRenderTarget(this.captureTarget); this.renderer.setScissorTest(false); this.renderer.setViewport(0, 0, width, height);
         this.renderer.render(this.scene, this.captureCamera); this.renderer.readRenderTargetPixels(this.captureTarget, 0, 0, width, height, pixels);
-      }, simTime, match?.rulesVersion === 'cargo-v3'), simTime);
+      }, simTime, match?.rulesVersion === 'cargo-v3'), simTime));
     } finally {
       this.renderer.setRenderTarget(previousTarget); this.renderer.setViewport(previousViewport);
       this.renderer.setScissor(previousScissor); this.renderer.setScissorTest(previousTest);
@@ -184,7 +189,7 @@ export class FleetScene {
 
   dispose() {
     this.stopped = true; this.explorer.dispose(); this.overview.dispose(); this.abort.abort(); this.observer.disconnect();
-    disposeGroup(this.worldGroup); disposeGroup(this.treasureGroup); this.drones.dispose(); this.combat.dispose();
+    disposeGroup(this.worldGroup); disposeGroup(this.treasureGroup); this.drones.dispose(); this.combat.dispose(); this.wrecks.dispose();
     this.cameras.clear(); this.captureTarget.dispose(); this.disposeDaylight(); this.renderer.dispose(); this.renderer.domElement.remove();
   }
 }

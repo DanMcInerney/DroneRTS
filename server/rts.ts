@@ -28,7 +28,7 @@ export class RtsRules {
     return {
       rulesVersion: 'cargo-v3', salvageLost: 0, phase: 'ready', winner: null, teams: { blue: economy(), red: economy() },
       resources: resources.filter(node => node.kind !== 'dropped').map(node => ({ ...node, kind: 'cache', reserved: 0, remaining: node.capacity, zoneSize: resourceZoneSize(node) })),
-      servicePads: servicePads.map(pad => ({ ...pad, zoneSize: serviceZoneSize(pad) })), projectiles: [], events: [],
+      servicePads: servicePads.map(pad => ({ ...pad, zoneSize: serviceZoneSize(pad) })), projectiles: [], events: [], wrecks: [],
     };
   }
 
@@ -576,6 +576,11 @@ export class RtsRules {
       this.event(state, { type: 'armor_consumed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id}: ${drone.status}` });
     } else {
       drone.alive = false; drone.online = false; drone.status = 'Destroyed'; drone.ammo = 0;
+      if (cause === 'bullet' && matchOf(state).rulesVersion === 'cargo-v3') {
+        // Retain only the actual death pose/time for deterministic scene effects.
+        // Dead actors, cargo resolution and victory never wait for the animation.
+        (matchOf(state).wrecks ??= []).push({ drone: drone.id, startedAt: state.simTime, ...position(drone), yaw: drone.yaw });
+      }
       if (usesCargo(state)) this.dropCargo(state, drone, cause === 'terrain' && impact ? impact : drone);
       this.syncInterference(state);
       this.event(state, { type: 'destroyed', cause, projectileId, team: team(drone), drone: drone.id, target: source, ...position(impact ?? drone), message: `${drone.id} was destroyed by ${cause}.` });

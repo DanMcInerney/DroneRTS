@@ -3,6 +3,7 @@ import { apronServicePositions, CARGO_CONFIG, resourceZoneSize, serviceZoneSize,
 import { cargoSymbol, salvageCrate, salvagePallet, SALVAGE_VISUAL } from './salvage-model';
 import { graphicsAsset } from './graphics-assets';
 import { navigationBeaconBank, navigationPhase } from './navigation-lights';
+import { apronPaint } from './apron-paint';
 
 const paint = (color: THREE.ColorRepresentation) => new THREE.MeshLambertMaterial({ color });
 
@@ -15,12 +16,17 @@ function groundMark(width: number, depth: number, color: THREE.ColorRepresentati
 function apron(id: string, x: number, y: number, z: number, size: number, color: string, service: boolean, beacons: boolean) {
   const group = new THREE.Group(); group.name = id; group.position.set(x, y, z);
   const surface = groundMark(size, size, service ? color : '#bda766', 0, 0, 0.062);
+  if (beacons) { surface.material.dispose(); surface.material = apronPaint(service, color); }
   surface.name = 'apron-surface'; group.add(surface);
-  const inset = groundMark(size - 0.16, size - 0.16, service ? new THREE.Color(color).multiplyScalar(0.45) : '#4b5050', 0, 0, 0.064);
-  inset.name = 'apron-inset'; group.add(inset);
+  if (!beacons) {
+    const inset = groundMark(size - 0.16, size - 0.16, service ? new THREE.Color(color).multiplyScalar(0.45) : '#4b5050', 0, 0, 0.064);
+    inset.name = 'apron-inset'; group.add(inset);
+  }
   const positions = new THREE.Group(); positions.name = 'service-positions';
   for (const point of apronServicePositions({ x: 0, y: 0, z: 0 }, size)) {
     const mark = new THREE.Group(); mark.name = 'service-position'; mark.position.set(point.x, 0, point.z);
+    // Current cargo paint uses one large symbol; base marks still fit three airframes.
+    if (beacons && !service) { positions.add(mark); continue; }
     const radius = Math.min(0.4, size * 0.155);
     const ring = new THREE.Mesh(new THREE.RingGeometry(radius - 0.04, radius, 64), paint(service ? '#dce5dc' : '#bda766'));
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.068; mark.add(ring);

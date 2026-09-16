@@ -59,8 +59,9 @@ export function graphicsAsset(name: string, teamColor?: string): THREE.Group | u
           standard.emissive.set(teamColor); standard.emissiveIntensity = 2;
           standard.toneMapped = false;
         }
-        // Flush architectural skins need depth bias at long FPV viewing distances.
-        if (name === 'cincinnati-buildings' && /Facade|mullions|trim|Roof|Recess/.test(original.name)) {
+        // Facade overlays need bias; roofs are a single tessellated surface at
+        // the true building height and must not be biased through roof props.
+        if (name === 'cincinnati-buildings' && /Facade|mullions|trim|Recess/.test(original.name)) {
           const layer = /Facade|trim/.test(original.name) ? 2 : /mullions/.test(original.name) ? 3 : 1;
           standard.polygonOffset = true; standard.polygonOffsetFactor = -layer; standard.polygonOffsetUnits = -layer;
         }
@@ -70,7 +71,7 @@ export function graphicsAsset(name: string, teamColor?: string): THREE.Group | u
     child.material = Array.isArray(child.material) ? child.material.map(copy) : copy(child.material);
     child.receiveShadow = true;
     const surfaces = Array.isArray(child.material) ? child.material : [child.material];
-    child.castShadow = name === 'cincinnati-buildings' && surfaces.some(material => /^(Masonry|Carew buff|Curtain wall)/.test(material.name));
+    child.castShadow = name === 'cincinnati-buildings' && surfaces.some(material => /^(Masonry|Carew buff|Curtain wall|Roof)/.test(material.name));
   });
   group.add(object); return group;
 }

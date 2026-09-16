@@ -8,6 +8,7 @@ import { cargoResourceProp, cargoServiceProp } from '../client/cargo-scenery';
 import { FleetScene } from '../client/scene';
 import { navigationPhase, updateNavigationLights } from '../client/navigation-lights';
 import type { WorldState, Pose } from '../client/types';
+import { wreckSmoke, wreckTrajectory } from '../client/wreck-model';
 
 export async function graphicsFixture(state: WorldState) {
   await loadGraphicsAssets();
@@ -91,6 +92,42 @@ export async function graphicsFixture(state: WorldState) {
   }
   for (const node of state.match?.resources ?? []) {
     shots[node.id+'-acquired'] = fleet.capture('drone-1', {x:node.x,y:node.y+8,z:node.z+3,yaw:0,pitch:-68}, state.drones, state.match, .6);
+    for (const [label, distance, height] of [['near', 4, 4], ['approach', 8, 8], ['distant', 12, 28]] as const) {
+      const pitch = -THREE.MathUtils.radToDeg(Math.atan2(height, distance));
+      for (const side of [-1, 1]) {
+        const pose = {x:node.x,y:node.y+height,z:node.z+side*distance,yaw:side===1?0:180,pitch};
+        shots[`${node.id}-${label}-${side}`] = fleet.capture('drone-1', pose, state.drones, state.match, .6);
+      }
+    }
+  }
+  if (state.match) {
+    const node = state.match.resources[2], pose = {x:node.x,y:node.y+6,z:node.z+4,yaw:0,pitch:-56.31};
+    const legacy = structuredClone(state.match); legacy.rulesVersion = 'cargo-v2';
+    shots['cargo-before'] = fleet.capture('drone-1', pose, state.drones, legacy, .6);
+    shots['cargo-after'] = fleet.capture('drone-1', pose, state.drones, state.match, .6);
+    const empty = structuredClone(state.match); empty.resources.forEach(resource => resource.remaining = 0);
+    shots['cargo-empty'] = fleet.capture('drone-1', pose, state.drones, empty, .6);
+    for (const pad of state.match.servicePads ?? []) {
+      shots[`${pad.team}-base-acquired`] = fleet.capture('drone-1', {x:pad.x,y:pad.y+6,z:pad.z+3,yaw:0,pitch:-63.435}, state.drones, state.match, .6);
+    }
+    // A below-roof approach behind opaque scenery cannot see through it to the paint.
+    const hiddenPose = {x:node.x,y:node.y-2,z:node.z+8,yaw:0,pitch:14};
+    shots['cargo-occluded'] = fleet.capture('drone-1', hiddenPose, state.drones, state.match, .6);
+    const absent = structuredClone(state.match); absent.resources = absent.resources.filter(resource => resource.id !== node.id);
+    shots['cargo-occluded-absent'] = fleet.capture('drone-1', hiddenPose, state.drones, absent, .6);
+    // Fixed lighting/time isolates spatial roof aliasing from intentional beacon animation.
+    for (let n=0; n<12; n++) {
+      shots[`roof-motion-${String(n).padStart(2,'0')}`] = fleet.capture('drone-1',
+        {x:node.x-2+n*.06,y:node.y+3,z:node.z+8,yaw:0,pitch:-24}, state.drones, state.match, .6);
+    }
+    // Camera poses from actual September 16 sightings, rerendered with fixture stock.
+    for (const [label, pose] of [
+      ['near', {x:7,y:10,z:15,yaw:98.36588612403261,pitch:-70}],
+      ['distant', {x:20,y:30,z:10.481648445129395,yaw:-90,pitch:-70}],
+    ] as const) {
+      shots[`recorded-pose-${label}-before`] = fleet.capture('drone-1', pose, state.drones, legacy, .6);
+      shots[`recorded-pose-${label}-after`] = fleet.capture('drone-1', pose, state.drones, state.match, .6);
+    }
   }
   const opticalDrones = structuredClone(state.drones);
   Object.assign(opticalDrones.find(drone => drone.id === 'drone-4')!, {x:0,y:65,z:12,yaw:0,pitch:0,alive:true});
@@ -98,6 +135,43 @@ export async function graphicsFixture(state: WorldState) {
   const opticalPeak = (2.4 + .216 - navigationPhase('drone-4')) % 2.4;
   shots['drone-flash-acquired-on'] = fleet.capture('drone-1', opticalPose, opticalDrones, state.match, opticalPeak);
   shots['drone-flash-acquired-off'] = fleet.capture('drone-1', opticalPose, opticalDrones, state.match, opticalPeak+1.2);
+
+  // Explicit visual seeds simulate camera rendering only: no gameplay or inference.
+  // The camera samples supplied simulation time even with newer live death state.
+  const wreckState = structuredClone(state), wreckShots: Record<string, number> = {}, wreckTimes: number[] = [];
+  if (wreckState.match) {
+    wreckState.obstacles = [{ id: 'wreck-fixture-roof', x: 0, z: 0, width: 10, depth: 10, height: 4 }];
+    wreckState.match.resources = []; wreckState.match.servicePads = []; wreckState.match.projectiles = [];
+    wreckState.match.wrecks = [{ drone: 'drone-4', x: 0, y: 9, z: 0, yaw: 25, startedAt: 10 }];
+    wreckState.drones.forEach(drone => { drone.alive = false; });
+    wreckState.simTime = 15; wreckState.running = false; fleet.update(wreckState);
+    const sidePose = { x: 0, y: 7, z: 6, yaw: 0, pitch: 0 };
+    const trajectory = wreckTrajectory(wreckState.match.wrecks[0], wreckState.obstacles);
+    for (const [stage, at] of [['before', 9], ['falling', 11.5], ['trail', 12.7], ['landed', 14], ['fading', 18], ['cleared', 25]] as const) {
+      shots[`wreck-${stage}-acquired`] = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, at);
+      wreckShots[stage] = wreckSmoke(trajectory, at).length;
+    }
+    const absent = structuredClone(wreckState.match); delete absent.wrecks;
+    shots['wreck-absent-acquired'] = fleet.capture('drone-1', sidePose, wreckState.drones, absent, 9);
+    shots['wreck-snapshot-repeat-acquired'] = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, 11.5);
+    // Roof/wall must occlude both the wreck and the entire young trail.
+    const coveredPose = { x: 0, y: 2, z: 7, yaw: 0, pitch: 14 };
+    wreckState.obstacles.push({ id: 'wreck-fixture-cover', x: 0, z: 3, width: 12, depth: 1, height: 14 }); fleet.update(wreckState);
+    shots['wreck-occluded-acquired'] = fleet.capture('drone-1', coveredPose, wreckState.drones, wreckState.match, 12.7);
+    shots['wreck-occluded-absent'] = fleet.capture('drone-1', coveredPose, wreckState.drones, absent, 12.7);
+    wreckState.obstacles.pop(); fleet.update(wreckState);
+    // Sampled motion frames can be assembled into a preview without an inference run.
+    for (let n = 0; n < 90; n++) shots[`wreck-motion-${String(n).padStart(3, '0')}`] = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, 10 + n / 6);
+    wreckState.match.wrecks = wreckState.drones.map((drone, index) => ({ drone: drone.id, x: (index % 3 - 1) * 1.2, y: 9 + Math.floor(index / 3), z: Math.floor(index / 3), yaw: index * 50, startedAt: 10 }));
+    fleet.update(wreckState);
+    for (let n = 0; n < 15; n++) {
+      const begin = performance.now(), frame = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, 13 + n / 60);
+      if (n >= 3) wreckTimes.push(performance.now() - begin);
+      if (n === 3) shots['wreck-six-acquired'] = frame;
+    }
+    wreckState.match.wrecks = []; wreckState.simTime = 0; fleet.update(wreckState);
+    shots['wreck-reset-acquired'] = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, 9);
+  }
   fleet.dispose(); host.remove();
-  return { shots, cityStats, captureMs: times.sort((a,b)=>a-b) };
+  return { shots, cityStats, captureMs: times.sort((a,b)=>a-b), wreckShots, wreckCaptureMs: wreckTimes.sort((a,b)=>a-b) };
 }
