@@ -1,9 +1,38 @@
+# Dependencies, generated output, and local runtime/test evidence
 node_modules/
 dist/
 .runtime/
 artifacts/
 .venv/
+coverage/
+.cache/
+*.tsbuildinfo
+runtime-spike-evidence.json
+
+# Python bytecode and tool caches
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local editor/agent state and operating-system files
+.idea/
+.vscode/
+.orch/
+.claude/settings.local.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.blend[0-9]
+
+# Credentials, logs, and runtime databases
 *.log
 .env
 .env.*
@@ -12,8 +41,8 @@ auth.json
 *.pem
 *.key
 *.p12
+*.pfx
 *.sqlite
 *.sqlite-*
 *.db
 *.db-*
-runtime-spike-evidence.json
