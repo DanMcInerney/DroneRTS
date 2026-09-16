@@ -6,7 +6,7 @@ All eight gameplay actors—six drones and two mechanical relay parents—use **
 
 ## Run a match
 
-The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, retained command results, recovery and conditional waits. [Interface QA](NERVELET-INTERFACE-QA.md) records the current correction and checks; [reliability QA](RELIABILITY-QA.md) preserves the previous dependency qualification; [camera-age QA](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate. The new dependency is an unmerged source commit: set `NERVELET_SOURCE` to a clone containing the exact pin before setup. Setup builds and verifies its package locally; it is not published to npm. Review Nervelet before the dependent DroneRTS change. [Documentation and evidence index](DOCUMENTATION.md).
+The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, retained command results, recovery and conditional waits. [Interface QA](NERVELET-INTERFACE-QA.md) records the current correction and checks; [reliability QA](RELIABILITY-QA.md) preserves the previous dependency qualification; [camera-age QA](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate. The pinned dependency is available upstream through [Nervelet PR #6](https://github.com/DanMcInerney/nervelet/pull/6). Setup builds and verifies its package locally; it is not published to npm. [Documentation and evidence index](DOCUMENTATION.md).
 
 Requires Node.js 24+, Python (tested with 3.12.4 and 3.14.6), and an installed, signed-in Codex CLI. Nervelet requires Node 24; bounded routines also use per-thread CPU accounting. Python dependencies stay in the project `.venv`.
 
