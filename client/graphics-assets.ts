@@ -25,7 +25,11 @@ export function loadGraphicsAssets(read: (url: URL) => Promise<ArrayBuffer> = as
       if (!object) throw new Error(`Blender asset missing: ${name}`);
       pending.set(name, object);
     }
-    pending.set('cincinnati-buildings', city.scene);
+    for (const name of ['cincinnati-buildings', 'cincinnati-street-details']) {
+      const object = city.scene.getObjectByName(name);
+      if (!object) throw new Error(`Blender asset missing: ${name}`);
+      pending.set(name, object);
+    }
     pending.forEach((object, name) => templates.set(name, object));
   })();
 }
@@ -53,17 +57,23 @@ export function graphicsAsset(name: string, teamColor?: string): THREE.Group | u
             standard[key] = textures.get(source)!;
           }
         }
-        if (teamColor && original.name === 'Team paint') standard.color.set(teamColor);
+        if (teamColor && original.name === 'Team paint') {
+          standard.color.set(teamColor);
+          // Bright painted polymer retains its team hue on the shaded belly.
+          // A small fill is steady; the separate navigation lenses still flash.
+          standard.emissive.set(teamColor); standard.emissiveIntensity = .32;
+          standard.roughness = .52; standard.metalness = 0;
+        }
         if (teamColor && original.name === 'Team light') {
           standard.color.set(teamColor).multiplyScalar(0.15);
           standard.emissive.set(teamColor); standard.emissiveIntensity = 2;
           standard.toneMapped = false;
         }
-        // Facade overlays need bias; roofs are a single tessellated surface at
-        // the true building height and must not be biased through roof props.
-        if (name === 'cincinnati-buildings' && /Facade|mullions|trim|Recess/.test(original.name)) {
-          const layer = /Facade|trim/.test(original.name) ? 2 : /mullions/.test(original.name) ? 3 : 1;
-          standard.polygonOffset = true; standard.polygonOffsetFactor = -layer; standard.polygonOffsetUnits = -layer;
+        // Use the same bias on every wall material: authored skin offsets must
+        // determine whether stone, recessed windows or their edging is in front.
+        // Roofs retain their exact depth so they cannot cover rooftop props.
+        if (name === 'cincinnati-buildings' && !/^Roof/.test(original.name)) {
+          standard.polygonOffset = true; standard.polygonOffsetFactor = -1; standard.polygonOffsetUnits = -1;
         }
       }
       return result;

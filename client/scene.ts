@@ -98,8 +98,10 @@ export class FleetScene {
     const poses = JSON.stringify(state.drones.map(({ id, x, y, z, yaw, pitch, action }) => [id, x, y, z, yaw, pitch, action]));
     if (poses !== this.poseSignature) { this.poseSignature = poses; this.frameDirty = true; }
     this.drones.reconcile(state.drones);
-    const combatSignature = JSON.stringify([state.match?.rulesVersion, state.match?.resources, state.match?.servicePads, state.match?.projectiles, state.drones.map(drone => [drone.alive, drone.equipment, drone.cargo, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
-    if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match); this.frameDirty = true; }
+    const shotEvents = state.match?.events.filter(event => ['fired', 'impact', 'projectile_expired'].includes(event.type));
+    const combatSignature = JSON.stringify([state.match?.rulesVersion, state.match?.resources, state.match?.servicePads, state.match?.projectiles, shotEvents,
+      state.drones.map(drone => [drone.alive, drone.equipment, drone.cargo, drone.mining, drone.cameraMode, drone.jamming, drone.radioJammed])]);
+    if (combatSignature !== this.combatSignature) { this.combatSignature = combatSignature; this.combat.update(state.match, state.simTime); this.frameDirty = true; }
     this.wrecks.update(state.match, state.obstacles, state.simTime);
   }
 
@@ -127,8 +129,9 @@ export class FleetScene {
     // Spectator lights continue at idle. Sensor acquisitions below use only the
     // requested simulation timestamp, never this display-only animation clock.
     const lightTime = (this.state?.simTime ?? 0) + Math.max(0, time - this.stateAt) / 1000 * (this.state?.running ? this.state.speed : 1);
-    this.drones.pose(displayed, lightTime, this.state?.match?.rulesVersion === 'cargo-v3'); this.combat.animate(lightTime);
-    if (this.state) this.wrecks.animate(wreckDisplayTime(this.state, (time - this.stateAt) / 1000));
+    const effectTime = this.state ? wreckDisplayTime(this.state, (time - this.stateAt) / 1000) : 0;
+    this.drones.pose(displayed, lightTime, this.state?.match?.rulesVersion === 'cargo-v3'); this.combat.animate(lightTime, effectTime);
+    if (this.state) this.wrecks.animate(effectTime);
     const box = (this.explorer.active ? this.explorer.view : this.container).getBoundingClientRect();
     this.renderer.setScissorTest(false); this.renderer.setClearColor(0x000000, 0); this.renderer.clear();
     if (this.explorer.active) {

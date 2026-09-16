@@ -3,6 +3,7 @@ import { isCargoRules, resourceZoneSize, serviceZoneSize, type MatchState, type 
 import { disposeGroup } from './city-scene';
 import { cargoResourceProp, cargoServiceProp, updateCargoStock } from './cargo-scenery';
 import { updateNavigationLights } from './navigation-lights';
+import { ProjectileTrailView } from './projectile-trail-view';
 
 /** Visible interaction volume, grounded at the bottom-face center. */
 function zoneCube(id: string, x: number, y: number, z: number, size: number, color: string) {
@@ -72,11 +73,16 @@ export class CombatView {
   private padSignature = '';
   private current?: MatchState;
   private lightTime = 0;
+  private projectileTime = 0;
+  private snapshotTime = 0;
+  private trails: ProjectileTrailView;
 
-  constructor(private scene: THREE.Scene) { scene.add(this.resources, this.projectiles, this.servicePads); }
+  constructor(private scene: THREE.Scene) { scene.add(this.resources, this.projectiles, this.servicePads); this.trails = new ProjectileTrailView(scene); }
 
-  update(match?: MatchState, time = this.lightTime) {
+  update(match?: MatchState, time = this.lightTime, projectileTime = time) {
     this.current = match;
+    this.snapshotTime = projectileTime;
+    this.trails.setSnapshot(match, projectileTime);
     const hauling = isCargoRules(match?.rulesVersion);
     const beacons = match?.rulesVersion === 'cargo-v3';
     const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind]) ?? []]);
@@ -104,18 +110,19 @@ export class CombatView {
       const direction = new THREE.Vector3(shot.vx, shot.vy, shot.vz).normalize(); tail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
       tail.position.copy(bullet.position).addScaledVector(direction, -0.35); this.projectiles.add(bullet, tail);
     }
-    this.animate(time);
+    this.animate(time, projectileTime);
   }
 
-  animate(time: number) {
+  animate(time: number, projectileTime = time) {
     this.lightTime = time; updateNavigationLights(this.resources, time); updateNavigationLights(this.servicePads, time);
+    this.projectileTime = projectileTime; this.trails.animate(projectileTime);
   }
 
   withSnapshot<T>(match: MatchState | undefined, render: () => T, time = this.lightTime): T {
-    const previous = this.current, previousTime = this.lightTime;
+    const previous = this.current, previousTime = this.lightTime, previousProjectileTime = this.projectileTime, previousSnapshotTime = this.snapshotTime;
     try { this.update(match, time); return render(); }
-    finally { this.update(previous, previousTime); }
+    finally { this.update(previous, previousTime, previousSnapshotTime); this.animate(previousTime, previousProjectileTime); }
   }
 
-  dispose() { disposeGroup(this.resources); disposeGroup(this.projectiles); disposeGroup(this.servicePads); this.scene.remove(this.resources, this.projectiles, this.servicePads); this.resourceMeshes.clear(); }
+  dispose() { disposeGroup(this.resources); disposeGroup(this.projectiles); disposeGroup(this.servicePads); this.trails.dispose(); this.scene.remove(this.resources, this.projectiles, this.servicePads); this.resourceMeshes.clear(); }
 }

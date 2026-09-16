@@ -2,6 +2,8 @@
 
 Research collected September 14, 2026 UTC (September 13 in Cincinnati). The accompanying `city-research.json` is a deliberately simple geographic scene dataset, not a survey or digital twin.
 
+The September 16 Street View art follow-up is documented with panorama links and observed façade/street-furniture patterns in [GRAPHICS.md](GRAPHICS.md#visual-references). All new textures, signs and models are original Blender artwork. The three guide signs' legends and exact siting are approximations; Google imagery is used only as a visual reference, never distributed as a texture. Source geography and OpenStreetMap attribution remain unchanged.
+
 ## Geometry and placement
 
 The building and street coordinates are a fresh extract of **OpenStreetMap ways**, retrieved from the [Kumi Overpass endpoint](https://overpass.kumi.systems/api/interpreter). Every mapped object contains its original OSM way ID, a direct source URL and its latitude/longitude polygon or polyline. The extract covers downtown between 39.094–39.1085°N and 84.524–84.501°W: approximately 1.61 km north–south and 1.99 km east–west. The initial query extended north to 39.111; retained objects were cropped to the smaller downtown area.

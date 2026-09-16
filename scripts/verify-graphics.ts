@@ -37,10 +37,24 @@ try {
   assert.equal(result.shots['wreck-occluded-acquired'], result.shots['wreck-occluded-absent'], 'wreck smoke must not reveal a death through opaque cover');
   assert.equal(result.shots['wreck-reset-acquired'], result.shots['wreck-absent-acquired'], 'reset clears all wrecks and smoke');
   assert.equal(result.wreckShots.cleared, 0);
+  assert.notEqual(result.shots['projectile-active'], result.shots['projectile-absent'], 'the travelling bullet and white trail must be visible');
+  assert.notEqual(result.shots['projectile-impact'], result.shots['projectile-absent'], 'smoke remains visible after the projectile is consumed');
+  assert.notEqual(result.shots['projectile-impact'], result.shots['projectile-fading'], 'spent smoke must spread and fade in acquired pixels');
+  assert.notEqual(result.shots['projectile-fading'], result.shots['projectile-gone'], 'the slowly fading smoke must remain visible before expiry');
+  for (const name of ['before', 'gone', 'legacy', 'reset']) assert.equal(result.shots[`projectile-${name}`], result.shots['projectile-absent'], `${name} cannot inherit projectile smoke`);
+  assert.equal(result.shots['projectile-past-repeat'], result.shots['projectile-active'], 'a repeated past acquisition must be pixel-identical after later smoke frames');
+  assert.equal(result.shots['projectile-occluded'], result.shots['projectile-occluded-absent'], 'opaque cover must hide the entire white trail');
+  assert.equal(result.shots['projectile-expired'], result.shots['projectile-impact'], 'expiry preserves the same travelled path as an equivalent contact');
+  assert.equal(result.shots['projectile-victory-tail'], result.shots['projectile-fading'], 'victory presentation time preserves deterministic smoke evolution');
+  assert.equal(result.shots['projectile-stopped'], result.shots['projectile-impact'], 'Stop freezes smoke while lights may continue');
+  assert.ok(result.projectile.endpointError < 1e-8, 'white trail stops at its recorded contact point');
+  assert.equal(result.projectile.segments.gone, 0); assert.equal(result.projectile.victoryTime, 13); assert.equal(result.projectile.frozenTime, 10.5);
   const times: number[] = result.captureMs;
   const summary = { inference:false, fixture:true, rendererId:rendererIdentity(process.cwd()), cityStats:result.cityStats,
     camera:{width:512,height:288,samples:times.length,p50Ms:times[Math.floor(times.length*.5)],p95Ms:times[Math.floor(times.length*.95)],maxMs:times.at(-1)},
-    wrecks:{particles:result.wreckShots,sixWrecksCamera:{samples:result.wreckCaptureMs.length,p50Ms:result.wreckCaptureMs[Math.floor(result.wreckCaptureMs.length*.5)],maxMs:result.wreckCaptureMs.at(-1)}}, errors };
+    wrecks:{particles:result.wreckShots,sixWrecksCamera:{samples:result.wreckCaptureMs.length,p50Ms:result.wreckCaptureMs[Math.floor(result.wreckCaptureMs.length*.5)],maxMs:result.wreckCaptureMs.at(-1)}},
+    projectile:{segments:result.projectile.segments,endpointError:result.projectile.endpointError,
+      camera:{samples:result.projectile.captureMs.length,p50Ms:result.projectile.captureMs[Math.floor(result.projectile.captureMs.length*.5)],maxMs:result.projectile.captureMs.at(-1)}}, errors };
   // A failed required asset must prevent camera ownership and match launch.
   const failed = await browser.newPage(); let cameraReady=false;
   await failed.route('**/api/state',route=>route.fulfill({json:state}));

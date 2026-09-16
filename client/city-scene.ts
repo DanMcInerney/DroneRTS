@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CITY } from '../shared/city';
 import type { Obstacle, Treasure } from '../shared/types';
-import { graphicsCity } from './graphics-assets';
+import { graphicsAsset, graphicsCity } from './graphics-assets';
 import { createArenaBoundary, isArenaBoundary } from './arena-boundary';
 import { createUrbanGround } from './urban-ground';
 
@@ -30,7 +30,7 @@ export function createCity(buildings: Obstacle[]) {
   group.add(createUrbanGround(buildings));
 
   const baked = graphicsCity(buildings);
-  if (baked) group.add(baked);
+  if (baked) group.add(baked, graphicsAsset('cincinnati-street-details')!);
   else {
   const windowMatrices: THREE.Matrix4[] = [];
   const windowDummy = new THREE.Object3D();
@@ -87,7 +87,7 @@ export function createCity(buildings: Obstacle[]) {
   }
   // Physical street signs are visible through the same cameras as every other prop.
   const signs = new Set<string>();
-  CITY.roads.forEach(road => {
+  if (!baked) CITY.roads.forEach(road => {
     if (!road.name || signs.has(road.name) || road.points.length < 2 || signs.size >= 18) return;
     const a = road.points[Math.floor(road.points.length / 2)];
     const text = sign(road.name, Math.min(3.0, Math.max(1.8, road.name.length * 0.11)));

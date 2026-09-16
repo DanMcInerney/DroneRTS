@@ -9,6 +9,7 @@ import { FleetScene } from '../client/scene';
 import { navigationPhase, updateNavigationLights } from '../client/navigation-lights';
 import type { WorldState, Pose } from '../client/types';
 import { wreckSmoke, wreckTrajectory } from '../client/wreck-model';
+import { projectileTrailFixture } from './projectile-trail-fixture';
 
 export async function graphicsFixture(state: WorldState) {
   await loadGraphicsAssets();
@@ -34,6 +35,10 @@ export async function graphicsFixture(state: WorldState) {
   shoot('cincinnati-skyline', [3, 32, 62], [10, 5, 12]);
   shoot('carew-street', [-2, 2.7, 32], [-12, 8, 7]);
   shoot('queen-city-square', [27, 15, 37], [42, 11, 19]);
+  shoot('fourth-vine-stone-arcade', [-4.417, .6, 24.637], [-8, 1, 21]);
+  shoot('fifth-third-piers', [0, 1, 3], [1.4, 6, -2.4]);
+  shoot('carew-window-rhythm', [-3, 6, 16], [-11, 10, 8]);
+  shoot('third-street-signs', [31, .4, 25], [35, .67, 25]);
   camera.up.set(0, 0, -1);
   shoot('battlefield-overhead', [9, 92, 13], [9, 0, 13]);
   shoot('central-intersection', [8.126, 9, 14.521], [8.126, 0, 14.521]);
@@ -172,6 +177,7 @@ export async function graphicsFixture(state: WorldState) {
     wreckState.match.wrecks = []; wreckState.simTime = 0; fleet.update(wreckState);
     shots['wreck-reset-acquired'] = fleet.capture('drone-1', sidePose, wreckState.drones, wreckState.match, 9);
   }
+  const { shots: projectileShots, ...projectile } = projectileTrailFixture(fleet, state); Object.assign(shots, projectileShots);
   fleet.dispose(); host.remove();
-  return { shots, cityStats, captureMs: times.sort((a,b)=>a-b), wreckShots, wreckCaptureMs: wreckTimes.sort((a,b)=>a-b) };
+  return { shots, cityStats, captureMs: times.sort((a,b)=>a-b), wreckShots, wreckCaptureMs: wreckTimes.sort((a,b)=>a-b), projectile };
 }
