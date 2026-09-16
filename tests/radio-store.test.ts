@@ -10,7 +10,7 @@ const venv = resolve(project, '.venv', process.platform === 'win32' ? 'Scripts/p
 const python = process.env.FLEET_PYTHON ?? (existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3');
 const execute = promisify(execFile);
 
-async function scenario(source: string) {
+async function scenario(source: string, timeout = 30_000) {
   const program = `
 import os, sqlite3, sys, tempfile, time
 sys.path.insert(0, os.path.join(os.getcwd(), 'network'))
@@ -38,7 +38,7 @@ ${source.split('\n').map(line => '        ' + line).join('\n')}
 print('verified')
 `;
   const { stdout, stderr } = await execute(python, ['-c', program], {
-    cwd: project, windowsHide: true, timeout: 30_000, maxBuffer: 1024 * 1024,
+    cwd: project, windowsHide: true, timeout, maxBuffer: 1024 * 1024,
     env: { ...process.env, PYTHONUTF8: '1' },
   });
   assert.equal(stdout.trim(), 'verified');
@@ -70,7 +70,8 @@ assert store.status()['records'] == 0
 rejected(lambda: PeerStore(path, 'drone-3', 'session-one'), 'another drone')`);
 });
 
-test('full unread mail rejects admission before receipt and preserves reserved objective capacity', async () => {
+// This fixture commits every admitted row durably; it does not benchmark disk speed.
+test('full unread mail rejects admission before receipt and preserves reserved objective capacity', { timeout: 120_000 }, async () => {
   await scenario(`for index in range(MAX_QUEUE):
     assert store.accept(message(str(index)), now + 100)
 before = store.unconsumed()
@@ -85,7 +86,7 @@ store.expire(now + 101)
 assert len(store.unconsumed()) == MAX_QUEUE + CONTROL_QUEUE
 assert store.consume([item[0]['id'] for item in store.unconsumed()]) == MAX_QUEUE + CONTROL_QUEUE
 store.expire(now + 101)
-assert store.status()['records'] == 0`);
+assert store.status()['records'] == 0`, 90_000);
 });
 
 test('radio quotas count actual SQLite pages, Unicode bytes and bounded journal growth', async () => {

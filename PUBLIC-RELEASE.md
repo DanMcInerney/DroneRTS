@@ -1,6 +1,6 @@
 # Public release preparation — September 16, 2026
 
-Prepared from DroneRTS `e496116` in a separate worktree. This change updates documentation, media, license/package metadata, and repository automation. Gameplay, model configuration, and the Nervelet pin are unchanged. The GitHub repository remains private; this preparation does not publish it or submit anything to Hacker News.
+Prepared from DroneRTS `e496116` in a separate worktree. This change updates documentation, media, license/package metadata, repository automation, and two portability issues exposed by clean CI. Gameplay rules, model configuration, and the Nervelet pin are unchanged. The GitHub repository remains private; this preparation does not publish it or submit anything to Hacker News.
 
 ## Prepared
 
@@ -10,6 +10,8 @@ Prepared from DroneRTS `e496116` in a separate worktree. This change updates doc
 - Original README preserved as `GUIDE.md`; historical QA reports retain their existing paths and contents.
 - Windows/Linux CI with Node 24, Python 3.12, exact-revision GitHub Actions, read-only repository permissions, verified Nervelet setup, production build, and native protocol tests without inference.
 - Issue and pull-request templates. Gitleaks configuration retains default rules and excludes only the exact public RFC WebSocket example value in its fixture file.
+- The graphics source checksum normalizes CRLF to LF, preserving the same identity on Linux and Windows without changing geometry or binary assets. An immediate Stop during startup now checks cancellation before looking for Codex credentials; clean test hosts need no login for that fixture.
+- CI runs test files serially to avoid native SQLite/WASM contention on small hosted runners. Two full-mailbox fixtures have longer bounded harness deadlines for hundreds of durable commits; runtime quotas, retry policies, controller limits, and routine deadlines are unchanged.
 
 ## Local verification
 
@@ -17,13 +19,13 @@ Windows, Node **24.15.0**, Python **3.14.6**:
 
 - Built the pinned Nervelet revision from its public GitHub source; the expected archive SHA-256 matched.
 - Fresh `npm ci` and `npm run network:setup` succeeded. The updated package/lockfile also passed `npm ci --ignore-scripts`.
-- **535/535 tests passed** with `npm test -- --test-concurrency=2`, without model inference.
+- Initial preparation: **535/535 tests passed** with `npm test -- --test-concurrency=2`, without model inference. Follow-up portability validation uses serial execution, matching CI.
 - `npm run build` passed. Vite's existing large-chunk advisory remains.
 - `npm audit` reported zero known vulnerabilities in the installed JavaScript dependency graph. This is a dated registry result, not a general security certification.
 - Gitleaks **8.30.1** scanned all available Git refs and a snapshot of the current tracked/new deliverable files. Its one initial finding was the public RFC 6455 WebSocket nonce in `tests/trial-host.test.ts`; the narrowly configured scans pass after that classification. No real credentials were identified by these scans.
 - Local Markdown file links and anchors were checked; workflow YAML parsed; GitHub's Markdown API rendered the animated preview and full-video link. The complete recompressed video decoded without errors.
 
-The raw native-test result is in the newest managed `artifacts/test-runs/` directory. Hosted GitHub Actions have not been dispatched; Linux CI execution remains unverified. No live match was started for this preparation.
+The raw native-test result is in the newest managed `artifacts/test-runs/` directory. Hosted Windows/Linux verification is tracked on [PR #24](https://github.com/DanMcInerney/DroneRTS/pull/24); its first run exposed the two portability issues described above. No live match was started for this preparation.
 
 ## Before public launch
 

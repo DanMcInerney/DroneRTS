@@ -73,6 +73,7 @@ export class CodexFleetRuntime implements AgentBackend {
     this.options.onStatus({ status: 'starting', message: 'Checking Codex and Luna / xhigh…', model: MODEL, effort: EFFORT });
     try {
       this.runDir = await mkdtemp(join(tmpdir(), 'drone-fleet-'));
+      this.assertActive();
       const runHome = join(this.runDir, 'codex-home');
       const workDir = join(this.runDir, 'world');
       await mkdir(runHome); await mkdir(workDir); await mkdir(join(runHome, 'agents'));

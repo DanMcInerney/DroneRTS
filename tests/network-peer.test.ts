@@ -216,7 +216,8 @@ test('status messages queue independently while offline and unsent expired messa
   assert.equal(two.received(expired.id).length, 0);
 });
 
-test('native full mailbox rejects before ACK, keeps unread mail and retries after explicit consumption', { timeout: 60_000 }, async t => {
+// Hundreds of fully synchronous SQLite commits can exceed a minute on hosted disks.
+test('native full mailbox rejects before ACK, keeps unread mail and retries after explicit consumption', { timeout: 120_000 }, async t => {
   const { workers: [one, two], message } = await fleet(t);
   const ids: string[] = [];
   for (let index = 0; index < 256; index++) {
