@@ -25,11 +25,22 @@ try {
     await writeFile(resolve(run.directory, `${name}.${image.startsWith('data:image/png')?'png':'jpg'}`),Buffer.from(image.split(',')[1],'base64'));
   }
   assert.deepEqual(errors,[]);
+  assert.ok(result.shots['cargo-occluded'] === result.shots['cargo-occluded-absent'], 'cargo paint must remain occluded by the supporting roof');
+  assert.notEqual(result.shots['cargo-before'], result.shots['cargo-after'], 'current cargo paint is visible in the production camera');
+  assert.notEqual(result.shots['cargo-after'], result.shots['cargo-empty'], 'visible stock still follows authoritative depletion');
   assert.notEqual(result.shots['team-navigation-flash-a'], result.shots['team-navigation-flash-b'], 'phase-correct model views must show blinking');
   assert.notEqual(result.shots['drone-flash-acquired-on'], result.shots['drone-flash-acquired-off'], 'production 512x288 camera must see the flash change');
+  assert.equal(result.shots['wreck-before-acquired'], result.shots['wreck-absent-acquired'], 'camera frames before a death cannot inherit a later wreck');
+  assert.equal(result.shots['wreck-falling-acquired'], result.shots['wreck-snapshot-repeat-acquired'], 'past wreck cameras repeat exactly after rendering later acquisitions');
+  assert.notEqual(result.shots['wreck-falling-acquired'], result.shots['wreck-trail-acquired'], 'the wreck and its trailing smoke must move in acquired pixels');
+  assert.notEqual(result.shots['wreck-fading-acquired'], result.shots['wreck-cleared-acquired'], 'smoke dissipates while grounded debris remains');
+  assert.equal(result.shots['wreck-occluded-acquired'], result.shots['wreck-occluded-absent'], 'wreck smoke must not reveal a death through opaque cover');
+  assert.equal(result.shots['wreck-reset-acquired'], result.shots['wreck-absent-acquired'], 'reset clears all wrecks and smoke');
+  assert.equal(result.wreckShots.cleared, 0);
   const times: number[] = result.captureMs;
   const summary = { inference:false, fixture:true, rendererId:rendererIdentity(process.cwd()), cityStats:result.cityStats,
-    camera:{width:512,height:288,samples:times.length,p50Ms:times[Math.floor(times.length*.5)],p95Ms:times[Math.floor(times.length*.95)],maxMs:times.at(-1)}, errors };
+    camera:{width:512,height:288,samples:times.length,p50Ms:times[Math.floor(times.length*.5)],p95Ms:times[Math.floor(times.length*.95)],maxMs:times.at(-1)},
+    wrecks:{particles:result.wreckShots,sixWrecksCamera:{samples:result.wreckCaptureMs.length,p50Ms:result.wreckCaptureMs[Math.floor(result.wreckCaptureMs.length*.5)],maxMs:result.wreckCaptureMs.at(-1)}}, errors };
   // A failed required asset must prevent camera ownership and match launch.
   const failed = await browser.newPage(); let cameraReady=false;
   await failed.route('**/api/state',route=>route.fulfill({json:state}));

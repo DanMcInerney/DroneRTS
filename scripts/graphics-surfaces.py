@@ -6,6 +6,58 @@ raised HVAC obstacle is introduced without an authoritative collision volume.
 import numpy as np
 
 
+def roof_pieces(points, blockers):
+    """Subtract earlier coplanar roofs, preserving the union of source boxes.
+
+    Each subtraction partitions a convex face along a convex roof boundary.
+    Only duplicate visible triangles disappear; collision boxes are untouched.
+    """
+    def halfplane(polygon, a, b, inside):
+        # Authored roof outlines wind clockwise in game X/Z.
+        def side(p):
+            return (b[0]-a[0])*(p[2]-a[2])-(b[2]-a[2])*(p[0]-a[0])
+        result = []
+        for index, p in enumerate(polygon):
+            q = polygon[(index+1) % len(polygon)]
+            sp, sq = side(p), side(q)
+            pin, qin = (sp <= 0) == inside, (sq <= 0) == inside
+            if pin:
+                result.append(p)
+            if pin != qin:
+                t = sp/(sp-sq)
+                result.append(tuple(x+t*(y-x) for x,y in zip(p,q)))
+        return result
+
+    def area(polygon):
+        return abs(sum(p[0]*polygon[(i+1) % len(polygon)][2]
+                       - polygon[(i+1) % len(polygon)][0]*p[2]
+                       for i,p in enumerate(polygon)))/2
+
+    pieces = [points]
+    for blocker in blockers:
+        next_pieces = []
+        for piece in pieces:
+            overlap = piece
+            for index, a in enumerate(blocker):
+                overlap = halfplane(overlap,a,blocker[(index+1) % len(blocker)],True)
+                if len(overlap) < 3:
+                    break
+            if len(overlap) < 3 or area(overlap) <= 1e-10:
+                next_pieces.append(piece)
+                continue
+            remainder = piece
+            for index, a in enumerate(blocker):
+                b = blocker[(index+1) % len(blocker)]
+                outside = halfplane(remainder,a,b,False)
+                if len(outside) >= 3 and area(outside) > 1e-10:
+                    next_pieces.append(outside)
+                remainder = halfplane(remainder,a,b,True)
+                if len(remainder) < 3:
+                    break
+        pieces = next_pieces
+    return pieces
+
+
 def roof_materials(bpy, source, material, png):
     results = []
     for index, color in enumerate(['#b8b6ab', '#667073', '#8c887b']):

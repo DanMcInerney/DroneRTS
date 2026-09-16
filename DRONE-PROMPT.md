@@ -2,6 +2,8 @@
 
 The cargo-v3/onboard prompt combines role, compute and sensor-encoding instructions with the common vehicle briefing from shared/mission.ts. Both teams also receive the same terse opening commander order through the existing six-pilot launch gate. The original mining prompt is superseded.
 
+The opening order now explicitly asks for active coordination throughout the mission: sharing discoveries, intentions, progress and threats, answering teammates, refining plans together and coordinating shared spending. The briefing adds prompt useful updates, uncertainty in estimates and a distinction between proposals and agreed actions. Repeated unchanged status and acknowledgement loops are discouraged. The initial online acknowledgement still does not delay action. `RTS_MISSION` in `shared/mission.ts` is the canonical exact order; mechanical parents forward it unchanged to both teams.
+
 ## Exact role and encoding prefix
 
 Identity, team and roster vary by actor. Quotas interpolate authoritative ONBOARD_PROFILE and ROUTINE_LIMITS values. The runtime appends the exact RTS_BRIEFING after this prefix; it supplies permitted vehicle calibration, cargo/service rules, recognition and one opening team online acknowledgement, followed by proceeding without waiting for replies or negotiating an opening plan or first purchase. It supplies no battlefield coordinates or assigned tactics.

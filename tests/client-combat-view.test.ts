@@ -71,6 +71,7 @@ test('sensor capture uses snapshot optics projection despite newer live modes an
     Object.assign(scene, {
       captureCamera: camera, state: { drones: [newer] },
       combat: { withSnapshot: (_match: unknown, render: () => void) => render() },
+      wrecks: { withSnapshot: (_match: unknown, _obstacles: unknown, _time: unknown, render: () => void) => render() },
       drones: { withSnapshot: (_id: unknown, _drones: unknown, render: () => void) => render() },
       renderer: {
         getRenderTarget: () => null, getViewport: (value: THREE.Vector4) => value, getScissor: (value: THREE.Vector4) => value, getScissorTest: () => false,

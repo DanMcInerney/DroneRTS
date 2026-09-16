@@ -1,5 +1,15 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Gunshot wrecks and fading smoke — September 16, 2026
+
+Lethal gunshots now leave an unlit, tumbling wreck that falls onto the first roof below it or ground, with a smoke trail that expands and fades. Death, cargo accounting, victory and actor retirement remain immediate. The new scene-only seed never enters actor telemetry; acquired pixels reconstruct the effect at their own timestamp. Reset removes debris, Stop freezes it, and spectator animation can finish after victory. Historical recordings without seeds retain disappearance.
+
+**118 focused tests**, production build and graphics/RTS browser fixtures pass. Actual 512 × 288 stages, roof landing, smoke dissipation, opaque occlusion, historical acquisition restoration and six simultaneous wrecks were checked without inference. Independent review found no high-impact issues. See the newest [RTS-PLAYTEST.md](RTS-PLAYTEST.md) entry for source identity and the saved motion preview. Existing autonomous recognition/navigation qualifications remain separate.
+
+## Cargo paint, team coordination and roof flicker — September 16, 2026
+
+See the newest [RTS-PLAYTEST.md](RTS-PLAYTEST.md) entry for the latest inspected live-run evidence and this graphics/prompt repair. Broad yellow CARGO / LOAD paint and labeled team bases replace weak cargo-v3 markings; the identical opening order now requests concise active coordination throughout the mission. The city rebuild removes overlapping roof detail and preserves vertex precision to eliminate depth conflicts. **69 focused tests**, build, graphics/RTS browser fixtures and independent review pass. Actual camera poses and moving roof views were inspected. No new inference ran; autonomous recognition and navigation remain unqualified by these fixtures. The newer inspected 15:38 UTC run had five pickups/four deliveries, so the zero-haul battle described below is historical. QA port 4318 was stopped and player port 4317 left untouched.
+
 ## Opening and UI follow-up — September 16, 2026, 15:16 UTC
 
 The user replaced opening negotiation with one brief team online acknowledgement per pilot, followed by proceeding without waiting for replies. `shared/mission.ts`, the single-haul objective and current instruction docs now agree; the six-pilot objective-delivery launch gate is unchanged.

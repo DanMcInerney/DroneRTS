@@ -28,6 +28,8 @@ export interface TeamEconomy { credits: number; earned: number; shopUnlocked: bo
 export interface Projectile extends Point {
   id: string; owner: DroneId; team: TeamId; vx: number; vy: number; vz: number; age: number;
 }
+/** Scene-only death evidence, never actor telemetry. No future fall/landing state. */
+export interface GunWreck extends Point { drone: DroneId; startedAt: number; yaw: number }
 export interface MatchEvent extends Partial<Point> {
   id: string; type: string; simTime: number; team?: TeamId; drone?: DroneId; target?: string; message: string;
   projectileId?: string; cause?: 'terrain' | 'ram' | 'bullet' | 'expired' | 'power';
@@ -37,6 +39,8 @@ export interface MatchState {
   phase: 'ready' | 'active' | 'finished'; winner: TeamId | 'draw' | null;
   teams: Record<TeamId, TeamEconomy>; resources: ResourceNode[]; projectiles: Projectile[]; events: MatchEvent[];
   servicePads?: ServicePad[];
+  /** At most one visual death seed per drone; cleared on a fresh match. */
+  wrecks?: GunWreck[];
 }
 
 /** Simulator/player calibration. Item prices and own equipment receipts are allowed interaction feedback. */

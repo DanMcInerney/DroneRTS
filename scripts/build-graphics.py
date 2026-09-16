@@ -115,9 +115,13 @@ def join_by_material(parent):
 
 def export(name):
     bpy.ops.wm.save_as_mainfile(filepath=str(SOURCE / (name + '.blend')))
+    # Blender 5.2 Meshopt applies a fixed 12-bit exponential POSITION filter.
+    # At city-scale coordinates it rounds sub-meter trim and gives coplanar
+    # vertices different heights. Preserve the city's original float geometry;
+    # the small origin-centered aircraft kit can retain compressed positions.
     bpy.ops.export_scene.gltf(filepath=str(OUT / (name + '.glb')), export_format='GLB',
         export_animations=False, export_cameras=False, export_lights=False, export_extras=True,
-        export_meshopt_compression_enable=True)
+        export_meshopt_compression_enable=name != 'cincinnati')
 
 
 reset()
@@ -231,10 +235,12 @@ class SurfaceBatch:
         faces.append(tuple(range(start, start + len(points))))
         uvs.extend(uv or [(0,0),(1,0),(1,1),(0,1)])
 
-    def cube(self, x, y, z, w, h, d, mat, transform=lambda p: p):
+    def cube(self, x, y, z, w, h, d, mat, transform=lambda p: p, include_top=True):
         p = [(x + a*w/2, y + b*h/2, z + c*d/2) for a,b,c in
              [(-1,-1,-1),(1,-1,-1),(1,1,-1),(-1,1,-1),(-1,-1,1),(1,-1,1),(1,1,1),(-1,1,1)]]
         for ids in [(3,2,1,0),(4,5,6,7),(0,1,5,4),(2,3,7,6),(0,4,7,3),(1,2,6,5)]:
+            if not include_top and ids == (2,3,7,6):
+                continue
             self.quad([transform(p[i]) for i in ids], mat)
 
     def build(self, root):
@@ -327,15 +333,16 @@ batch = SurfaceBatch()
 masonry = [material('Masonry ' + str(i), c, .87) for i,c in enumerate(['#ae9e86','#bead90','#a18d7a','#b9b5a6','#b59a7d','#9da6a7','#ad9e93'])]
 carew = material('Carew buff brick', '#bca080', .85)
 limestone = material('Limestone trim', '#c8bca5', .82)
-roof = material('Roof membrane', '#616a6c', .95)
-roof_tiles = runpy.run_path(str(ROOT/'scripts/graphics-surfaces.py'))['roof_materials'](bpy, SOURCE, material, png)
-seam = material('Roof seams', '#788183', .88)
+roof_authoring = runpy.run_path(str(ROOT/'scripts/graphics-surfaces.py'))
+roof_tiles = roof_authoring['roof_materials'](bpy, SOURCE, material, png)
+coping = material('Roof coping', '#c8bca5', .82)
 recess = material('Recess shadow', '#29373b', .8)
 frames = material('Aluminum mullions', '#829397', .36, .5)
 glasswall = material('Curtain wall spandrel', '#455d69', .32, .35)
 facades = [facade_material('masonry-'+str(i),c) for i,c in enumerate(['#ae9e86','#bead90','#a18d7a','#b9b5a6','#b59a7d','#9da6a7','#ad9e93'])]
 carew_facade=facade_material('carew','#bca080',historic=True)
 glass_facade=facade_material('glass','#455d69',curtain=True)
+roof_regions = []
 for index, b in enumerate(city['buildings']):
     w,h,d = b['width'], b['height'], b['depth']
     base = b.get('baseY', 0)
@@ -348,26 +355,29 @@ for index, b in enumerate(city['buildings']):
     curtain = 'great-american-tower' in b['id'] or b['id'] in ['scripps-center','pnc-center','600-vine'] or not historic and index % 5 == 0
     wall = carew if historic else glasswall if curtain else masonry[index % len(masonry)]
     facade = carew_facade if historic else glass_facade if curtain else facades[index % len(facades)]
-    batch.cube(0,h/2,0,w,h,d,wall,transform)
+    batch.cube(0,h/2,0,w,h,d,wall,transform,include_top=False)
     # Satellite references show pale membranes, dark tar and warm gravel, not a
     # uniform gray roof. Keep modeled service roofs perfectly clear and flat.
     roof_surface = roof_tiles[index % len(roof_tiles)]
-    def roof_panel(x,z,pw,pd,mat,y=h+.002):
-        batch.quad([transform(p) for p in [(x-pw/2,y,z-pd/2),(x-pw/2,y,z+pd/2),
-                   (x+pw/2,y,z+pd/2),(x+pw/2,y,z-pd/2)]],mat)
-    batch.quad([transform(p) for p in [(-w/2,h+.001,-d/2),(-w/2,h+.001,d/2),(w/2,h+.001,d/2),(w/2,h+.001,-d/2)]],
-               roof_surface, [(0,0),(0,d/4),(w/4,d/4),(w/4,0)])
-    # Coping and drain bands lie on the roof surface, not above its safe volume.
-    for zz in [-d/2+.025, d/2-.025]:
-        roof_panel(0,zz,w,.045,limestone)
-        roof_panel(0,zz-math.copysign(.04,zz),w-.10,.035,recess)
-    for xx in [-w/2+.025, w/2-.025]:
-        roof_panel(xx,0,.045,d,limestone)
-    for x in range(1, max(1, int(w / .6))):
-        xx = -w/2 + x*.6
-        roof_panel(xx,0,.007,d*.94,seam)
-    roof_panel(w*.18,d*.12,w*.20,d*.17,recess)
-    roof_panel(w*.18,d*.12,w*.18,d*.15,seam,h+.0025)
+    # One tessellated surface owns every roof pixel. Coplanar utility patches,
+    # seam strips and the body-box cap used to compete in the depth buffer as
+    # the camera moved. Vents/seams now live exclusively in the mipmapped tile;
+    # the coping border meets, but never overlaps, the textured interior.
+    rim = min(.045, w/4, d/4)
+    roof_blockers = [points for y,points in roof_regions if abs(y-base-h) < 1e-6]
+    def roof_panel(x,z,pw,pd,mat,textured=False):
+        points = [(x-pw/2,h,z-pd/2),(x-pw/2,h,z+pd/2),
+                  (x+pw/2,h,z+pd/2),(x+pw/2,h,z-pd/2)]
+        for piece in roof_authoring['roof_pieces']([transform(p) for p in points],roof_blockers):
+            uv = [((c*(px-b['x'])-s*(pz-b['z'])+w/2)/4,
+                   (s*(px-b['x'])+c*(pz-b['z'])+d/2)/4) for px,_,pz in piece] if textured else [(0,0)]*len(piece)
+            batch.quad(piece,mat,uv)
+    roof_panel(0,0,w-2*rim,d-2*rim,roof_surface,True)
+    for zz in [-d/2+rim/2,d/2-rim/2]:
+        roof_panel(0,zz,w,rim,coping)
+    for xx in [-w/2+rim/2,w/2-rim/2]:
+        roof_panel(xx,0,rim,d-2*rim,coping)
+    roof_regions.append((base+h,[transform(p) for p in [(-w/2,h,-d/2),(-w/2,h,d/2),(w/2,h,d/2),(w/2,h,-d/2)]]))
     floors = max(1, round(h / .36))
     floor_height = h / floors
     for face in range(4):
