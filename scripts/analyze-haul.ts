@@ -1,19 +1,21 @@
 /** Offline factual logistics analysis. Never routes evidence back into actor inputs. */
-import { readFile, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { ReplayFrame, ReplayRecord } from '../shared/replay.ts';
+import { loadRun } from './audit/load-run.ts';
+import { decodeContent, extractErrors } from './audit/decode.ts';
 const directory = resolve(process.argv[2]);
-const result = JSON.parse(await readFile(resolve(directory, 'result.json'), 'utf8'));
-const replay = resolve(directory, 'replays', result.sessionId.slice(0, -6), 'frames.jsonl');
-const records: ReplayRecord[] = (await readFile(replay, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-const audit: any[] = (await readFile(resolve(directory, result.sessionId), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+const loaded = await loadRun(directory, { legacy: true });
+const { result } = loaded;
+const records: ReplayRecord[] = loaded.replay.map(r => r.data);
+const audit: any[] = loaded.audit.map(r => r.data);
 const frames = records.filter((record): record is ReplayFrame => record.type === 'frame');
 const events = records.filter(record => record.type === 'event').map(record => record.event);
 const radio = audit.filter(record => record.type === 'radio').map(record => record.value);
 const tools = audit.filter(record => record.type === 'tool').map(record => record.value);
 const bundles = audit.filter(record => record.type === 'agent' && record.value.type === 'tool-result').flatMap(record => {
-  try { return [{ role: record.value.role, body: JSON.parse(record.value.result.content.find((item: any) => item.type === 'text').text) }]; }
-  catch { return []; }
+  const { resultBody: body } = decodeContent(record.value.result);
+  return body ? [{ role: record.value.role, body }] : [];
 });
 const counts = (values: string[]) => Object.fromEntries([...new Set(values)].map(value => [value, values.filter(item => item === value).length]));
 const last = frames.at(-1)!, deposits = events.filter(event => event.type === 'cargo_delivered');
@@ -41,7 +43,8 @@ const summary = {
   deliveryCountByDrone: Object.fromEntries(last.drones.map(drone => [drone.id, deposits.filter(event => event.drone === drone.id).length])),
   sampledOverlap: overlap,
   economy: last.match!.teams, initialStock: stock(initial), stockRemaining: stock(last), cargoAboard: aboard(last), salvageLost: last.match!.salvageLost ?? 0,
-  conservationDelta: stock(last) + aboard(last) + delivered + (last.match!.salvageLost ?? 0) - stock(initial) - aboard(initial),
+  conservationDelta: stock(last) + aboard(last) + delivered + (last.match!.salvageLost ?? 0) - stock(initial) - aboard(initial)
+    - Object.values(initial.match!.teams).reduce((sum, team) => sum + team.earned, 0) - (initial.match!.salvageLost ?? 0),
   collisionEvents: events.filter(event => /collision/.test(event.type)
     || ['armor_consumed', 'destroyed'].includes(event.type) && ['terrain', 'ram'].includes(event.cause ?? '')),
   armorEvents: events.filter(event => event.type === 'armor_consumed'),
@@ -59,6 +62,7 @@ const summary = {
   finalStorage: Object.fromEntries(last.drones.map(drone => [drone.id, drone.storage ?? null])),
   toolCounts: counts(tools.map(tool => tool.name)),
   errors: result.failures, cleanup: result.cleanup,
+  recordedErrors: audit.flatMap(record => extractErrors(record).map(error => ({ type: record.type, role: record.value?.role, ...error }))),
   limitations: 'Observed discovery requires review of acquired pixels and actor reports; first visual discovery and causal report usefulness are not inferred from omniscient locations. Sampled overlap measures motion/service coexistence, not useful work or strategy. Missing optional storage means unavailable, not zero. Scripts are archived evidence and are never executed by this analyzer.',
 };
 await writeFile(resolve(directory, 'haul-analysis.json'), JSON.stringify(summary, null, 2));

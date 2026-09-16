@@ -22,6 +22,7 @@
     "assets:build": "node scripts/build-graphics.mjs",
     "start": "tsx server/index.ts --production",
     "test": "node --import tsx scripts/run-tests.ts",
+    "audit:run": "node --import tsx scripts/audit-run.ts",
     "network:setup": "node scripts/setup-network.mjs",
     "nervelet:setup": "node scripts/setup-nervelet.mjs",
     "onboard:manifest": "node --import tsx scripts/onboard-manifest.ts"

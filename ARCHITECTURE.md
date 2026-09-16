@@ -1,5 +1,9 @@
 # RTS ownership and observation boundaries
 
+The offline audit lives exclusively in `scripts/audit/`: the loader owns safe bounded reads and input identity, the decoder owns recorded MCP/error parsing, correlation owns bundle and acquisition joins, checks own DroneRTS evidence policy, and reporting owns deterministic output. `scripts/analysis-boundaries.ts` is the shared native call/completion join used by all analysis consumers. No runtime or actor imports these modules, and Nervelet remains an unchanged general library.
+
+`scripts/audit-run.ts` is only the offline CLI. The focused runner delegates its close/collect/save/audit sequence to `scripts/finalize-focused-trial.ts`; it never audits unclosed writers. `scripts/test-artifacts.ts` continues to own registration, collection and retention. The auditor creates only derived reports and cannot launch actors, execute archived programs or contact the network. [Audit design](OFFLINE-AUDIT-DESIGN.md) and [implementation QA](OFFLINE-AUDIT-QA.md) describe the supported checks and evidence gaps.
+
 A match has two teams of three drones, two mechanical native parents and one authoritative simulator. Gameplay uses explicit Luna/xhigh configuration. The blue and red runtimes start independently with clean actor contexts. Parents relay exact original objectives without planning; each drone chooses its own movement, hauling, spending, aiming, private code and delivered messages.
 
 ## One concept, one owner

@@ -7,6 +7,7 @@ Current contracts and setup:
 - [Contributing](CONTRIBUTING.md), [security](SECURITY.md) and [third-party notices](THIRD_PARTY_NOTICES.md): public contribution and reuse boundaries.
 - [Public release preparation](PUBLIC-RELEASE.md): dated verification and remaining launch items.
 - [Architecture](ARCHITECTURE.md), [onboard interface](ONBOARD.md), [network](NETWORK.md), [MAVLink](MAVLINK.md) and [city](CITY.md): application owners and boundaries.
+- [Offline audit QA](OFFLINE-AUDIT-QA.md) and [authorized audit design](OFFLINE-AUDIT-DESIGN.md): deterministic saved-trial reports, integrity checks, source references and coverage limits.
 - [Nervelet integration](NERVELET-INTEGRATION.md): current exact pin, result retention, waits, catalog and submission contract.
 - [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md): shorter scoped IDs, explicit acknowledgement guidance and completion-only waits.
 - [Interface QA](NERVELET-INTERFACE-QA.md): generated wait arguments, corrective errors, protocol ownership and corrected offline timing checks.
