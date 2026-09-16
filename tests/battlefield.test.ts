@@ -8,6 +8,8 @@ import { CITY, type CityPoint } from '../shared/city.ts';
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import { apronPoint, apronServicePositions, CARGO_CONFIG, insideZone, resourceZoneSize, RTS_CONFIG, serviceZoneSize, type Point } from '../shared/rts.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
+import { FleetGame } from '../server/game.ts';
+import { RtsRules } from '../server/rts.ts';
 
 const clear = (from: Point, to = from, margin: number = RTS_CONFIG.droneRadius) =>
   !CITY.buildings.some(building => intersectsBuilding(from, to, building, margin));
@@ -94,7 +96,7 @@ test('opposite rooftop bases are balanced around the geographic center', () => {
   assert.ok(blue.x < CITY.bounds.x[0] + 10 && red.x > CITY.bounds.x[1] - 10);
   assert.ok(distance({ x: (blue.x + red.x) / 2, z: (blue.z + red.z) / 2 }, middle) < 1.5);
   assert.ok(Math.abs(distance(blue, middle) - distance(red, middle)) < 3);
-  for (const pad of BATTLEFIELD.servicePads) {
+  for (const pad of [...BATTLEFIELD.servicePads, ...BATTLEFIELD.resources]) {
     assert.ok(pad.y > 0);
     const roof = CITY.buildings.find(b => Math.abs((b.baseY ?? 0) + b.height - pad.y) < 1e-6
       && [-.5, .5].every(x => [-.5, .5].every(z => {
@@ -105,33 +107,21 @@ test('opposite rooftop bases are balanced around the geographic center', () => {
   }
 });
 
-test('three finite intersection caches bracket the map center and preserve 840 total stock', () => {
+test('three finite rooftop caches bracket the map center and preserve 840 total stock', () => {
   const [west, east, central] = BATTLEFIELD.resources;
   assert.equal(BATTLEFIELD.resources.length, 3);
   assert.deepEqual(BATTLEFIELD.resources.map(n => n.capacity), [120, 120, 600]);
   assert.equal(BATTLEFIELD.resources.reduce((sum, n) => sum + n.remaining, 0), 840);
-  // Use shared source road vertices, including junctions excluded by the old
-  // conservative random-spawn filter. No synthetic crossings or shifted streets.
-  const vertices = new Map<string, { point: CityPoint; streets: Set<string> }>();
-  for (const road of CITY.roads) for (const point of road.points) {
-    const key = `${point.x},${point.z}`, entry = vertices.get(key) ?? { point, streets: new Set<string>() };
-    entry.streets.add(road.name); vertices.set(key, entry);
-  }
-  const crossings = [...vertices.values()].filter(v => v.streets.size > 1 && ![...v.streets].some(s => /Skywalk|Way|Bridge/.test(s)));
-  const closest = crossings.sort((a, b) => distance(a.point, middle) - distance(b.point, middle))[0];
-  assert.ok(closest.streets.has('Walnut Street') && closest.streets.has('East 4th Street'));
-  assert.ok(distance(central, closest.point) <= .051);
-  assert.ok(distance(central, middle) < 2);
+  assert.ok(distance(central, middle) < 8, 'central roof stays within 80m of the geographic center');
   for (const [index, node] of [west, east].entries()) {
     const base = BATTLEFIELD.servicePads[index];
     const halfway = { x: (base.x + middle.x) / 2, z: (base.z + middle.z) / 2 };
-    assert.ok(distance(node, halfway) < 7, 'side cache is near the halfway point on a real crossing');
-    const crossing = crossings.find(v => distance(v.point, node) < .4);
-    assert.ok(crossing?.streets.has('East 4th Street'));
+    assert.ok(distance(node, halfway) < 7, 'side roof is near the base-to-center halfway point');
+    assert.ok(distance(node, base) < distance(node, BATTLEFIELD.servicePads[1 - index]));
   }
   for (const node of BATTLEFIELD.resources) {
-    assert.equal(node.y, 0); assert.equal(node.remaining, node.capacity);
-    assert.ok(node.zoneSize! >= 1.8 && node.zoneSize! <= 2.7, 'paint fills the 18m street crossing without consuming a city block');
+    assert.ok(node.y > 0); assert.equal(node.remaining, node.capacity);
+    assert.ok(node.zoneSize! >= 3 && node.zoneSize! <= 4, 'roof aprons provide space for three loading airframes');
   }
 });
 
@@ -159,5 +149,24 @@ test('painted footprints and service airspace clear all buildings; three bodies 
     // Rotation is shared by the service authority and renderer, not paint only.
     assert.ok(insideZone(apronPoint(zone, size / 2 - .01, 0, 1), zone, size));
     assert.equal(insideZone(apronPoint(zone, size / 2 + .01, 0, 1), zone, size), false);
+  }
+});
+
+test('each roof supports three simultaneous low/slow loads and rooftop banking without changing total salvage', () => {
+  for (const resource of BATTLEFIELD.resources) {
+    const game = new FleetGame(), rules = new RtsRules(), state = game.state, match = state.match!;
+    state.running = true; match.phase = 'active';
+    const drones = state.drones.slice(0, 3), marks = apronServicePositions(resource, resource.zoneSize!);
+    drones.forEach((drone, index) => Object.assign(drone, marks[index]));
+    state.simTime += CARGO_CONFIG.pickupDuration; rules.step(state, CARGO_CONFIG.pickupDuration);
+    assert.deepEqual(drones.map(drone => drone.cargo!.amount), [30, 30, 30]);
+    assert.equal(match.resources.find(node => node.id === resource.id)!.remaining, resource.capacity - 90);
+    const pad = BATTLEFIELD.servicePads[0], returnMarks = apronServicePositions(pad, pad.zoneSize!);
+    drones.forEach((drone, index) => Object.assign(drone, returnMarks[index]));
+    state.simTime += CARGO_CONFIG.deliveryDuration; rules.step(state, CARGO_CONFIG.deliveryDuration);
+    assert.deepEqual(drones.map(drone => drone.cargo!.amount), [0, 0, 0]);
+    assert.equal(match.teams.blue.earned, 90); assert.equal(match.teams.blue.credits, 90);
+    assert.equal(match.resources.reduce((sum, node) => sum + node.remaining, 0) + match.teams.blue.earned, 840);
+    assert.equal(state.drones.filter(drone => drone.alive !== false).length, 6);
   }
 });

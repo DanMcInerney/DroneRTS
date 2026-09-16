@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { isCargoRules, resourceZoneSize, serviceZoneSize, type MatchState, type ResourceNode, type ServicePad } from '../shared/rts';
 import { disposeGroup } from './city-scene';
 import { cargoResourceProp, cargoServiceProp, updateCargoStock } from './cargo-scenery';
+import { updateNavigationLights } from './navigation-lights';
 
 /** Visible interaction volume, grounded at the bottom-face center. */
 function zoneCube(id: string, x: number, y: number, z: number, size: number, color: string) {
@@ -70,21 +71,23 @@ export class CombatView {
   private signature = '';
   private padSignature = '';
   private current?: MatchState;
+  private lightTime = 0;
 
   constructor(private scene: THREE.Scene) { scene.add(this.resources, this.projectiles, this.servicePads); }
 
-  update(match?: MatchState) {
+  update(match?: MatchState, time = this.lightTime) {
     this.current = match;
     const hauling = isCargoRules(match?.rulesVersion);
+    const beacons = match?.rulesVersion === 'cargo-v3';
     const signature = JSON.stringify([match?.rulesVersion, match?.resources.map(({ id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind }) => [id, x, y, z, capacity, extractionMultiplier, zoneSize, rotation, kind]) ?? []]);
     if (signature !== this.signature) {
       this.signature = signature; disposeGroup(this.resources); this.resourceMeshes.clear();
-      for (const node of match?.resources ?? []) { const mesh = hauling ? cargoResourceProp(node) : resourceProp(node); this.resourceMeshes.set(node.id, mesh); this.resources.add(mesh); }
+      for (const node of match?.resources ?? []) { const mesh = hauling ? cargoResourceProp(node, beacons) : resourceProp(node); this.resourceMeshes.set(node.id, mesh); this.resources.add(mesh); }
     }
     const padSignature = JSON.stringify([match?.rulesVersion, match?.servicePads ?? []]);
     if (padSignature !== this.padSignature) {
       this.padSignature = padSignature; disposeGroup(this.servicePads);
-      for (const pad of match?.servicePads ?? []) this.servicePads.add(hauling ? cargoServiceProp(pad) : servicePadProp(pad));
+      for (const pad of match?.servicePads ?? []) this.servicePads.add(hauling ? cargoServiceProp(pad, beacons) : servicePadProp(pad));
     }
     for (const node of match?.resources ?? []) {
       const mesh = this.resourceMeshes.get(node.id);
@@ -101,12 +104,17 @@ export class CombatView {
       const direction = new THREE.Vector3(shot.vx, shot.vy, shot.vz).normalize(); tail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
       tail.position.copy(bullet.position).addScaledVector(direction, -0.35); this.projectiles.add(bullet, tail);
     }
+    this.animate(time);
   }
 
-  withSnapshot<T>(match: MatchState | undefined, render: () => T): T {
-    const previous = this.current;
-    try { this.update(match); return render(); }
-    finally { this.update(previous); }
+  animate(time: number) {
+    this.lightTime = time; updateNavigationLights(this.resources, time); updateNavigationLights(this.servicePads, time);
+  }
+
+  withSnapshot<T>(match: MatchState | undefined, render: () => T, time = this.lightTime): T {
+    const previous = this.current, previousTime = this.lightTime;
+    try { this.update(match, time); return render(); }
+    finally { this.update(previous, previousTime); }
   }
 
   dispose() { disposeGroup(this.resources); disposeGroup(this.projectiles); disposeGroup(this.servicePads); this.scene.remove(this.resources, this.projectiles, this.servicePads); this.resourceMeshes.clear(); }

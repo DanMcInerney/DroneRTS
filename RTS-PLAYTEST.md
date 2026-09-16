@@ -1,5 +1,30 @@
 # RTS verification — September 14, 2026
 
+## Mapped ground follow-up — September 16, 2026
+
+The prior graphics pass still left featureless infill and a uniform horizon. Ground now uses an official OSM surface extract cross-checked visually against Google Maps satellite imagery: actual empty parking polygons, P&G lawn panels with paved promenades, southern planting, pedestrian paths, and a paved private fountain court. The broader researched downtown streets, footprint artwork and CAGIS river fill the surrounding scenery. All textures are original; no cars, people or satellite pixels are embedded. Source ground remains flat and unclassified gaps receive approximate paving. No collision, economy, actor knowledge or camera calibration changed in this follow-up.
+
+Renderer fingerprint: `400726e3fc625bbbc6ed27edf3cd6783366c416a125693027d5a26ea370cf3ea`. Retained evidence: `artifacts/test-runs/2026-09-16T15-19-15-143Z-mapped-ground-88189d24/`, including `graphics/` and `logs/`.
+
+- **21/21 relevant tests pass** for city geometry, Blender asset integration, rooftop/boundary mechanics and navigation lights. Ground-source validation passes; offline extraction is deterministic.
+- **TypeScript/Vite build passes** with the existing bundle-size advisory. Ground uses two planes/atlases; core texture resolution remains 4096 × 3297.
+- **Graphics browser fixture passes** with no page errors, visible display/acquired beacon phases and required-asset failure gating. Inspected overhead, ground atlas, P&G lawns, empty lots, southern planting, skyline and acquired camera images. Thirty production 512 × 288 captures: **p50 159.5 ms / p95 195.8 ms / max 229.1 ms** on this host.
+
+No inference ran. These are source, rendering and mechanics checks, not evidence of autonomous recognition or hauling. Prior raw graphics artifacts are pruned when the current managed run finishes; the preceding report retains its original measured meaning.
+
+## Satellite-informed city / rooftop graphics verification — September 16, 2026
+
+User-authorized graphics revision: original Blender façade/crown detail and three roof finishes; original detailed ground atlas informed by visually inspected Google Maps satellite views; three rooftop cargo aprons; physical, nearly transparent boundary walls/ceiling; flashing team drone/base lights and amber cargo beacons. No cars or people. Economy remains cargo-v3 with 840 finite salvage. Source building poses and dimensions are unchanged; the five explicit boundary boxes are new.
+
+Final renderer fingerprint: `9002091af26c3f62cce8589fa8875d27100d933b8a860249c495795bd8f44f3d`. Asset hashes are in `client/assets/manifest.json`. Evidence is under `artifacts/test-runs/2026-09-16T14-54-01-640Z-city-graphics-86d1186b/`, with `graphics/` and `rts-ui/` screenshots/results and the related automated test run.
+
+- **508/508 automated tests pass**, including real native Zenoh/MAVLink integration without inference. Roof support, separated loading positions, simultaneous conservation, wall/ceiling swept contacts, armor/lethal behavior, projectiles and finite anonymous sensing are checked.
+- **TypeScript and Vite build pass**; the existing bundle-size advisory remains. Blender city export: **25 meshes / 22,558 triangles / 1,871,448 bytes**. Ground uses two draws and one original 4096 × 3297 atlas.
+- **Deterministic browser RTS fixture passes** on owned port 4318: six actual acquisitions, cover and death occlusion, God/Admin camera isolation, hauling, delivery, equipment, finite ammo/rearm, reset and responsive UI. The production browser was also visually inspected. No actors were launched.
+- **Graphics fixture passes**: skyline, street, overhead, both bases, all rooftop caches, subtle enclosure, drone model and actual acquired roof images were inspected. Phase-adjusted drone on/off pairs differ both at display resolution and in production 512 × 288 camera pixels. Required-asset failures still block camera readiness. For 30 production capture/encoding samples: **p50 185.1 ms / p95 223.0 ms / max 225.6 ms**. This is host-specific fixture timing, not live-agent latency.
+
+Independent review found no high-impact implementation defects; its flash-fixture timing gap was repaired before final visual verification. These checks prove mechanics/rendering, not autonomous recognition, route difficulty, improved hauling or competitive balance. Prior autonomy findings and historical reports below remain scoped to their recorded revisions.
+
 ## Camera-age correction — September 16, 2026, 05:08 UTC
 
 [Camera-age QA](CAMERA-AGE-POLICY-QA.md) records **465 passing tests**, production build, and one bounded native stationary trial on isolated port 4318. Completed camera captures now retain their honest age without a hard two-second rejection. Same-session reasoning interruption delivered an actual **2,256 ms-old image** after **2.288 s**; the pilot acknowledged it and later reported the uncertain synthetic notice. The later held-wait episode failed to acquire replacement pixels within the existing bound and stopped at sim **70.077**, all six alive. No native turn overlap was observed; owned processes were stopped. Attention and acoustic sensing remain independently off by default. This qualifies delayed-image delivery in one native interruption, not the full emergency system, camera throughput, acoustic accuracy or autonomous gameplay.

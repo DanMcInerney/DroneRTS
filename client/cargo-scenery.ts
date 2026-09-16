@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { apronServicePositions, CARGO_CONFIG, resourceZoneSize, serviceZoneSize, type ResourceNode, type ServicePad } from '../shared/rts';
 import { cargoSymbol, salvageCrate, salvagePallet, SALVAGE_VISUAL } from './salvage-model';
 import { graphicsAsset } from './graphics-assets';
+import { navigationBeaconBank, navigationPhase } from './navigation-lights';
 
 const paint = (color: THREE.ColorRepresentation) => new THREE.MeshLambertMaterial({ color });
 
@@ -11,7 +12,7 @@ function groundMark(width: number, depth: number, color: THREE.ColorRepresentati
 }
 
 /** Horizontal paint matches the whole usable footprint; service height is SDK calibration. */
-function apron(id: string, x: number, y: number, z: number, size: number, color: string, service: boolean) {
+function apron(id: string, x: number, y: number, z: number, size: number, color: string, service: boolean, beacons: boolean) {
   const group = new THREE.Group(); group.name = id; group.position.set(x, y, z);
   const surface = groundMark(size, size, service ? color : '#bda766', 0, 0, 0.062);
   surface.name = 'apron-surface'; group.add(surface);
@@ -26,7 +27,14 @@ function apron(id: string, x: number, y: number, z: number, size: number, color:
     const symbol = cargoSymbol(radius * 1.1, service ? '#dce5dc' : '#bda766');
     symbol.rotation.x = -Math.PI / 2; symbol.position.y = 0.069; mark.add(symbol); positions.add(mark);
   }
-  group.add(positions); return group;
+  group.add(positions);
+  if (beacons) {
+    const edge = size / 2 - 0.11;
+    const lamps = [[-edge, -edge], [0, -edge], [edge, -edge], [edge, 0], [edge, edge], [0, edge], [-edge, edge], [-edge, 0]]
+      .map(([x, z]) => ({ x, y: 0.072, z }));
+    group.add(navigationBeaconBank(service ? color : '#ffbc47', 0.055, service ? 'base' : 'cargo', navigationPhase(id), lamps));
+  }
+  return group;
 }
 
 function stockPositions(count: number, size: number) {
@@ -43,9 +51,10 @@ function stockPositions(count: number, size: number) {
   });
 }
 
-export function cargoResourceProp(node: ResourceNode) {
+export function cargoResourceProp(node: ResourceNode, beacons = false) {
   const size = resourceZoneSize(node);
-  const group = apron(node.id, node.x, node.y, node.z, size, SALVAGE_VISUAL.ochre, false);
+  // Crash-site drops have no installed roof fixtures.
+  const group = apron(node.id, node.x, node.y, node.z, size, SALVAGE_VISUAL.ochre, false, beacons && node.kind !== 'dropped');
   group.rotation.y = THREE.MathUtils.degToRad(node.rotation ?? 0);
   const pallets = new THREE.Group(); pallets.name = 'pallets';
   const stock = new THREE.Group(); stock.name = 'stock';
@@ -76,9 +85,9 @@ export function updateCargoStock(group: THREE.Group, node: ResourceNode) {
   });
 }
 
-export function cargoServiceProp(pad: ServicePad) {
+export function cargoServiceProp(pad: ServicePad, beacons = false) {
   const size = serviceZoneSize(pad), color = pad.team === 'blue' ? '#2799ba' : '#bc5147';
-  const group = apron(pad.id, pad.x, pad.y, pad.z, size, color, true);
+  const group = apron(pad.id, pad.x, pad.y, pad.z, size, color, true, beacons);
   group.rotation.y = THREE.MathUtils.degToRad(pad.rotation ?? 0);
   const asset = graphicsAsset('service-cabinet', color);
   if (asset) { asset.position.set(size * 0.35, 0.067, size * 0.4); group.add(asset); return group; }

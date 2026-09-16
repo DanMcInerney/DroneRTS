@@ -29,6 +29,7 @@ export class FleetScene {
   private combat = new CombatView(this.scene);
   private combatSignature = '';
   private state?: WorldState;
+  private stateAt = 0;
   private worldSignature = '';
   private stopped = false;
   private observer: ResizeObserver;
@@ -78,6 +79,7 @@ export class FleetScene {
 
   update(state: WorldState) {
     if (this.state?.running !== state.running || state.simTime < (this.state?.simTime ?? 0)) this.frameDirty = true;
+    if (this.state?.simTime !== state.simTime || this.state?.running !== state.running) this.stateAt = performance.now();
     this.state = state; this.poses.push(state, performance.now());
     const signature = JSON.stringify(state.obstacles);
     if (signature !== this.worldSignature) {
@@ -114,10 +116,14 @@ export class FleetScene {
     requestAnimationFrame(nextTime => this.render(nextTime));
     const dt = Math.min(0.05, (time - (this.lastAnimation || time)) / 1000); this.lastAnimation = time; this.explorer.tick(dt);
     // UI feeds may drop frames; sensor captures always render immediately.
-    if (document.hidden || (!this.frameDirty && !this.poses.pending(time) && !this.explorer.active) || time - this.lastFrameAt < 1000 / 60) return;
+    const moving = this.frameDirty || this.poses.pending(time) || this.explorer.active;
+    if (document.hidden || (!moving && !this.state) || time - this.lastFrameAt < 1000 / (moving ? 60 : 24)) return;
     this.lastFrameAt = time; this.frameDirty = false;
     const displayed = this.poses.sample(time), displayedById = new Map<string, WorldState['drones'][number]>(displayed.map(drone => [drone.id, drone]));
-    this.drones.pose(displayed);
+    // Spectator lights continue at idle. Sensor acquisitions below use only the
+    // requested simulation timestamp, never this display-only animation clock.
+    const lightTime = (this.state?.simTime ?? 0) + Math.max(0, time - this.stateAt) / 1000 * (this.state?.running ? this.state.speed : 1);
+    this.drones.pose(displayed, lightTime, this.state?.match?.rulesVersion === 'cargo-v3'); this.combat.animate(lightTime);
     const box = (this.explorer.active ? this.explorer.view : this.container).getBoundingClientRect();
     this.renderer.setScissorTest(false); this.renderer.setClearColor(0x000000, 0); this.renderer.clear();
     if (this.explorer.active) {
@@ -148,7 +154,7 @@ export class FleetScene {
     }
   }
 
-  capture(droneId: string, pose: Pose, drones = this.state?.drones ?? [], match: MatchState | undefined = this.state?.match): string {
+  capture(droneId: string, pose: Pose, drones = this.state?.drones ?? [], match: MatchState | undefined = this.state?.match, simTime = this.state?.simTime ?? 0): string {
     this.poseCamera(this.captureCamera, pose);
     // The requested world snapshot owns both optics and geometry. A later live
     // camera toggle must not change the projection of an earlier acquisition.
@@ -163,7 +169,7 @@ export class FleetScene {
       this.combat.withSnapshot(match, () => this.drones.withSnapshot(droneId, drones, () => {
         this.renderer.setRenderTarget(this.captureTarget); this.renderer.setScissorTest(false); this.renderer.setViewport(0, 0, width, height);
         this.renderer.render(this.scene, this.captureCamera); this.renderer.readRenderTargetPixels(this.captureTarget, 0, 0, width, height, pixels);
-      }));
+      }, simTime, match?.rulesVersion === 'cargo-v3'), simTime);
     } finally {
       this.renderer.setRenderTarget(previousTarget); this.renderer.setViewport(previousViewport);
       this.renderer.setScissor(previousScissor); this.renderer.setScissorTest(previousTest);

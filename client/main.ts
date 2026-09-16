@@ -148,7 +148,7 @@ function connect() {
           // GPU work already executing is synchronous; abandoned results are also
           // rejected by the server's request identity and cancellation boundary.
           try {
-            const image = scene.capture(message.droneId as string, message.pose as Pose, message.drones, message.match);
+            const image = scene.capture(message.droneId as string, message.pose as Pose, message.drones, message.match, message.simTime);
             connection.send(JSON.stringify({ type: 'capture-result', requestId: message.requestId, rendererId: __FLEET_RENDERER_ID__, image }));
           } catch (error) { alertMessage(error instanceof Error ? error.message : String(error)); }
         }, 0));
