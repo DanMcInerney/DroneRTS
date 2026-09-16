@@ -482,7 +482,8 @@ manifest = {
     'schema': 1,
     'generator': 'scripts/build-graphics.py',
     'blender': bpy.app.version_string,
-    'sourceCitySha256': hashlib.sha256((ROOT/'shared/city-data.json').read_bytes()).hexdigest(),
+    # Git may check text out with CRLF on Windows; geography identity uses LF.
+    'sourceCitySha256': hashlib.sha256((ROOT/'shared/city-data.json').read_bytes().replace(b'\r\n', b'\n')).hexdigest(),
     'buildings': [[b.get(k,0) for k in ['id','x','baseY','z','width','height','depth','rotation']] for b in city['buildings']],
     'assets': {p.name: {'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest()} for p in sorted(OUT.glob('*.glb'))},
 }

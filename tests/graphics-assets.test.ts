@@ -25,7 +25,8 @@ before(async () => {
 });
 
 test('Blender exports match their source geography and checked-in checksums', async () => {
-  assert.equal(createHash('sha256').update(await readFile('shared/city-data.json')).digest('hex'), manifest.sourceCitySha256);
+  const sourceCity = (await readFile('shared/city-data.json', 'utf8')).replace(/\r\n/g, '\n');
+  assert.equal(createHash('sha256').update(sourceCity).digest('hex'), manifest.sourceCitySha256);
   for (const [file, asset] of Object.entries(manifest.assets)) {
     const bytes = await readFile(`client/assets/${file}`);
     assert.equal(bytes.length, asset.bytes); assert.equal(createHash('sha256').update(bytes).digest('hex'), asset.sha256);

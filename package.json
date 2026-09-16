@@ -1,6 +1,16 @@
 {
   "name": "drone-fleet-poc",
   "version": "0.1.0",
+  "description": "Six isolated LLM drone pilots in a Three.js RTS, with native Zenoh peer radio and MAVLink 2 vehicle control.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DanMcInerney/DroneRTS.git"
+  },
+  "homepage": "https://github.com/DanMcInerney/DroneRTS#readme",
+  "bugs": {
+    "url": "https://github.com/DanMcInerney/DroneRTS/issues"
+  },
   "private": true,
   "type": "module",
   "engines": {

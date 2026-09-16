@@ -2,7 +2,7 @@
   "schema": 1,
   "generator": "scripts/build-graphics.py",
   "blender": "5.2.1 LTS",
-  "sourceCitySha256": "3de527813c5393714f6b3054a40b07e0a06105e6dd9b22a33e4e8d79e8d327a0",
+  "sourceCitySha256": "d3de4cf1a6848a5abdf521fc4f740db642f3cf53063b3e08db8124433b3f100c",
   "buildings": [
     [
       "osm-729358868",
