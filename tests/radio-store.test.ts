@@ -199,12 +199,17 @@ assert store.status()['pendingRecipients'] == 3`);
 });
 
 test('transmission expiry removes pending status copies without deleting received text', async () => {
-  await scenario(`first = message('first', kind='status', sequence=1)
+  await scenario(`from unittest.mock import patch
+first = message('first', kind='status', sequence=1)
 latest = message('latest', kind='status', sequence=2)
-assert store.accept(first, now + 5)
-assert store.accept(latest, now + 0.2)
-store.queue(first, ['drone-1'], now + 5)
-store.queue(latest, ['drone-1'], now + 0.2)
+# Admission and expiry share a fixture clock; durable writes need not finish in 200 ms.
+with patch('peer_store.time.monotonic', return_value=now):
+    assert store.accept(first, now + 5)
+    assert store.accept(latest, now + 0.2)
+    store.queue(first, ['drone-1'], now + 5)
+    store.queue(latest, ['drone-1'], now + 0.2)
+with patch('peer_store.time.monotonic', return_value=now + 0.3):
+    rejected(lambda: store.queue(message('expired'), ['drone-1'], now + 0.2), 'deadline already expired')
 assert [row['id'] for row in store.expire(now + 0.3)] == ['latest']
 assert [row['id'] for row in store.due(now + 0.3)] == ['first']
 assert [item[0]['id'] for item in store.unconsumed()] == ['first', 'latest']
