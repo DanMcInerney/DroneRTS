@@ -29,4 +29,6 @@ Local Windows x64, Node **24.15.0**, Python **3.14.6**:
 
 The manifest no longer exempts Nervelet from license validation. The deployment test checks that its MIT license is included; existing deployment verification checks measured bytes and hashes. CI now installs directly from npm on both Windows and Linux before building and running the full suite.
 
+The first hosted attempts exposed timing-sensitive routine fixtures: a `guest_slice_deadline` in the six-worker isolation check and two bounded routine-admission waits. An unchanged retry passed Linux but repeated the six-worker failure on Windows. The isolation fixture now starts workers one at a time, holds their first sensor calls until all six are running, then releases all six for concurrent work. It verifies eight sensor calls and the correct private file for every worker in each of three rounds. Production slice, CPU, startup, host-call and storage limits remain unchanged; no test is skipped or retried inside the suite.
+
 No model inference or live gameplay was launched for this packaging change. These checks do not resolve the [native held-wait camera qualification gate](CAMERA-AGE-POLICY-QA.md) or establish new autonomous gameplay results. Earlier protocol and gameplay reports retain their original scope.

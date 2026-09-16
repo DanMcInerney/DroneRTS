@@ -98,11 +98,26 @@ test('six separate workers keep their files private while asynchronous sensor wo
   const owned: RoutineRunner[] = []; t.after(() => { for (const runner of owned) runner.cancel('test_cleanup'); });
   let ticks = 0; const timer = setInterval(() => ticks++, 10); t.after(() => clearInterval(timer));
   for (let round = 0; round < 3; round++) {
-    const participants = Array.from({ length: 6 }, (_, index) => harness('for (let n=0;n<8;n++) { const own = await drone.telemetry(); await drone.files.write("own.json", JSON.stringify(own)); await drone.sleep(10); }', { call: async () => ({ owner: index }) }));
-    for (const item of participants) { owned.push(item.runner); item.runner.start({ path: 'entry.js', mission: 1 }); }
+    let release!: () => void;
+    const sensors = new Promise<void>(resolve => { release = resolve; }), calls = Array(6).fill(0);
+    const participants = Array.from({ length: 6 }, (_, index) => harness('for (let n=0;n<8;n++) { const own = await drone.telemetry(); await drone.files.write("own.json", JSON.stringify(own)); await drone.sleep(10); }', {
+      call: async () => { calls[index]++; await sensors; return { owner: index }; },
+    }));
+    try {
+      // This fixture checks isolation and async overlap, not simultaneous cold WASM startup.
+      // Hold each worker's first sensor call until all six are alive, without enlarging any limit.
+      for (const [index, item] of participants.entries()) {
+        owned.push(item.runner); item.runner.start({ path: 'entry.js', mission: 1 });
+        const deadline = performance.now() + 5000;
+        while (!calls[index] && performance.now() < deadline && ['accepted', 'running'].includes(item.runner.status()!.state)) await delay(5);
+        assert.equal(calls[index], 1, JSON.stringify(item.runner.status()));
+      }
+      assert.ok(participants.every(item => item.runner.status()?.state === 'running'), JSON.stringify(participants.map(item => item.runner.status())));
+    } finally { release(); }
     const results = await Promise.all(participants.map(item => ended(item.runner)));
-  assert.ok(results.every(result => result.state === 'completed'), JSON.stringify(results));
-  for (const [index, item] of participants.entries()) assert.deepEqual(JSON.parse(item.workspace.read('own.json')), { owner: index });
+    assert.ok(results.every(result => result.state === 'completed'), JSON.stringify(results));
+    assert.deepEqual(calls, Array(6).fill(8));
+    for (const [index, item] of participants.entries()) assert.deepEqual(JSON.parse(item.workspace.read('own.json')), { owner: index });
   }
   assert.ok(ticks > 5);
 });
