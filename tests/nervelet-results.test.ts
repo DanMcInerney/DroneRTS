@@ -288,7 +288,7 @@ test('all six pilots retain isolated results through repeated recoveries with bo
     }));
   }
   const foreign = body(await pilots[0].call('observe', { seen: current[1].nervelet.id }));
-  assert.equal(foreign.rejected, true); assert.equal(pilots[0].bridge.stats().retainedResultBytes, charges[0]);
+  assert.equal(foreign.error.code, 'unknown_bundle'); assert.equal(pilots[0].bridge.stats().retainedResultBytes, charges[0]);
   await pilots[0].call('observe', { seen: current[0].nervelet.id });
   assert.equal(pilots[0].bridge.stats().retainedResultBytes, 0);
   pilots.slice(1).forEach((pilot, index) => assert.equal(pilot.bridge.stats().retainedResultBytes, charges[index + 1]));

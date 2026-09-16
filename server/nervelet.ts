@@ -1,11 +1,11 @@
-import { Bridge, ChangeSignal, commandDigest, immutableProfile, immutableResult, waitSchema } from 'nervelet';
+import { Bridge, ChangeSignal, commandDigest, identityInstructions, immutableProfile, immutableResult, NerveletError, serializeError, stepSchema, waitInstructionsFor, waitSchemaFor } from 'nervelet';
 import type { AttentionOptions, Bundle, Command, CommandIdentity, CommandContext, Environment, Goal, ImageAttachment, Job, Json, Profile, Receipt, Snapshot } from 'nervelet';
 import { withAbort } from './abort.ts';
 import { ACOUSTIC_BRIEFING } from '../shared/mission.ts';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { DroneId, GameEvent, ToolResult } from '../shared/types.ts';
 import { teamForDrone, teamRoster } from '../shared/fleet.ts';
-import { createDroneCatalog, createDroneTools, droneInstructions, NERVELET_RULE } from './runtime-tools.ts';
+import { createDroneCatalog, createDroneTools, droneInstructions } from './runtime-tools.ts';
 import { cacheAccounting, NERVELET_RESULT_LIMITS, resultBudget } from './nervelet-results.ts';
 import { compactObservationValue, resultSubmission, verifyFleetResult, type SubmittedResult } from './observation-format.ts';
 import type { FleetGame } from './game.ts';
@@ -14,6 +14,26 @@ const text = (value: unknown, isError = false): ToolResult => ({ content: [{ typ
 const body = (result: ToolResult): any => JSON.parse(result.content.find(item => item.type === 'text')!.text);
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value));
 export const NERVELET_CACHE_RESERVE = 384 * 1024;
+
+/** Names for this binding, shared by translation and Nervelet's instruction renderer. */
+export const DRONE_BINDING = Object.freeze({ observation: 'nervelet', seen: 'seen', commandId: 'command_id',
+  goalVersion: 'mission', generation: 'generation', observe: 'observe', waitTool: 'wait', batch: 'exchange',
+  waitUntil: 'until', waitReviewMs: 'timeout_ms' });
+const passiveTool = (name: string) => name === DRONE_BINDING.observe || name === DRONE_BINDING.waitTool;
+
+// Only translate representation. An inner error does not classify an enclosing effect.
+function bindingError(error: unknown) {
+  const serialized = serializeError(error);
+  if (!serialized.path) return serialized;
+  const prefixes = [
+    ['/wait/until', `/${DRONE_BINDING.waitUntil}`], ['/wait/reviewMs', `/${DRONE_BINDING.waitReviewMs}`],
+    ['/commands/0/id', `/${DRONE_BINDING.commandId}`], ['/commands/0/args', ''],
+    ['/goalVersion', `/${DRONE_BINDING.goalVersion}`], ['/generation', `/${DRONE_BINDING.generation}`],
+    ['/seen', `/${DRONE_BINDING.seen}`], ['/wait', ''], ['/commands/0', ''],
+  ];
+  const prefix = prefixes.find(([from]) => serialized.path === from || serialized.path!.startsWith(from + '/'));
+  return prefix ? { ...serialized, path: prefix[1] + serialized.path.slice(prefix[0].length) } : serialized;
+}
 
 /** One borrowed environment per authenticated pilot. No second sensor store or controller. */
 export class DroneNervelet implements Environment {
@@ -51,13 +71,14 @@ export class DroneNervelet implements Environment {
   constructor(private readonly game: FleetGame, readonly id: DroneId, private readonly options: { attention?: AttentionOptions; submission?: 'host' } = {}) {
     this.session = game.sessionIdentity;
     const tools = createDroneCatalog(teamRoster(teamForDrone(id)), teamForDrone(id));
-    this.profile = immutableProfile({ id: `drone-${id}`, version: 'dronerts-nervelet/3', camera: { policy: 'capture_on_step' },
+    this.profile = immutableProfile({ id: `drone-${id}`, version: 'dronerts-nervelet/4', camera: { policy: 'capture_on_step' },
       instructions: droneInstructions(id, teamRoster(teamForDrone(id)), teamForDrone(id)) + (game.acousticEnabled ? `\n\n${ACOUSTIC_BRIEFING}` : ''),
-      commands: Object.fromEntries(tools.filter(tool => !['observe', 'wait'].includes(tool.name)).map(tool => [tool.name, { description: tool.description!, schema: tool.inputSchema }])),
-      waitFields: { cargo: { source: 'state', path: ['currentTelemetry', 'cargo', 'amount'], maxAgeMs: 150 },
-        altitude: { source: 'state', path: ['currentTelemetry', 'position', 'y'], maxAgeMs: 150 } } });
+      commands: Object.fromEntries(tools.filter(tool => !passiveTool(tool.name)).map(tool => [tool.name, { description: tool.description!, schema: tool.inputSchema }])),
+      waitFields: { cargo: { source: 'state', path: ['currentTelemetry', 'cargo', 'amount'], maxAgeMs: 150, description: 'Carried salvage amount, in salvage units.' },
+        altitude: { source: 'state', path: ['currentTelemetry', 'position', 'y'], maxAgeMs: 150, description: 'Own local Y in local units (one unit is ten meters), not height above a roof.' } } });
     this.bridge = new Bridge(this, undefined, { environmentOwnership: 'borrowed', retainCommandArguments: false, submission: 'host', attention: options.attention,
-      instructions: { transport: 'tools', waitMode: 'hold', commandSchemas: 'transport', stop: false, refreshTools: tools.map(tool => tool.name) },
+      instructions: { transport: 'tools', waitMode: 'hold', commandSchemas: 'transport', stop: false, requireGeneration: true,
+        binding: DRONE_BINDING, refreshTools: tools.map(tool => tool.name) },
       goalProvider: { get: () => game.receivedGoal(id) },
       limits: { maxGoalBytes: 24 * 1024, maxProfileBytes: 48 * 1024, maxRecoveryBytes: 640 * 1024, maxBundleBytes: 512 * 1024,
         maxRequestBytes: 512 * 1024, maxCommandBytes: 400 * 1024, ...NERVELET_RESULT_LIMITS,
@@ -77,16 +98,16 @@ export class DroneNervelet implements Environment {
     if (!this.alive()) return [];
     const available = createDroneCatalog(teamRoster(teamForDrone(this.id)), teamForDrone(this.id));
     return available.map(tool => {
-      const passive = ['observe', 'wait'].includes(tool.name);
+      const passive = passiveTool(tool.name);
       const properties = { ...tool.inputSchema.properties };
-      if (tool.name === 'wait') { delete properties.after; properties.until = waitSchema.properties.until; }
-      const description = tool.name === 'wait'
-        ? 'Wait for unread mail/events, or optional until conditions: event type, terminal job, numeric cargo amount or altitude threshold/change. timeout_ms bounds the wait to 30 seconds. Returns fresh camera/telemetry and an unread slice; hasMore preserves the rest. Local work continues.'
+      if (tool.name === DRONE_BINDING.waitTool) { delete properties.after; properties[DRONE_BINDING.waitUntil] = waitSchemaFor(this.profile).properties.until; }
+      const description = tool.name === DRONE_BINDING.waitTool
+        ? `${waitInstructionsFor(this.profile)} ${DRONE_BINDING.waitReviewMs} bounds the held call to 30 seconds. Returns acquired camera/telemetry and unread events. Local work continues.`
         : tool.description;
-      return { ...tool, description: `${description} Echo nervelet.id as seen.${passive ? '' : ' Use nervelet.nextCommandId as command_id, nervelet.generation as generation; mission is still required.'}`,
-        inputSchema: { ...tool.inputSchema, properties: { ...properties, seen: { type: 'string', maxLength: 128 },
-          ...(!passive ? { command_id: { type: 'string', pattern: '^c[1-9][0-9]*$' }, generation: { type: 'integer', minimum: 1 } } : {}) },
-          ...(!passive && this.options.attention ? { required: [...(tool.inputSchema.required ?? []), 'generation'] } : {}) } };
+      return { ...tool, description: `${description} ${identityInstructions({ binding: DRONE_BINDING, requireGeneration: true }, !passive)}`,
+        inputSchema: { ...tool.inputSchema, properties: { ...properties, [DRONE_BINDING.seen]: { type: 'string', maxLength: 128 },
+          ...(!passive ? { [DRONE_BINDING.commandId]: stepSchema.properties.commands.items.properties.id, [DRONE_BINDING.generation]: stepSchema.properties.generation } : {}) },
+          ...(!passive && this.options.attention ? { required: [...(tool.inputSchema.required ?? []), DRONE_BINDING.generation] } : {}) } };
     });
   }
   async start() {} // Borrowed game owns acquisition, radio, and physics scheduling.
@@ -167,14 +188,19 @@ export class DroneNervelet implements Environment {
   }
   call(name: string, args: Record<string, any> = {}, signal?: AbortSignal): Promise<ToolResult> {
     const control = name === 'act' && args.kind === 'hover' || ['route', 'routine'].includes(name) && args.op === 'cancel';
-    if (control) return this.controlCall(name, args).then(result => this.finalize(result, signal));
-    if (this.active) return Promise.resolve(text({ rejected: true, reason: 'Nervelet busy: use one ordinary call at a time; batch compatible commands with exchange.' }, true));
+    if (control) return this.controlCall(name, args).then(result => this.finalize(result, signal)).catch(error => this.errorResult(error, signal));
+    if (this.active) return Promise.resolve(text({ rejected: true, reason: `Nervelet busy: use one ordinary call at a time; batch compatible commands with ${DRONE_BINDING.batch}.` }, true));
     const controller = new AbortController();
     const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
     const done = this.ordinary(name, args, requestSignal).then(result => this.finalize(result, requestSignal)).finally(() => { if (this.active?.controller === controller) this.active = undefined; });
-    this.active = { controller, done, watchTelemetry: name === 'wait' && Array.isArray(args.until) && args.until.some(c => c?.kind === 'threshold' || c?.kind === 'change') }; return done;
+    this.active = { controller, done, watchTelemetry: name === DRONE_BINDING.waitTool && Array.isArray(args[DRONE_BINDING.waitUntil]) && args[DRONE_BINDING.waitUntil].some((c: any) => c?.kind === 'threshold' || c?.kind === 'change') }; return done;
   }
   abortTools(reason: unknown = new Error('Native turn cancelled')) { this.active?.controller.abort(reason); }
+  private errorResult(error: unknown, signal?: AbortSignal) {
+    const detail = bindingError(error);
+    // reason remains a presentation alias for existing cockpit consumers.
+    return text({ error: detail, stopped: !this.alive(), cancelled: signal?.aborted ?? false, reason: detail.message }, true);
+  }
   private finalize(result: ToolResult, signal?: AbortSignal) {
     try {
       // Cancellation results remain paired errors, but abandoned observations cannot submit.
@@ -184,16 +210,16 @@ export class DroneNervelet implements Environment {
       return result;
     } catch (error) {
       (result as SubmittedResult)[resultSubmission]?.failed(error);
-      return text({ rejected: true, cancelled: signal?.aborted ?? false, reason: String(error), instruction: 'Observe for recovery; do not replay uncertain effects.' }, true);
+      return this.errorResult(error, signal);
     }
   }
   private async controlCall(name: string, args: Record<string, any>): Promise<ToolResult> {
-    if (!this.alive() || args.mission !== this.game.receivedMission(this.id)) return text({ rejected: true, reason: 'Stopped or stale mission' }, true);
+    if (!this.alive() || args[DRONE_BINDING.goalVersion] !== this.game.receivedMission(this.id)) return text({ rejected: true, reason: 'Stopped or stale mission' }, true);
     this.active?.controller.abort(new Error('Cancelled by responsive control'));
     const result = await this.game.executeOnboard(this.id, name, args, () => this.assertAlive());
     await this.active?.done;
     // A new observation still has to be acknowledged; cancellation never auto-acks mail.
-    const observation = await this.call('observe', { seen: args.seen });
+    const observation = await this.call(DRONE_BINDING.observe, { [DRONE_BINDING.seen]: args[DRONE_BINDING.seen] });
     return { ...observation, content: [...observation.content, { type: 'text', text: JSON.stringify({ control: body(result) }) }] };
   }
   private async ordinary(name: string, args: Record<string, any>, signal: AbortSignal): Promise<ToolResult> {
@@ -207,12 +233,12 @@ export class DroneNervelet implements Environment {
       }
       this.game.markActorOnline(this.id); this.captured = undefined; this.commit = undefined;
       let request: any;
-      if (name === 'observe' || name === 'wait') request = { schemaVersion: 2, seen: args.seen,
-        ...(name === 'wait' ? { wait: { until: args.until ?? [{ kind: 'anyEvent' }], reviewMs: args.timeout_ms ?? 30000 } } : {}) };
+      if (passiveTool(name)) request = { schemaVersion: 2, seen: args[DRONE_BINDING.seen],
+        ...(name === DRONE_BINDING.waitTool ? { wait: { until: args[DRONE_BINDING.waitUntil] ?? [{ kind: 'anyEvent' }], reviewMs: args[DRONE_BINDING.waitReviewMs] ?? 30000 } } : {}) };
       else {
-        if (!args.command_id) return text({ rejected: true, reason: 'command_id required. Use nervelet.nextCommandId from observe; echo nervelet.id as seen.' }, true);
-        const { seen, command_id, generation, ...commandArgs } = args;
-        request = { schemaVersion: 2, seen, generation, goalVersion: args.mission, commands: [{ id: command_id, kind: name, args: commandArgs }] };
+        if (!args[DRONE_BINDING.commandId]) throw new NerveletError('invalid_input', identityInstructions({ binding: DRONE_BINDING, requireGeneration: true }), { path: '/commands/0/id' });
+        const { [DRONE_BINDING.seen]: seen, [DRONE_BINDING.commandId]: commandId, [DRONE_BINDING.generation]: generation, ...commandArgs } = args;
+        request = { schemaVersion: 2, seen, generation, goalVersion: args[DRONE_BINDING.goalVersion], commands: [{ id: commandId, kind: name, args: commandArgs }] };
       }
       let bundle = await this.bridge.step(request, signal, { maxHoldMs: 30000, textEncoding: 'tool-result', wrapperBytes: 4096 });
       signal.throwIfAborted(); this.assertAlive();
@@ -231,14 +257,14 @@ export class DroneNervelet implements Environment {
         for (const receipt of bundle.results ?? []) if (receipt.status === 'unknown') await this.bridge.reconcile(receipt.id);
         if (this.bridge.status().fault) {
           this.game.stop(); this.game.emit('transport-error', { role: this.id, message: `Nervelet: ${bundle.fault}` });
-          return text({ stopped: true, fault: bundle.fault, nervelet: { id: bundle.id, results: bundle.results }, instruction: 'Match stopped after unresolved admission; do not replay commands.' }, true);
+          return text({ stopped: true, fault: bundle.fault, [DRONE_BINDING.observation]: { id: bundle.id, results: bundle.results }, instruction: 'Match stopped after unresolved admission; do not replay commands.' }, true);
         }
         // Recovery after reconciliation requires another delivered observation.
         return this.output(await this.bridge.step({ schemaVersion: 2 }, signal, { textEncoding: 'tool-result', wrapperBytes: 4096 }));
       }
       return this.output(bundle, request.commands?.[0]?.id);
     } catch (error) {
-      return text({ stopped: !this.alive(), cancelled: signal.aborted, rejected: true, reason: String(error), instruction: 'Observe again for fresh evidence; do not replay uncertain commands.' }, true);
+      return this.errorResult(error, signal);
     } finally { this.captured = undefined; this.commit = undefined; }
   }
   private output(bundle: Bundle, commandId?: string): ToolResult {
@@ -264,7 +290,7 @@ export class DroneNervelet implements Environment {
     }
     const final = { ...observation, events: included, hasMore: Boolean(bundle.hasMore),
       cursor: included.at(-1)?.cursor ?? this.game.inboxes[this.id].delivered,
-      launchReady: this.game.launchReady, nervelet: { ...metadata, aliases: NERVELET_RULE },
+      launchReady: this.game.launchReady, [DRONE_BINDING.observation]: metadata,
       availableTools: createDroneTools(teamRoster(teamForDrone(this.id)), this.game.toolCapabilities(this.id), teamForDrone(this.id)).map(tool => tool.name),
     };
     const current = commandId ? bundle.results?.find(receipt => receipt.id === commandId) : undefined;
