@@ -6,7 +6,7 @@ All eight gameplay actors—six drones and two mechanical relay parents—use **
 
 ## Run a match
 
-The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, recovery and conditional waits. The current exact pin includes host-confirmed submission and cancellation; see [camera-age QA](CAMERA-AGE-POLICY-QA.md) and [upgrade QA](NERVELET-UPGRADE-QA.md) for measured results and limitations. The pinned source is available on upstream main through [Nervelet PR #4](https://github.com/DanMcInerney/nervelet/pull/4); setup builds its verified package locally because it is not published to npm.
+The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, recovery and conditional waits. The current exact pin includes host-confirmed submission and cancellation; see [camera-timeout QA](CAMERA-TIMEOUT-QA.md), [camera-age QA](CAMERA-AGE-POLICY-QA.md) and [upgrade QA](NERVELET-UPGRADE-QA.md) for measured results and limitations. The pinned source is available on upstream main through [Nervelet PR #4](https://github.com/DanMcInerney/nervelet/pull/4); setup builds its verified package locally because it is not published to npm.
 
 Requires Node.js 24+, Python (tested with 3.12.4 and 3.14.6), and an installed, signed-in Codex CLI. Nervelet requires Node 24; bounded routines also use per-thread CPU accounting. Python dependencies stay in the project `.venv`.
 
