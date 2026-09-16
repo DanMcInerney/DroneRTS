@@ -130,10 +130,22 @@ pymavlink **2.4.49** installed through `network:setup`.
 | Documentation targets and fences | Seven current files, 79 local links and five fences checked |
 | `git diff --check` | Pass |
 
+Fresh-checkout verification cloned application commit
+`b1410a57f53040855e6144736d2e8f75186faf8f` into the ignored
+`.runtime/final-fresh-install/` directory. With the local `NERVELET_SOURCE` above,
+`nervelet:setup`, `npm ci`, the production build and manifest generation all
+passed. The rebuilt 124,409-byte archive matched both hashes above; the complete
+manifest was identical. All **29/29** result and wait tests passed in that clone.
+The subsequent commit adds only this evidence record. Public upstream setup
+remains unqualified until the pinned Nervelet commit is published there.
+
 The shutdown fixture can emit Vite's closed-server dependency-scan diagnostics
 while it deliberately closes its owned server; all assertions and port cleanup
 passed. Full raw test output is retained by the managed artifact runner. No
 previous suite count is treated as evidence for this revision.
+The final managed run is
+`artifacts/test-runs/2026-09-16T14-14-41-783Z-tests-c7b15ee1/`; related focused,
+setup, build, manifest and fresh-checkout logs are grouped there.
 
 ## Remaining qualification
 
