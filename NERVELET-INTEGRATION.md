@@ -1,6 +1,6 @@
 # Nervelet integration
 
-DroneRTS embeds Nervelet **0.2.0**, exact revision `83e082d6b806bf6eeac205710444149a2ac5d3f0`, in its existing Node process. Version 0.2.0 alone does not identify this implementation. `TeamSession` creates one `DroneNervelet` environment/Bridge per authenticated pilot. Codex still owns the two native parents and six clean-context Luna/xhigh children. [Reliability QA](RELIABILITY-QA.md) records the current pin, checks and budgets. [Camera-age correction](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate; [upgrade qualification](NERVELET-UPGRADE-QA.md) preserves earlier measurements.
+DroneRTS embeds Nervelet **0.2.0**, exact revision `54ba0d38e0ee7216212d231020d088da3a3fe435`, in its existing Node process. Version 0.2.0 alone does not identify this implementation. `TeamSession` creates one `DroneNervelet` environment/Bridge per authenticated pilot. Codex still owns the two native parents and six clean-context Luna/xhigh children. [Reliability QA](RELIABILITY-QA.md) records the current pin, checks and budgets. [Camera-age correction](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate; [upgrade qualification](NERVELET-UPGRADE-QA.md) preserves earlier measurements.
 
 ## Before and after
 
@@ -29,7 +29,7 @@ npm run network:setup
 npm run dev
 ```
 
-Nervelet is unpublished. Direct Git installation omits `dist/`. `scripts/setup-nervelet.mjs` checks out the exact revision in its ignored `.runtime/nervelet-source-<revision-prefix>/` directory, builds/packs it without source patches, and verifies SHA-256 `e3ba0909a443b488178272290eb023e4d8e847f2338e9c27ed4b125d0904b46d`. The dependency is `.runtime/nervelet-83e082d6b806bf6eeac205710444149a2ac5d3f0.tgz`; the lockfile also pins SHA-512 integrity. [Reliability QA](RELIABILITY-QA.md) records the exact archive and fresh-install evidence.
+Nervelet is unpublished. Direct Git installation omits `dist/`. `scripts/setup-nervelet.mjs` checks out the exact revision in its ignored `.runtime/nervelet-source-<revision-prefix>/` directory, builds/packs it without source patches, and verifies SHA-256 `8f3ea917f4229fec422e414f3349aff08ef51b22816267ef37be22ffccc8f488`. The dependency is `.runtime/nervelet-54ba0d38e0ee7216212d231020d088da3a3fe435.tgz`; the lockfile also pins SHA-512 integrity. [Reliability QA](RELIABILITY-QA.md) records the exact archive and fresh-install evidence.
 
 The new reliability pin is a **local unmerged commit**. Set `NERVELET_SOURCE` to a clone containing it before setup; the implementation worktree's repository contains that object. Setup otherwise selects `~/tools/nervelet` if available, then GitHub. A selected source must contain the exact pin; no version-only or fallback dependency is substituted. Public reproducibility is pending availability of that commit from the declared upstream source. Review the Nervelet commit first, then the dependent DroneRTS commit. The verified tarball is built locally, not published to npm. The previous pin's publication through Nervelet PR #4 does not publish this new revision.
 

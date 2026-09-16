@@ -4640,8 +4640,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 50936,
-      "sha256": "42782ab89f6fd731b1104f894600cfcc6e1c5ddd6ee11bf6b1a7750438a26e20"
+      "bytes": 51914,
+      "sha256": "be0ad7ae993b09bb3a86be4939927cbc6a8d7a454031b3745117222be9f5d30c"
     },
     {
       "path": "node_modules/nervelet/dist/drivers/api.d.ts",
@@ -4984,8 +4984,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 7291,
-      "sha256": "4b3ad9546f560e997fef44e8698cf614f9ce9d65520d96eb9e5389a71116dba1"
+      "bytes": 7348,
+      "sha256": "dd783fa71b2d6cb0e258c0410e5e337ee1c60830ca30e0d7e0f8328f63c8fa5b"
     },
     {
       "path": "node_modules/nervelet/docs/architecture-options.md",
@@ -5080,16 +5080,16 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 4375,
-      "sha256": "5476da8a2be490ea8e9943a487eeff2371634a88530b76adf0ab8d51eee1c293"
+      "bytes": 4760,
+      "sha256": "91c7af2e8ccd642572d9870f64419700bbb78d3c80df46158c55a13469971fb0"
     },
     {
       "path": "node_modules/nervelet/docs/v2.md",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 17249,
-      "sha256": "e7b8476c74958ff24c41683e72955bd25b246f402cdf28dd23073a5cee6547d6"
+      "bytes": 17781,
+      "sha256": "d82a1f0ffc69b0d94e69734b38e793c74c426f8622b05587b5d415028ba27e53"
     },
     {
       "path": "node_modules/nervelet/docs/validation.md",
@@ -5556,9 +5556,9 @@
       "sha256": "cee9ae6dbf2a11629a95e4cb13db9033119f756fe6e1a17fd7c03e5b4fa7d1ce"
     }
   ],
-  "artifactBytes": 3399110,
+  "artifactBytes": 3401062,
   "manifestBytes": 188617,
-  "installedBytes": 3587727,
+  "installedBytes": 3589679,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],

@@ -9,13 +9,13 @@ fixtures and closes them afterward. Nothing was merged or deployed.
 
 ## Dependency and reproduction
 
-Nervelet source: **`83e082d6b806bf6eeac205710444149a2ac5d3f0`**, version 0.2.0.
+Nervelet source: **`54ba0d38e0ee7216212d231020d088da3a3fe435`**, version 0.2.0.
 The source was committed clean, built and packed, then installed from the actual
 archive. No installed package or staged library source was patched.
 
-- Archive: `.runtime/nervelet-83e082d6b806bf6eeac205710444149a2ac5d3f0.tgz`.
-- SHA-256: `e3ba0909a443b488178272290eb023e4d8e847f2338e9c27ed4b125d0904b46d`.
-- SHA-512: `sha512-wDNP32C2NPNC3v1ohr0b28As/81Cp1LsKXzzzDgZvNXznJHx2zHyLVv+O60pDCizdSLuItXDzo7uvP0SOj6D4w==`.
+- Archive: `.runtime/nervelet-54ba0d38e0ee7216212d231020d088da3a3fe435.tgz`.
+- SHA-256: `8f3ea917f4229fec422e414f3349aff08ef51b22816267ef37be22ffccc8f488`.
+- SHA-512: `sha512-BN1yMJgl34KNRoCvfQuEJjie0tJpH6lTnplOimM/6IdqlQ20bai7ES0vZYXbNkjQ0Dr1/B+19h+mkS/Gcgp83A==`.
 - MCP SDK: **1.30.0**, the already locked version, now exact in both manifests.
 
 Review/publish the Nervelet commit first, then the dependent DroneRTS branch.
@@ -24,7 +24,7 @@ to a local clone containing it. For this implementation the source was
 `C:/Users/danhm/tools/nervelet-implementation-20260916`. Run
 `npm run nervelet:setup`, `npm ci`, and `npm run network:setup` with Node 24+.
 The first two commands succeeded with the declared archive and integrity.
-Clean-checkout reproduction is recorded below after the independent review.
+Clean-checkout reproduction is recorded below.
 
 ## Accepted scope
 
@@ -106,20 +106,28 @@ and benchmark reproduction.
 
 ## Validation
 
+One independent final review found two library edge cases. The repair adds
+revision/identity checks after awaited reconciliation, preventing stale results
+from recharging evicted records or changing recovery. It also reserves 2,048
+escaped bytes for default scalar results before reliable admission, preventing
+an effect from creating an undeliverable receipt. Five added library regressions
+cover those paths, explicit scalar bounds and legacy compatibility. The final
+application checks below use the repaired clean package, not the earlier pin.
+
 Windows x64; Node **24.15.0**; isolated Python **3.14.6**, Zenoh **1.10.1** and
 pymavlink **2.4.49** installed through `network:setup`.
 
 | Check | Result |
 | --- | --- |
-| Nervelet `npm ci`, `npm test` | Pass, **124/124** |
+| Nervelet `npm ci`, `npm test` | Pass, **129/129** |
 | Nervelet typecheck / docs / package / diff | Pass; clean commit package consumer and optional-peer isolation verified |
 | DroneRTS `nervelet:setup`, `npm ci`, `network:setup` | Pass |
 | New original-result/storage suite | **15/15 pass** |
-| Wait + real MCP targeted suite | **18/18 pass** after correcting a fixture assertion for explicit `stopped:false` |
-| Real MCP suite including concurrent correlation | **5/5 pass** |
+| Final-pin focused integration / results / waits / runtime / MCP / attention / notifications | **87/87 pass**, including all five real MCP tests |
 | Full DroneRTS `npm test` | **499/499 pass**, including actual native protocol fixtures |
 | TypeScript + production build | Pass; existing Vite large-chunk advisory |
-| Onboard manifest | **3,587,727 / 8,388,608 bytes**, 694 measured artifacts |
+| Onboard manifest | **3,589,679 / 8,388,608 bytes**, 694 measured artifacts |
+| Documentation targets and fences | Seven current files, 79 local links and five fences checked |
 | `git diff --check` | Pass |
 
 The shutdown fixture can emit Vite's closed-server dependency-scan diagnostics

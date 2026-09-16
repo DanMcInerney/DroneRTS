@@ -20,7 +20,7 @@
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "express": "^5.1.0",
-    "nervelet": "file:.runtime/nervelet-83e082d6b806bf6eeac205710444149a2ac5d3f0.tgz",
+    "nervelet": "file:.runtime/nervelet-54ba0d38e0ee7216212d231020d088da3a3fe435.tgz",
     "quickjs-emscripten-core": "0.32.0",
     "three": "^0.183.2",
     "ws": "^8.19.0",

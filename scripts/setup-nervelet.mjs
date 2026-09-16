@@ -5,8 +5,8 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-const revision = '83e082d6b806bf6eeac205710444149a2ac5d3f0';
-const integrity = 'e3ba0909a443b488178272290eb023e4d8e847f2338e9c27ed4b125d0904b46d';
+const revision = '54ba0d38e0ee7216212d231020d088da3a3fe435';
+const integrity = '8f3ea917f4229fec422e414f3349aff08ef51b22816267ef37be22ffccc8f488';
 const root = resolve(import.meta.dirname, '..');
 const stage = resolve(root, `.runtime/nervelet-source-${revision.slice(0, 12)}`);
 function run(command, args, cwd = root) {
