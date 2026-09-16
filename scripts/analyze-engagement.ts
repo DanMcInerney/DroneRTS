@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import type { ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
 import type { Drone, Pose } from '../shared/types.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
+import { extractObservationBoundaries } from './analysis-boundaries.ts';
 
 if (!process.argv[2]) throw new Error('Usage: node --import tsx scripts/analyze-engagement.ts <saved-trial-directory>');
 const directory = resolve(process.argv[2]);
@@ -106,36 +107,13 @@ const paths = Object.fromEntries(header.roster.map(member => {
     movementCommands: commands, clearCenterViews: projectionSummary(clear.filter(value => value.drone === member.id)) }];
 }));
 
-type Delivery = { role: string; name: string; capturedAt: string; deliveredAt: string; resultAt: string; simTime: number; completedAt?: string };
-const previousDelivery = new Map<string, Delivery>();
-const pendingCompletion = new Map<string, Delivery[]>();
-const deliveries: Delivery[] = [];
-const transitions: Array<{ role: string; previousTool: string; nextTool: string; callAt: string; captureToCallMs: number; deliveryToCallMs: number; nativeCompletionToCallMs: number | null }> = [];
-for (const record of audit) {
-  if (record.type !== 'agent' || !record.value.role?.startsWith('drone-')) continue;
-  const value = record.value, role: string = value.role;
-  if (value.type === 'tool') {
-    const previous = previousDelivery.get(role);
-    if (previous) transitions.push({ role, previousTool: previous.name, nextTool: value.name, callAt: record.wallTime,
-      captureToCallMs: Date.parse(record.wallTime) - Date.parse(previous.capturedAt),
-      deliveryToCallMs: Date.parse(record.wallTime) - Date.parse(previous.deliveredAt),
-      nativeCompletionToCallMs: previous.completedAt ? Date.parse(record.wallTime) - Date.parse(previous.completedAt) : null });
-  }
-  if (value.type === 'tool-result') {
-    let body: any;
-    try { body = JSON.parse(value.result.content.find((item: any) => item.type === 'text').text); } catch { continue; }
-    if (!body.sensors?.timestamp?.capturedAt || !body.deliveredAt) continue;
-    const delivery: Delivery = { role, name: value.name, capturedAt: body.sensors.timestamp.capturedAt,
-      deliveredAt: body.deliveredAt, resultAt: record.wallTime, simTime: body.sensors.timestamp.simTime };
-    deliveries.push(delivery); previousDelivery.set(role, delivery);
-    const key = `${role}:${value.name}`, queue = pendingCompletion.get(key) ?? [];
-    queue.push(delivery); pendingCompletion.set(key, queue);
-  }
-  if (value.type === 'mcp-result') {
-    const delivery = pendingCompletion.get(`${role}:${value.tool}`)?.shift();
-    if (delivery) delivery.completedAt = record.wallTime;
-  }
-}
+const { deliveries, gaps } = extractObservationBoundaries(audit);
+const transitions = gaps.map(({ role, from, callMs, nextTool }) => ({
+  role, previousTool: from.name, nextTool, callAt: new Date(callMs).toISOString(),
+  captureToCallMs: callMs - Date.parse(from.body.sensors?.timestamp?.capturedAt),
+  deliveryToCallMs: callMs - Date.parse(from.body.deliveredAt),
+  nativeCompletionToCallMs: from.completedMs === undefined ? null : callMs - from.completedMs,
+}));
 const transitionStats = (values: typeof transitions) => ({
   captureToNextCallMs: stats(values.map(value => value.captureToCallMs)),
   deliveryToNextCallMs: stats(values.map(value => value.deliveryToCallMs)),
@@ -159,8 +137,8 @@ const summary = {
     opportunities: clear },
   paths,
   timing: { unit: 'milliseconds', observationsWithDelivery: deliveries.length,
-    captureToDeliveryMs: stats(deliveries.map(value => Date.parse(value.deliveredAt) - Date.parse(value.capturedAt))),
-    serverResultToNativeCompletionMs: stats(deliveries.flatMap(value => value.completedAt ? [Date.parse(value.completedAt) - Date.parse(value.resultAt)] : [])),
+    captureToDeliveryMs: stats(deliveries.map(value => Date.parse(value.body.deliveredAt) - Date.parse(value.body.sensors?.timestamp?.capturedAt))),
+    serverResultToNativeCompletionMs: stats(deliveries.flatMap(value => value.completedMs === undefined ? [] : [value.completedMs - value.wallMs])),
     allTransitions: transitionStats(transitions),
     byNextTool: Object.fromEntries([...new Set(transitions.map(value => value.nextTool))].map(name => [name, transitionStats(transitions.filter(value => value.nextTool === name))])),
     byRole: Object.fromEntries(header.roster.map(member => [member.id, transitionStats(transitions.filter(value => value.role === member.id))])),
@@ -171,7 +149,7 @@ const summary = {
     'Observer pose is exact acquisition evidence; opponent poses use the latest sampled frame at or before acquisition, preceding the observation in file order. Frame age is reported. No later simulation times or interpolated positions are used; same-tick mutations during image delivery cannot be reconstructed exactly.',
     'Proximity duration integrates preceding samples and movement speed uses sampled positions; duplicate forced frames receive zero duration. Neither proves agent intent.',
     'Capture-to-delivery includes MAVLink sample, browser round trip and encoding. Delivery-to-call includes response transport, model inference and tool dispatch/hooks; logs do not isolate private reasoning. Native completion is an app-server event, not a model-read timestamp.',
-    'Consecutive tool boundaries are associated in per-drone audit order. A final delivery without a next call is excluded from transition distributions. Deliberate wait duration is not mislabeled inference time: each transition begins after the previous wait returns.',
+    'Each observation contributes at most its first following tool call in per-drone audit order; error-only outputs are not observations. A final delivery without a next call is excluded from transition distributions. Deliberate wait duration is not mislabeled inference time: each transition begins after the previous wait returns.',
   ],
 };
 await writeFile(resolve(directory, 'engagement-analysis.json'), JSON.stringify(summary, null, 2));

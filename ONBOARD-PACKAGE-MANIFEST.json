@@ -4632,16 +4632,16 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 5403,
-      "sha256": "4225edcc4c4cd0460f46fea5aad03f5cf030b2b24e93f97e746ad6b2d3207e21"
+      "bytes": 5429,
+      "sha256": "93721c2c1f3bbde8879dbd52e7e9d8e87d6aee8ea9aaa94c03c3520c3c9c3f86"
     },
     {
       "path": "node_modules/nervelet/dist/core.js",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 51914,
-      "sha256": "be0ad7ae993b09bb3a86be4939927cbc6a8d7a454031b3745117222be9f5d30c"
+      "bytes": 52984,
+      "sha256": "31d5dca0a8fd477445ec6fa7d53c2026a3c9493d129dbc8a0d1ad5bbf68449a8"
     },
     {
       "path": "node_modules/nervelet/dist/drivers/api.d.ts",
@@ -4656,8 +4656,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 12402,
-      "sha256": "33c649cf41cb9436973a8549460f2f3499013ac221ba4fc3f2e0dd93f076f5c4"
+      "bytes": 12432,
+      "sha256": "e4a532063c680bea819b9483e1fbca21a6f223293a1d5059a275b8840a8f2668"
     },
     {
       "path": "node_modules/nervelet/dist/drivers/app-server.d.ts",
@@ -4720,8 +4720,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 5885,
-      "sha256": "1bb0577d3d3650085f7990c55de321dbd875d64a5aae647931505d0d62ac385d"
+      "bytes": 6301,
+      "sha256": "af4449e7fbd2e95d29ee3e3880dd809e4ca56ebd0f8350c0d59b969fc7c1a547"
     },
     {
       "path": "node_modules/nervelet/dist/harnesses/claude-code.d.ts",
@@ -4776,32 +4776,32 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 965,
-      "sha256": "3efa709237a4af7168ed66c4d4e9fcd76b8b82958c424c0f0afaa744a69f5ce0"
+      "bytes": 1113,
+      "sha256": "23d87c16534c9119c50041b4c36df6d19c54ec57bba67a7a9a96681d47ffe97f"
     },
     {
       "path": "node_modules/nervelet/dist/index.js",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 700,
-      "sha256": "e1007880dace01970b727ec4a62842ed80173605bc4d62868b30696503ccd5b4"
+      "bytes": 784,
+      "sha256": "bdb507ffa7d0f0d79ac25d8e86ef4a09f775f63e210249f391ab2a3ed512b34a"
     },
     {
       "path": "node_modules/nervelet/dist/instructions.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 401,
-      "sha256": "4253f50dc307430a34473a5dede54a48c13196359020bf2429668bb0a26e55f3"
+      "bytes": 500,
+      "sha256": "93dc1c9a39d194e11647a23a528d28a6346ae171b876f50e7dc8b52bb3907a86"
     },
     {
       "path": "node_modules/nervelet/dist/instructions.js",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 2719,
-      "sha256": "b2e13b2a33c23928dc49d445f6e1e453dbcb904632119204fd4dfb5a26acc0b1"
+      "bytes": 5027,
+      "sha256": "c3c899c34c522f71d6c9a659667d626bde1392642d75ca2d246c986f4e3423ac"
     },
     {
       "path": "node_modules/nervelet/dist/ipc.d.ts",
@@ -4816,8 +4816,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 11583,
-      "sha256": "9577ee9d0da5f18124e1631679761c4e3c8668fbdd3acc5b475b1b3ff68d1f77"
+      "bytes": 11515,
+      "sha256": "efd2aae8b0d8c9846cbd067cc247e447f11cad7667c3c4da54426ff24f865b2e"
     },
     {
       "path": "node_modules/nervelet/dist/presentation.d.ts",
@@ -4872,16 +4872,16 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 11037,
-      "sha256": "3328d8ff9918f20f56d16c0e9ec29b0f27e7d04e9c3ba089c514b785a66bbd3f"
+      "bytes": 11951,
+      "sha256": "4fc4272ffeb69b65f50313430752178c6defaaecdc35eaf95c630d89c2b7375f"
     },
     {
       "path": "node_modules/nervelet/dist/schemas.js",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 2895,
-      "sha256": "013dc99ac24344811ee778083ba03156c577e0d9ffb3dd24e5268cede9824ac3"
+      "bytes": 4201,
+      "sha256": "8384fb6432252c70e2c715bd33fcdbf83637488d5725f521896bde7c600756fa"
     },
     {
       "path": "node_modules/nervelet/dist/store.d.ts",
@@ -4928,16 +4928,16 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 4772,
-      "sha256": "1abf4cc8db8f4afa58ff7d3d8880ee83e53e825bb29629d730b1adca92dfe1bd"
+      "bytes": 4718,
+      "sha256": "1d2fa0714b3d0b983b09145730f59e966029c1f304ead79f12e44676a64261b8"
     },
     {
       "path": "node_modules/nervelet/dist/types.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 9929,
-      "sha256": "a5db414a533131362558cb7796e52bb99cc9e558d6b6bb4bebe2ab6e00dbc53b"
+      "bytes": 10355,
+      "sha256": "67f2f2674330832dec13707a8470fd079acefa505954414b2badc1422378a850"
     },
     {
       "path": "node_modules/nervelet/dist/types.js",
@@ -4952,16 +4952,16 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 1243,
-      "sha256": "1c899f013c956854bbddd8139d99039deb30147b40fa0dc4ef0af29575580ea1"
+      "bytes": 1708,
+      "sha256": "d4dc6fd13d0e4d18c3b947abc6ec5399cb7aa9d2dfb098af84ae92c1248ac5c2"
     },
     {
       "path": "node_modules/nervelet/dist/util.js",
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 4127,
-      "sha256": "c61c139221348da9d7c1be87fa70435c9cf463a7b095bac9e18df1e904c125f0"
+      "bytes": 5508,
+      "sha256": "a3ad3e821a4dcc9b126894f8ad7d353f18978937974e0a853281c504c68e6bc2"
     },
     {
       "path": "node_modules/nervelet/dist/waits.d.ts",
@@ -5088,8 +5088,8 @@
       "package": "nervelet",
       "version": "0.2.0",
       "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 17781,
-      "sha256": "d82a1f0ffc69b0d94e69734b38e793c74c426f8622b05587b5d415028ba27e53"
+      "bytes": 19829,
+      "sha256": "3fa52f6444026bde8f7ff62b2f88758378d569f508f51d04b1a38cf9c0461a2d"
     },
     {
       "path": "node_modules/nervelet/docs/validation.md",
@@ -5424,8 +5424,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 21781,
-      "sha256": "669d3ce9dbdcda266459fa091cc5e55d70b11af33e967e12bad048a355bf87bc"
+      "bytes": 23633,
+      "sha256": "4e0115bcca5d84bedfba01bae501f725863ab2482fa93dd338cbdce3a254fcb0"
     },
     {
       "path": "server/observation-format.ts",
@@ -5496,8 +5496,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 18878,
-      "sha256": "e8b71eb10df3011c4f5ad6bd59ee0f962b0b31fb6d210d357d68e714140f9114"
+      "bytes": 17679,
+      "sha256": "09730b3e5426bfa84b11931ab8a98a422e6cab6c4bf141aaec8cf663b13d9a3e"
     },
     {
       "path": "shared/acoustic-profile.ts",
@@ -5536,8 +5536,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 9402,
-      "sha256": "3d83a294f86820433ed648d0dd0ec6523a59b7d2d772dd716dce44912a46adf7"
+      "bytes": 9290,
+      "sha256": "133b0962c482be25b16aab8cf584576c4f4061fd4a2572914070e57245d8a4d5"
     },
     {
       "path": "shared/onboard.ts",
@@ -5552,13 +5552,13 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 7019,
-      "sha256": "7310a9434b23b6517c9e32161a0f5dfdeb90f900cb7d04b84b5fc39ffab8478d"
+      "bytes": 7027,
+      "sha256": "bca2ce70d67cf8ffc68305448287510f7087dfce66db183131fea2b83353cf75"
     }
   ],
-  "artifactBytes": 3402323,
-  "manifestBytes": 188617,
-  "installedBytes": 3590940,
+  "artifactBytes": 3413471,
+  "manifestBytes": 188619,
+  "installedBytes": 3602090,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],

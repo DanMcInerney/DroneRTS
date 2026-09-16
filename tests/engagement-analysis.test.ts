@@ -15,9 +15,10 @@ test('engagement measurements separate delivery from decisions and use past geom
   t.after(() => rm(directory, { recursive: true, force: true }));
   const sessionId = 'session-fixture.jsonl', session = join(directory, 'replays', 'session-fixture');
   await mkdir(session, { recursive: true });
-  await writeFile(join(directory, 'result.json'), JSON.stringify({ sessionId, scenario: 'fixture' }));
   const manifest = Object.fromEntries(await Promise.all(['server/world-geometry.ts', 'client/scene.ts', 'client/drone-model.ts'].map(async file =>
     [file, createHash('sha256').update(await readFile(new URL(`../${file}`, import.meta.url))).digest('hex')])));
+  await writeFile(join(directory, 'result.json'), JSON.stringify({ sessionId, scenario: 'fixture', seconds: 20,
+    manifestSha256: createHash('sha256').update(JSON.stringify(manifest)).digest('hex') }));
   await writeFile(join(directory, 'source-manifest.json'), JSON.stringify(manifest));
   const game = new FleetGame();
   const poses = [[0, 10, 0], [100, 10, 100], [110, 10, 100], [0, 10, -14], [8, 10, -14], [0, 10, 14]];
@@ -29,10 +30,16 @@ test('engagement measurements separate delivery from decisions and use past geom
     frame, { type: 'observation', drone: 'drone-1', simTime: 0.5, pose: game.state.drones[0], imageId: 'camera.jpg' }, future];
   await writeFile(join(session, 'frames.jsonl'), records.map(r => JSON.stringify(r)).join('\n') + '\n');
   const audit = [
+    { wallTime: '2026-09-14T00:00:00.000Z', type: 'combat', value: { type: 'match_started' } },
     { wallTime: '2026-09-14T00:00:01.010Z', type: 'agent', value: { type: 'tool-result', role: 'drone-1', name: 'observe', result: { content: [{ type: 'text', text: JSON.stringify({
-      sensors: { timestamp: { capturedAt: '2026-09-14T00:00:01.000Z', simTime: 0.5 } }, deliveredAt: '2026-09-14T00:00:01.010Z' }) }] } } },
+      protocol: 'fleet-observation/5', sensors: { timestamp: { capturedAt: '2026-09-14T00:00:01.000Z', simTime: 0.5 } }, deliveredAt: '2026-09-14T00:00:01.010Z' }) }] } } },
     { wallTime: '2026-09-14T00:00:01.050Z', type: 'agent', value: { type: 'mcp-result', role: 'drone-1', tool: 'observe' } },
     { wallTime: '2026-09-14T00:00:05.010Z', type: 'agent', value: { type: 'tool', role: 'drone-1', name: 'fire' } },
+    { wallTime: '2026-09-14T00:00:05.020Z', type: 'agent', value: { type: 'tool-result', role: 'drone-1', name: 'fire', result: {
+      isError: true, content: [{ type: 'text', text: JSON.stringify({ error: 'invalid command' }) }],
+    } } },
+    { wallTime: '2026-09-14T00:00:05.030Z', type: 'agent', value: { type: 'mcp-result', role: 'drone-1', tool: 'fire' } },
+    { wallTime: '2026-09-14T00:00:09.010Z', type: 'agent', value: { type: 'tool', role: 'drone-1', name: 'observe' } },
   ];
   await writeFile(join(directory, sessionId), audit.map(r => JSON.stringify(r)).join('\n') + '\n');
   await run(process.execPath, ['--import', 'tsx', 'scripts/analyze-engagement.ts', directory]);
@@ -41,6 +48,14 @@ test('engagement measurements separate delivery from decisions and use past geom
   assert.equal(result.timing.allTransitions.deliveryToNextCallMs.p50, 4000);
   assert.equal(result.timing.allTransitions.captureToNextCallMs.p50, 4010);
   assert.equal(result.timing.allTransitions.nativeCompletionToNextCallMs.p50, 3960);
+  assert.equal(result.timing.allTransitions.nativeCompletionToNextCallMs.n, 1);
+  // Both offline reports share the same first-next-call interpretation.
+  await run(process.execPath, ['--import', 'tsx', 'scripts/analyze-decision-latency.ts', directory]);
+  const latency = JSON.parse(await readFile(join(directory, 'decision-latency.json'), 'utf8'));
+  for (const field of ['nativeCompletionToNextCallMs', 'deliveryToNextCallMs']) {
+    assert.equal(latency.byRole['drone-1'][field].n, result.timing.allTransitions[field].n);
+    assert.equal(latency.byRole['drone-1'][field].p50, result.timing.allTransitions[field].p50);
+  }
   assert.equal(result.viewing.evaluatedPairs, 3);
   assert.equal(result.viewing.inFrustum.observationTargetPairs, 2);
   assert.equal(result.viewing.buildingBlockedPairs, 1);

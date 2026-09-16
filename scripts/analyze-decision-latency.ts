@@ -3,6 +3,7 @@ import { readFile, writeFile, stat } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import type { ReplayFrame, ReplayObservation, ReplayRecord } from '../shared/replay.ts';
+import { extractObservationBoundaries, type ObservationDelivery as Delivery } from './analysis-boundaries.ts';
 
 if (!process.argv[2]) throw new Error('Usage: node --import tsx scripts/analyze-decision-latency.ts <saved-trial-directory> [first-wall-seconds]');
 const directory = resolve(process.argv[2]);
@@ -31,34 +32,11 @@ const stats = (values: number[]) => {
   };
   return sorted.length ? { n: sorted.length, min: sorted[0], p50: quantile(.5), p90: quantile(.9), p95: quantile(.95), max: sorted.at(-1) } : { n: 0 };
 };
-type Delivery = { role: string; name: string; wallMs: number; completedMs?: number; body: any; textBytes: number; imageCount: number };
-const deliveries: Delivery[] = [], last = new Map<string, Delivery>();
-const pending = new Map<string, Delivery[]>();
-const gaps: Array<{ role: string; from: Delivery; callMs: number; nextTool: string }> = [];
+const { deliveries, gaps } = extractObservationBoundaries(audit);
 const usage = new Map<string, any[]>(), compactions: any[] = [], started = new Map<string, any>();
 for (const record of audit) {
   const v = record.value, role = v?.role, wallMs = Date.parse(record.wallTime);
   if (record.type !== 'agent' || !role?.startsWith('drone-')) continue;
-  if (v.type === 'tool') {
-    const previous = last.get(role);
-    if (previous) { gaps.push({ role, from: previous, callMs: wallMs, nextTool: v.name }); last.delete(role); }
-  }
-  if (v.type === 'tool-result') {
-    const texts = v.result.content.filter((c: any) => c.type === 'text');
-    const body = texts.flatMap((c: any) => { try { return [JSON.parse(c.text)]; } catch { return []; } })
-      .find((b: any) => /^fleet-observation\//.test(b.protocol));
-    if (!body) continue;
-    const delivery = { role, name: v.name, wallMs, body,
-      textBytes: texts.reduce((sum: number, c: any) => sum + Buffer.byteLength(c.text), 0),
-      imageCount: v.result.content.filter((c: any) => c.type === 'image').length };
-    deliveries.push(delivery); last.set(role, delivery);
-    const key = `${role}:${v.name}`, queue = pending.get(key) ?? [];
-    queue.push(delivery); pending.set(key, queue);
-  }
-  if (v.type === 'mcp-result') {
-    const delivery = pending.get(`${role}:${v.tool}`)?.shift();
-    if (delivery) delivery.completedMs = wallMs;
-  }
   if (v.type === 'actor-usage') { const list = usage.get(role) ?? []; list.push(v); usage.set(role, list); }
   if (v.type === 'actor-activity' && v.activity === 'contextCompaction') {
     const key = `${role}:${v.itemId}`;
@@ -161,6 +139,7 @@ const byRole = Object.fromEntries(roles.map(role => {
 const summary = { scenario: result.scenario, seconds: result.seconds, model: result.model, effort: result.effort,
   windowSeconds, trialStart,
   sourceManifestSha256: result.manifestSha256, analyzerSha256: createHash('sha256').update(await readFile(new URL(import.meta.url))).digest('hex'),
+  boundaryExtractorSha256: createHash('sha256').update(await readFile(new URL('./analysis-boundaries.ts', import.meta.url))).digest('hex'),
   volume: { bundles: deliveries.length, schemas: [...new Set(deliveries.map(d => d.body.protocol))],
     textBytes: deliveries.reduce((sum, d) => sum + d.textBytes, 0), fieldValueJsonBytes: fields,
     duplicatedRangeTables, referenceRangeTables, potentialRangeBytesSaved, sharedRangeBytesSaved,
@@ -170,7 +149,7 @@ const summary = { scenario: result.scenario, seconds: result.seconds, model: res
   limitations: [
     'UTF-8 text bytes measure retained redacted model tool-result text, not tokenizer counts. Native usage is backend-reported and includes growing/cached context; per-field or image token attribution is unavailable.',
     'Images are actual acquired replay files; JPEG bytes do not measure image tokens. Historical audit limits can truncate evidence.',
-    'Gap durations include backend processing, transport and dispatch, not private reasoning alone. Terminal gaps without a next call are excluded; unfinished compactions are separate.',
+    'Each observation contributes at most its first following tool call; error-only outputs are not observations. Gap durations include backend processing, transport and dispatch, not private reasoning alone. Terminal gaps without a next call are excluded; unfinished compactions are separate.',
     'Motion/job/service work is classified from preceding replay samples and interpolated wall/simulation delivery anchors; orientation-only work and routines without movement are not represented. Idle holding can be intentional, especially in haul fixtures.',
     'Volume savings and single-run timing differences do not establish latency causality. No current physics or renderer code is imported to reinterpret historical evidence.',
     'Context contributions count recorded additions since trial start or the preceding completed compaction. They do not reveal which history the backend retained, hidden reasoning, image token costs or actual compaction contents.',

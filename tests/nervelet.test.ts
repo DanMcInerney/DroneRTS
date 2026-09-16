@@ -41,8 +41,11 @@ test('six real game adapters isolate images, exact goals, workspaces and ack cur
     const recoveredProfile = JSON.parse(b.nervelet.recovery.instructions.split('\n\n').at(-1));
     assert.ok(recoveredProfile.instructions.includes(RTS_BRIEFING));
     assert.ok(Object.values(recoveredProfile.commands).every((command: any) => !command.schema), 'MCP supplies schemas; canonical recovery retains descriptions');
-    assert.match(b.nervelet.rule, /refresh observations/);
-    assert.match(b.nervelet.aliases, /Every fleet tool returns fresh inputs/);
+    assert.match(b.nervelet.recovery.instructions, /refresh observations/);
+    assert.equal(b.nervelet.aliases, undefined, 'the generated rule is the sole recurring loop reminder');
+    assert.equal(b.nervelet.rule, pilots[i].bridge.renderInstructions().rule);
+    for (const reference of ['nervelet.id', 'seen', 'nervelet.nextCommandId', 'command_id', 'nervelet.goal.version', 'mission', 'nervelet.generation', 'generation', 'nervelet.results[].data'])
+      assert.ok(b.nervelet.rule.includes(reference), reference);
     for (const key of ['obstacles', 'buildings', 'resources', 'opponentTelemetry']) assert.equal(JSON.stringify(b).includes(`"${key}":`), false);
   });
   const rejected = body(await pilots[1].call('observe', { seen: initial[0].nervelet.id }));
@@ -149,6 +152,58 @@ test('conditional altitude and terminal-job waits wake from continuous updates w
   assert.equal(complete.job.state, 'completed');
 });
 
+test('numeric wait advertisement and corrective errors derive from the profile with outer argument paths', async t => {
+  const { game, pilots, initial } = await fixture(t);
+  const p = pilots[0], expected = Object.keys(p.profile.waitFields!).sort();
+  const wait = p.tools().find(tool => tool.name === 'wait')!;
+  const branches = (wait.inputSchema.properties!.until as any).items.oneOf;
+  for (const kind of ['threshold', 'change']) {
+    const field = branches.find((branch: any) => branch.properties.kind.const === kind).properties.field;
+    assert.deepEqual(field.enum, expected);
+    assert.match(field.description, /local Y/);
+    assert.match(field.description, /not height above a roof/);
+    assert.match(field.description, /Carried salvage/);
+  }
+  assert.match(wait.description!, /jobTerminal.*blocked.*cancelled.*failed/);
+  const delivered = game.inboxes[p.id].delivered;
+  for (const condition of [{ kind: 'threshold', field: 'currentTelemetry.position.y', op: 'gt', value: 32 },
+    { kind: 'change', field: 'cargo.amount', deadband: 1 }]) {
+    const result = await p.call('wait', { seen: initial[0].nervelet.id, until: [condition], timeout_ms: 1000 });
+    const value = body(result);
+    assert.equal(result.isError, true);
+    assert.deepEqual(value.error.allowed, expected);
+    assert.equal(value.error.code, 'invalid_wait_field');
+    assert.equal(value.error.path, '/until/0/field');
+    assert.equal(value.nervelet, undefined, 'an error cannot invent an observation');
+    assert.equal(value.rejected, undefined, 'an error carries no enclosing effect classification');
+    assert.equal(game.inboxes[p.id].delivered, delivered, 'validation does not consume supplied seen evidence');
+  }
+  const missing = body(await p.call('workspace', { mission: 1, op: 'list' }));
+  assert.equal(missing.error.path, '/command_id');
+  const corrected = body(await p.call('wait', { seen: initial[0].nervelet.id, until: [{ kind: 'threshold', field: 'altitude', op: 'gt', value: 0 }], timeout_ms: 1000 }));
+  assert.equal(corrected.nervelet.wait.reason, 'threshold');
+});
+
+test('a bad acknowledgement after responsive hover preserves the actual control result and effect', async t => {
+  const { game, pilots, initial } = await fixture(t);
+  const p = pilots[0], drone = game.state.drones[0];
+  const flight = await effect(p, initial[0], 'act', { kind: 'fly_to', x: drone.x, y: drone.y + 5, z: drone.z });
+  assert.equal(flight.nervelet.results.at(-1).status, 'accepted');
+  const result = await p.call('act', { kind: 'hover', mission: 1, seen: 'not-a-received-bundle' });
+  assert.equal(result.isError, true);
+  const value = body(result);
+  assert.equal(value.error.code, 'unknown_bundle');
+  assert.equal(value.error.path, '/seen');
+  for (const key of ['rejected', 'not_executed', 'admission', 'executed']) assert.equal(value[key], undefined);
+  assert.equal(value.nervelet, undefined);
+  const control = result.content.filter(item => item.type === 'text').map(item => JSON.parse(item.text)).find(item => item.control)?.control;
+  assert.ok(control, 'the actual control output survives the following observation error');
+  assert.equal(game.onboardTelemetry(p.id).job?.state, 'cancelled');
+  const recovered = body(await p.call('observe'));
+  assert.ok(recovered.nervelet.id);
+  assert.equal(recovered.job.state, 'cancelled');
+});
+
 test('64 KiB files remain usable; duplicate command IDs cannot repeat a mutation and changed payloads are rejected', async t => {
   const { game, pilots, initial } = await fixture(t);
   const p = pilots[0], first = initial[0];
@@ -188,7 +243,7 @@ test('invalid waits and incompatible batches have no side effects; valid partial
   const p = pilots[0], prior = initial[0];
   const command = { id: 'send', tool: 'send', args: { to: 'all', kind: 'chat', text: 'valid effect' } };
   const invalid = body(await p.call('wait', { seen: prior.nervelet.id, until: [], timeout_ms: 30001 }));
-  assert.equal(invalid.rejected, true); assert.equal(game.state.radio.some(m => m.text === 'valid effect'), false);
+  assert.ok(invalid.error.code); assert.equal(game.state.radio.some(m => m.text === 'valid effect'), false);
   const refused = await effect(p, prior, 'exchange', { operations: [command,
     { id: 'one', tool: 'act', args: { kind: 'fly_to', x: 0, y: 30, z: 0 } },
     { id: 'two', tool: 'act', args: { kind: 'fly_to', x: 1, y: 30, z: 0 } }] });
