@@ -1,5 +1,11 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Street View art and bullet smoke — September 16, 2026
+
+The current Blender city adds three green guide signs, four streetlights and two hydrants, plus dedicated exterior patterns for Carew/Netherland, Fourth & Vine, Fifth Third and Great American Tower. Team paint is brighter and covers more of the airframe. White bullet trails spread and fade over 5.6 seconds with normal occlusion, exact acquisition restoration, bounded drawing and Stop/reset/victory handling. Geometry/collision, cargo services, weapons and actor data are unchanged. Street View reference links and approximation limits are in [GRAPHICS.md](GRAPHICS.md).
+
+**88 focused tests**, production build and graphics/RTS browser fixtures pass without inference. Independent review found a façade depth-bias problem; the single repair pass restored arches and stone joints, confirmed by fresh visual inspection and browser/asset checks. See the newest [RTS-PLAYTEST.md](RTS-PLAYTEST.md) entry for measured capture latency, source identity and evidence. These are rendering/mechanics checks, with no new autonomous-perception claim. Owned fixture processes were stopped.
+
 ## Gunshot wrecks and fading smoke — September 16, 2026
 
 Lethal gunshots now leave an unlit, tumbling wreck that falls onto the first roof below it or ground, with a smoke trail that expands and fades. Death, cargo accounting, victory and actor retirement remain immediate. The new scene-only seed never enters actor telemetry; acquired pixels reconstruct the effect at their own timestamp. Reset removes debris, Stop freezes it, and spectator animation can finish after victory. Historical recordings without seeds retain disappearance.

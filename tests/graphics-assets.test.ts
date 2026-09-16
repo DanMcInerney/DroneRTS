@@ -36,7 +36,7 @@ test('Blender exports match their source geography and checked-in checksums', as
   assert.ok(bounds.min.y >= -.001 && bounds.max.y <= 20.28);
   let triangles = 0, meshes = 0;
   city.traverse(object => { if (object instanceof THREE.Mesh) { meshes++; triangles += (object.geometry.index?.count ?? object.geometry.attributes.position.count) / 3; } });
-  assert.ok(meshes <= 26 && triangles < 30_000, 'city remains batched for six camera views');
+  assert.ok(meshes <= 29 && triangles < 30_000, 'three landmark-specific façade materials keep the city batched for six camera views');
   disposeGroup(city);
 });
 

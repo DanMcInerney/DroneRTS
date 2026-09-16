@@ -1077,12 +1077,12 @@
   ],
   "assets": {
     "cincinnati.glb": {
-      "bytes": 2854140,
-      "sha256": "d946918c125a6c093a8a344c57aed4e446348b2e5abb4fe6a5535531bed996d3"
+      "bytes": 3776936,
+      "sha256": "8c95ef64cb2fda25c56aecd41d4cfb638987d4930878ab37bbbd2a782b37620c"
     },
     "drone-kit.glb": {
-      "bytes": 467900,
-      "sha256": "84bc55de3473a368a7f7623a9da88dc22b6a00d494195d42da29657e3826c65f"
+      "bytes": 463704,
+      "sha256": "b36531a92ac2b985baa1075d8a51c49577c4a84cf9e971ee577d7ac29345ffbc"
     }
   }
 }

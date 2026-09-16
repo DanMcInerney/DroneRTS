@@ -126,7 +126,7 @@ def export(name):
 
 reset()
 shell = material('Porcelain polymer', '#d6dad8', .36)
-team = material('Team paint', '#ffffff', .42)
+team = material('Team paint', '#ffffff', .52)
 light = material('Team light', '#ffffff', .3)
 light_bsdf = light.node_tree.nodes.get('Principled BSDF')
 light_bsdf.inputs['Emission Color'].default_value = (1, 1, 1, 1)
@@ -139,14 +139,14 @@ ochre = material('Ochre crate', '#bd8c27', .87)
 ink = material('Cargo ink', '#171b1d', .92)
 
 airframe = empty('airframe')
-box('Lower chassis', (0, -.012, 0), (.22, .10, .29), dark, airframe, .035)
+box('Lower chassis', (0, -.012, 0), (.22, .10, .29), team, airframe, .035)
 box('Molded shell', (0, .025, -.005), (.23, .11, .30), team, airframe, .042)
 box('Broad team panel', (0, .072, .015), (.15, .019, .205), team, airframe, .009)
 for x in [-.17, .17]:
     for z in [-.15, .15]:
         arm = box('Swept arm', (x / 2, .015, z / 2), (.21, .033, .042), team, airframe, .015)
         arm.rotation_euler.z = -math.atan2(z, x)
-        torus('Propeller guard', (x, .051, z), .085, .005, shell, airframe)
+        torus('Propeller guard', (x, .051, z), .085, .005, team, airframe)
         torus('Lower guard lip', (x, .013, z), .085, .003, team, airframe)
         torus('Navigation light upper', (x, .046, z), .084, .008, light, airframe)
         torus('Navigation light lower', (x, .008, z), .084, .006, light, airframe)
@@ -156,9 +156,9 @@ for x in [-.17, .17]:
             blade = box('Propeller blade', (x, .060, z), (.149, .0035, .014), rubber, airframe, .0017)
             blade.rotation_euler.z = angle + (x * z * 37)
         for angle in [0, math.pi / 2, math.pi, math.pi * 1.5]:
-            spoke = box('Guard brace', (x + math.cos(angle) * .065, .043, z + math.sin(angle) * .065), (.042, .003, .004), shell, airframe, .001)
+            spoke = box('Guard brace', (x + math.cos(angle) * .065, .043, z + math.sin(angle) * .065), (.042, .003, .004), team, airframe, .001)
             spoke.rotation_euler.z = -angle
-            box('Guard upright', (x + math.cos(angle) * .085, .032, z + math.sin(angle) * .085), (.005, .038, .005), shell, airframe, .0015)
+            box('Guard upright', (x + math.cos(angle) * .085, .032, z + math.sin(angle) * .085), (.005, .038, .005), team, airframe, .0015)
         cylinder('Landing strut', (x * .86, -.024, z * .9), .008, .080, metal, airframe, vertices=16)
         box('Landing foot', (x * .86, -.066, z * .9), (.022, .034, .038), rubber, airframe, .006)
 box('Gimbal yoke', (0, .003, -.147), (.112, .064, .035), dark, airframe, .012)
@@ -267,7 +267,7 @@ def png(path, values):
     temporary.replace(path)
 
 
-def facade_material(name, wall, curtain=False, historic=False):
+def facade_material(name, wall, curtain=False, historic=False, pattern=None):
     """Bake bevel/reveal artwork and metal/roughness into a mipmapped PBR tile.
 
     Four bays by four floors in each 512 px tile preserve architectural density
@@ -283,6 +283,20 @@ def facade_material(name, wall, curtain=False, historic=False):
     orm = np.ones((n,n,3)); orm[:,:,1]=.87; orm[:,:,2]=0
     l,r = (7,121) if curtain else (27,101)
     bottom,top = (12,111) if curtain else (22,103)
+    if pattern == 'carew':
+        l,r,bottom,top = 34,94,24,101
+        # Buff brick piers frame recessed vertical stacks of dark bronze sash.
+        rgb[(u > 26) & (u < 102)] *= .83
+        mortar = (v % 9 == 0) | ((u + (v//9 % 2)*12) % 24 == 0)
+        rgb[mortar] *= .96
+    elif pattern == 'limestone':
+        l,r,bottom,top = 29,99,23,102
+        rgb[(v % 32 == 0) | ((u + (v//32 % 2)*32) % 64 == 0)] *= .92
+    elif pattern == 'fifth-third':
+        l,r,bottom,top = 36,92,2,125
+        rgb[(u < 13) | (u > 115)] *= .69
+    elif pattern == 'silver-glass':
+        l,r,bottom,top = 15,119,5,123
     reveal = (u>=l-3)&(u<=r+3)&(v>=bottom-3)&(v<=top+3)
     window = (u>=l)&(u<=r)&(v>=bottom)&(v<=top)
     rgb[reveal]=(.19,.23,.24)
@@ -290,11 +304,11 @@ def facade_material(name, wall, curtain=False, historic=False):
     # artwork is original, not satellite pixels wrapped around a building.
     panes = rng.uniform(-.055, .045, (4,4))
     shade = ((v-bottom)/(top-bottom)*.09 + panes[yy//128,xx//128])[:,:,None]
-    reflection = np.ones((n,n,3))*np.array([.25,.35,.41])+shade
+    reflection = np.ones((n,n,3))*np.array([.17,.30,.43] if pattern == 'silver-glass' else [.22,.27,.29] if pattern in ['carew','limestone','fifth-third'] else [.25,.35,.41])+shade
     silhouette = (v < 34 + 12*np.sin(xx/21) + 7*np.cos(xx/9)) & window
     reflection[silhouette] *= .72
     rgb[window]=reflection[window]
-    blinds = window & (v > 82) & ((xx//128 + yy//128*3)%5 == 1)
+    blinds = window & (v > 82) & ((xx//128 + yy//128*3)%5 == 1) & (pattern != 'silver-glass')
     rgb[blinds]=(.55,.55,.49)
     orm[window,1]=.28; orm[window,2]=.42
     frame=(window & ((u==l)|(u==r)|(v==bottom)|(v==top)))
@@ -309,6 +323,12 @@ def facade_material(name, wall, curtain=False, historic=False):
     if curtain:
         frame=(u<3)|(u>125)|(v<3)|(v>125)
         rgb[frame]=(.54,.60,.62); orm[frame,1]=.42; orm[frame,2]=.5
+    if pattern == 'silver-glass':
+        rib = (u < 13)
+        rgb[rib]=(.73,.76,.77); rgb[u < 3]=(.38,.44,.48)
+        orm[rib,1]=.4; orm[rib,2]=.55
+    if pattern == 'fifth-third':
+        rgb[(v < 5) & window]=(.27,.25,.24)
     mat = material('Facade '+name, '#ffffff')
     bsdf = mat.node_tree.nodes.get('Principled BSDF')
     for suffix,pixels in [('color',rgb),('orm',orm)]:
@@ -331,7 +351,7 @@ city = json.loads((ROOT / 'shared/city-data.json').read_text())
 root = empty('cincinnati-buildings')
 batch = SurfaceBatch()
 masonry = [material('Masonry ' + str(i), c, .87) for i,c in enumerate(['#ae9e86','#bead90','#a18d7a','#b9b5a6','#b59a7d','#9da6a7','#ad9e93'])]
-carew = material('Carew buff brick', '#bca080', .85)
+carew = material('Carew buff brick', '#c3a079', .85)
 limestone = material('Limestone trim', '#c8bca5', .82)
 roof_authoring = runpy.run_path(str(ROOT/'scripts/graphics-surfaces.py'))
 roof_tiles = roof_authoring['roof_materials'](bpy, SOURCE, material, png)
@@ -340,8 +360,14 @@ recess = material('Recess shadow', '#29373b', .8)
 frames = material('Aluminum mullions', '#829397', .36, .5)
 glasswall = material('Curtain wall spandrel', '#455d69', .32, .35)
 facades = [facade_material('masonry-'+str(i),c) for i,c in enumerate(['#ae9e86','#bead90','#a18d7a','#b9b5a6','#b59a7d','#9da6a7','#ad9e93'])]
-carew_facade=facade_material('carew','#bca080',historic=True)
+carew_facade=facade_material('carew','#c3a079',historic=True,pattern='carew')
 glass_facade=facade_material('glass','#455d69',curtain=True)
+landmark_authoring = runpy.run_path(str(ROOT/'scripts/graphics-landmarks.py'))
+landmark_facades = {
+    'limestone': facade_material('fourth-vine','#d6ceba',historic=True,pattern='limestone'),
+    'fifth-third': facade_material('fifth-third','#bfb9a9',pattern='fifth-third'),
+    'silver-glass': facade_material('great-american','#778c9e',curtain=True,pattern='silver-glass'),
+}
 roof_regions = []
 for index, b in enumerate(city['buildings']):
     w,h,d = b['width'], b['height'], b['depth']
@@ -355,6 +381,13 @@ for index, b in enumerate(city['buildings']):
     curtain = 'great-american-tower' in b['id'] or b['id'] in ['scripps-center','pnc-center','600-vine'] or not historic and index % 5 == 0
     wall = carew if historic else glasswall if curtain else masonry[index % len(masonry)]
     facade = carew_facade if historic else glass_facade if curtain else facades[index % len(facades)]
+    landmark = landmark_authoring['landmark_style'](b['id'])
+    if landmark in landmark_facades:
+        facade = landmark_facades[landmark]
+    if landmark == 'limestone':
+        wall = masonry[3]
+    elif landmark == 'fifth-third':
+        wall = masonry[3]
     batch.cube(0,h/2,0,w,h,d,wall,transform,include_top=False)
     # Satellite references show pale membranes, dark tar and warm gravel, not a
     # uniform gray roof. Keep modeled service roofs perfectly clear and flat.
@@ -382,7 +415,7 @@ for index, b in enumerate(city['buildings']):
     floor_height = h / floors
     for face in range(4):
         across = w if face % 2 == 0 else d
-        columns = max(2, round(across / (.26 if curtain else .36)))
+        columns = max(2, round(across / (.20 if landmark == 'fifth-third' else .29 if landmark else .26 if curtain else .36)))
         bay = across / columns
         # Each face's local coordinates are right-handed, winding outward.
         def panel(u,y,pw,ph,mat,offset=.0012):
@@ -393,6 +426,10 @@ for index, b in enumerate(city['buildings']):
             return [(a,y,d/2+.001),(w/2+.001,y,-a),(-a,y,-d/2-.001),(-w/2-.001,y,a)][face]
         batch.quad([transform(on_face(a,y)) for a,y in [(-across/2,0),(across/2,0),(across/2,h),(-across/2,h)]],
                    facade, [(0,0),(columns/4,0),(columns/4,floors/4),(0,floors/4)])
+        if landmark:
+            landmark_authoring['detail_face'](b, landmark, face, across, columns, batch, transform, panel,
+                {'stone': limestone, 'brick': carew, 'recess': recess, 'metal': frames, 'glass': glasswall})
+            continue
         # Base stone band, storefront rhythm and top cornice emphasize real floors.
         if not curtain:
             panel(0,h-.045,across,.05,limestone,.002)
@@ -435,6 +472,11 @@ for index, b in enumerate(city['buildings']):
                     batch.quad([transform(face_point(u,y)) for u,y in [(lo,ya),(lo+.020,ya),(hi,yb),(hi-.020,yb)]], limestone)
 batch.build(root)
 root['source'] = 'shared/city-data.json; OpenStreetMap contributors (ODbL); original facade artwork'
+street_authoring = runpy.run_path(str(ROOT/'scripts/graphics-streets.py'))
+street_authoring['build_streets'](bpy, city, {
+    'empty': empty, 'material': material, 'SurfaceBatch': SurfaceBatch,
+    'finish': finish, 'join_by_material': join_by_material, 'xyz': xyz,
+})
 export('cincinnati')
 manifest = {
     'schema': 1,
