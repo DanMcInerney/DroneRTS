@@ -62,8 +62,11 @@ export class FleetGame extends EventEmitter {
   private playerQueue: Array<{ id: string; text: string; team: TeamId; bootstrap?: boolean }> = [];
   private playerWake = new Set<() => void>();
   private serial = 0;
+  private readonly sharedAccounts = new Map<TeamId, number | undefined>();
   private rules = new RtsRules(event => {
     this.emit('match-event', event);
+    this.notifySharedAccounts();
+    if (event.drone && ['purchased', 'service_started', 'fired'].includes(event.type)) this.notifyOnboard(event.drone);
     if (event.type === 'fired' && event.x !== undefined && event.y !== undefined && event.z !== undefined)
       this.acoustic?.impulse({ x: event.x, y: event.y, z: event.z }, event.simTime);
     if (event.drone && event.type === 'armor_consumed') {
@@ -135,6 +138,19 @@ export class FleetGame extends EventEmitter {
   }
 
   private drone(id: DroneId) { return this.state.drones.find(drone => drone.id === id)!; }
+  /** Player/UI changes are not observation wakeups. Only affected pilots receive this signal. */
+  private notifyOnboard(id: DroneId) { this.emit('onboard-change', { drone: id }); }
+  private notifySharedAccounts() {
+    for (const team of ['blue', 'red'] as const) {
+      const wallet = this.state.match?.teams[team];
+      const visibleCredits = wallet?.shopUnlocked ? wallet.credits : undefined;
+      if (this.sharedAccounts.has(team) && this.sharedAccounts.get(team) === visibleCredits) continue;
+      this.sharedAccounts.set(team, visibleCredits);
+      for (const drone of this.state.drones) {
+        if (drone.alive !== false && teamForDrone(drone.id) === team) this.notifyOnboard(drone.id);
+      }
+    }
+  }
   receivedMission(id: DroneId) { return this.droneMissions[id]; }
   receivedGoal(id: DroneId) { return this.receivedGoals.get(id); }
   /** Narrow borrowed-environment seams: same game authority, no new actor capability. */
@@ -159,11 +175,17 @@ export class FleetGame extends EventEmitter {
     return this.jobs.arguments(id, jobId) ?? this.routines.get(id)?.arguments(jobId) ?? {};
   }
   stopOnboard(id: DroneId, reason = 'nervelet-stop') {
+    this.cancelOnboardWork(id, reason, false);
+  }
+  /** Game receipt cancels immediately; Bridge.stop may repeat this safely after goal delivery. */
+  private cancelOnboardWork(id: DroneId, reason: string, clearMotion: boolean) {
     this.motionVersions.set(id, (this.motionVersions.get(id) ?? 0) + 1);
     this.routines.get(id)?.cancel(reason); this.jobs.cancel(id, reason);
     const drone = this.drone(id);
-    this.rules.cancelLogistics(this.state, drone, 'stopped'); this.rules.cancelService(this.state, drone);
-    this.motion.hover(drone); drone.action = undefined;
+    this.rules.cancelLogistics(this.state, drone, reason === 'objective-replaced' ? reason : 'stopped');
+    this.rules.cancelService(this.state, drone);
+    if (clearMotion) this.motion.clear(drone); else this.motion.hover(drone);
+    drone.action = undefined;
   }
   cancelOnboard(id: DroneId, jobId: string) {
     const routine = this.routines.get(id)?.status(), job = this.jobs.status(id);
@@ -285,7 +307,7 @@ export class FleetGame extends EventEmitter {
       this.stop(); this.emit('transport-error', { role: id, message: `Onboard ${partition} inbox capacity exhausted; unread messages preserved` });
     };
     mailbox.onPush = event => {
-      this.emit('onboard-change', { drone: id });
+      this.notifyOnboard(id);
       if (event.type === 'armor_lost' || event.type === 'acoustic_impulse') this.emit('onboard-local-evidence', { drone: id, event });
       const events = this.routineEvents.get(id);
       if (!events || !this.activeRoutine(id)) return;
@@ -312,6 +334,8 @@ export class FleetGame extends EventEmitter {
   reset() {
     if (this.state.running) throw new Error('Stop the fleet before resetting');
     this.stop(); this.state = this.newState(); this.inboxes = this.newInboxes();
+    this.sharedAccounts.clear();
+    this.emit('onboard-lifecycle', { reason: 'reset' });
     this.playerQueue = []; this.emit('change');
   }
   start() {
@@ -341,28 +365,31 @@ export class FleetGame extends EventEmitter {
     this.playerQueue = (['blue', 'red'] as const).map(team => ({ id: `player-${++this.serial}`, text: RTS_MISSION, team, bootstrap: true }));
     for (const drone of this.state.drones) { drone.action = undefined; drone.online = false; drone.status = 'Connecting'; }
     for (const drone of this.state.drones) { drone.job = undefined; drone.storage = undefined; }
+    this.emit('onboard-lifecycle', { reason: 'session-replaced' });
     this.emit('change');
   }
   stop() {
     if (this.acoustic) { this.emit('acoustic-metrics', { ...this.acoustic.metrics }); this.acoustic.clear(); }
     this.state.running = false;
-    for (const id of DRONE_IDS) this.motionVersions.set(id, (this.motionVersions.get(id) ?? 0) + 1);
-    for (const runner of this.routines.values()) runner.cancel('stopped');
-    this.jobs.cancelAll('stopped');
     this.playerQueue = [];
-    this.motion.clear();
     for (const drone of this.state.drones) drone.jamming = false;
     this.rules.syncInterference(this.state);
     for (const drone of this.state.drones) {
-      this.rules.cancelLogistics(this.state, drone, 'stopped');
-      drone.action = undefined; drone.online = false; drone.charging = hasBatteries(this.state.match?.rulesVersion) ? false : undefined; this.rules.cancelMining(drone); this.rules.cancelService(this.state, drone);
+      this.cancelOnboardWork(drone.id, 'stopped', true);
+      drone.online = false; drone.charging = hasBatteries(this.state.match?.rulesVersion) ? false : undefined; this.rules.cancelMining(drone);
       if (drone.alive !== false) drone.status = 'Stopped';
       this.inboxes[drone.id].push({ type: 'stop', mission: this.state.mission, simTime: this.state.simTime, occurredAt: new Date().toISOString() });
     }
     for (const wake of [...this.playerWake]) wake();
+    this.emit('onboard-lifecycle', { reason: 'stopped' });
     this.emit('change');
   }
-  setConnected(value: boolean) { this.connected = value; this.emit('change'); }
+  setConnected(value: boolean) {
+    const changed = this.connected !== value;
+    this.connected = value;
+    if (changed) this.emit('onboard-lifecycle', { reason: 'connection-changed' });
+    this.emit('change');
+  }
   setSpeed(value: unknown) {
     const speed = finite(value, 'speed');
     if (speed < 0.25 || speed > 3) throw new Error('Speed must be between 0.25 and 3');
@@ -435,13 +462,8 @@ export class FleetGame extends EventEmitter {
       if (message.mission <= this.droneMissions[recipient]) { this.radioTransport?.consume(recipient, [message.id]); return; }
       this.droneMissions[recipient] = message.mission;
       this.receivedGoals.set(recipient, { text: message.text, version: message.mission, status: 'active' });
-      this.motionVersions.set(recipient, (this.motionVersions.get(recipient) ?? 0) + 1);
       const drone = this.state.drones.find(d => d.id === recipient)!;
-      this.jobs.cancel(recipient, 'objective-replaced');
-      this.routines.get(recipient)?.cancel('objective-replaced');
-      this.rules.cancelLogistics(this.state, drone, 'objective-replaced');
-      this.motion.clear(drone);
-      this.rules.cancelService(this.state, drone);
+      this.cancelOnboardWork(recipient, 'objective-replaced', true);
       drone.jamming = false; this.rules.syncInterference(this.state);
       drone.action = undefined; drone.status = 'New instruction';
       this.inboxes[recipient].push({ type: 'player', mission: message.mission, text: message.text, id: message.id, simTime: message.simTime, occurredAt: message.sentAt, expiresAt: message.expiresAt, expiresMonotonicMs: message.expiresMonotonicMs });
@@ -727,6 +749,7 @@ export class FleetGame extends EventEmitter {
         else if (args.op === 'write') result = workspace.write(args.path as string, args.content as string);
         else if (args.op === 'delete') result = workspace.delete(args.path as string);
         else throw new ControllerRejection('Unknown workspace operation');
+        if (args.op === 'write' || args.op === 'delete') this.notifyOnboard(role);
         return textResult({ workspace: result, storage: workspace.status() });
       }
       if (name === 'routine') {
@@ -831,6 +854,7 @@ export class FleetGame extends EventEmitter {
       if (name === 'camera') {
         if (args.mode !== 'wide' && args.mode !== 'zoom') throw new ControllerRejection('Unknown camera mode');
         drone.cameraMode = args.mode;
+        this.notifyOnboard(role);
         this.emit('change');
         return textResult({ accepted: true, cameraMode: drone.cameraMode, commandMission: args.mission });
       }
@@ -887,6 +911,7 @@ export class FleetGame extends EventEmitter {
       this.rules.cancelService(this.state, drone);
       this.motion.hover(drone);
       drone.action = undefined; drone.status = 'Hovering';
+      this.notifyOnboard(drone.id);
       return textResult({ hovering: true, commandMission: args.mission });
     }
     if (kind === 'look') {
@@ -894,6 +919,7 @@ export class FleetGame extends EventEmitter {
       const pitch = args.pitch === undefined ? undefined : finite(args.pitch, 'pitch');
       if (pitch !== undefined && (pitch < CAMERA_PITCH_LIMITS.min || pitch > CAMERA_PITCH_LIMITS.max)) throw new ControllerRejection('Camera command rejected by actuator limit');
       this.motion.look(drone, yaw, pitch);
+      this.notifyOnboard(drone.id);
       return textResult({ accepted: true, commandMission: args.mission });
     }
     if (kind !== 'fly_to') throw new Error('Unknown action kind');
@@ -903,6 +929,7 @@ export class FleetGame extends EventEmitter {
     this.rules.cancelLogistics(this.state, drone, 'movement-replaced');
     drone.action = { id: `action-${++this.serial}`, kind, target, profile: args.profile as MovementProfile | undefined, owner: args.owner as string | undefined }; drone.status = 'Flying';
     this.motion.faceWaypoint(drone, target);
+    this.notifyOnboard(drone.id);
     return textResult({ actionId: drone.action.id, accepted: true, target, commandMission: args.mission });
   }
 
@@ -916,6 +943,8 @@ export class FleetGame extends EventEmitter {
     const steps = Math.ceil(dt * 120);
     for (let i = 0; i < steps && this.state.running; i++) this.step(dt / steps);
     for (const id of this.workspaces.keys()) if (this.drone(id).alive !== false) this.storageStatus(id);
+    // Historical mining may change the visible wallet without a discrete rules event.
+    this.notifySharedAccounts();
     this.emit('onboard-tick');
   }
 
@@ -956,6 +985,7 @@ export class FleetGame extends EventEmitter {
         drone.online = false;
         this.inboxes[drone.id].push({ type: 'destroyed', mission: this.droneMissions[drone.id], simTime: this.state.simTime });
         this.emit('drone-destroyed', { droneId: drone.id });
+        this.emit('onboard-lifecycle', { reason: 'destroyed', drone: drone.id });
       }
       if (drone.alive !== false) for (const [kind, before, now] of [
         ['mining', mining.has(drone.id), Boolean(drone.mining)], ['charging', charging.has(drone.id), Boolean(drone.charging)],

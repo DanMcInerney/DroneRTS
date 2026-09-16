@@ -1,12 +1,12 @@
-import { Bridge, ChangeSignal, waitSchema } from 'nervelet';
+import { Bridge, ChangeSignal, commandDigest, immutableProfile, immutableResult, waitSchema } from 'nervelet';
 import type { AttentionOptions, Bundle, Command, CommandIdentity, CommandContext, Environment, Goal, ImageAttachment, Job, Json, Profile, Receipt, Snapshot } from 'nervelet';
-import { createHash } from 'node:crypto';
 import { withAbort } from './abort.ts';
 import { ACOUSTIC_BRIEFING } from '../shared/mission.ts';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import type { DroneId, GameEvent, ToolResult } from '../shared/types.ts';
 import { teamForDrone, teamRoster } from '../shared/fleet.ts';
-import { createDroneTools, droneInstructions, NERVELET_RULE } from './runtime-tools.ts';
+import { createDroneCatalog, createDroneTools, droneInstructions, NERVELET_RULE } from './runtime-tools.ts';
+import { cacheAccounting, NERVELET_RESULT_LIMITS, resultBudget } from './nervelet-results.ts';
 import { compactObservationValue, resultSubmission, verifyFleetResult, type SubmittedResult } from './observation-format.ts';
 import type { FleetGame } from './game.ts';
 
@@ -14,9 +14,6 @@ const text = (value: unknown, isError = false): ToolResult => ({ content: [{ typ
 const body = (result: ToolResult): any => JSON.parse(result.content.find(item => item.type === 'text')!.text);
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value));
 export const NERVELET_CACHE_RESERVE = 384 * 1024;
-const canonical = (value: any): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
-  : value !== null && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}` : JSON.stringify(value);
-const digest = (command: Command) => createHash('sha256').update(canonical(command)).digest('hex');
 
 /** One borrowed environment per authenticated pilot. No second sensor store or controller. */
 export class DroneNervelet implements Environment {
@@ -28,9 +25,8 @@ export class DroneNervelet implements Environment {
   private goalTask: Promise<unknown> = Promise.resolve();
   private captured?: any;
   private commit?: (events: GameEvent[]) => void;
-  private effect?: { result: any; isError: boolean };
   private jobCommands = new Map<string, string>();
-  private executions = new Map<string, { kind: string; digest: string; pending: Promise<Receipt>; unresolved: boolean }>();
+  private executions = new Map<string, { kind: string; digest: string; pending: Promise<Receipt> }>();
   private active?: { controller: AbortController; done: Promise<ToolResult>; watchTelemetry: boolean };
   private closed = false;
   private readonly onChange = () => {
@@ -38,6 +34,11 @@ export class DroneNervelet implements Environment {
     this.changes.notify();
   };
   private readonly onMail = (event: { drone: DroneId }) => { if (event.drone === this.id) this.onChange(); };
+  private readonly onLifecycle = (event: { reason: string; drone?: DroneId }) => {
+    if (event.drone && event.drone !== this.id) return;
+    this.active?.controller.abort(new Error(`Drone lifecycle: ${event.reason}`));
+    this.changes.notify();
+  };
   // Ordinary waits wake on actual events. Only numeric conditions need tick updates.
   private readonly onTick = () => { if (this.active?.watchTelemetry) this.onChange(); };
   private readonly onGoal = (event: { drone: DroneId; goal: Goal }) => {
@@ -49,23 +50,23 @@ export class DroneNervelet implements Environment {
 
   constructor(private readonly game: FleetGame, readonly id: DroneId, private readonly options: { attention?: AttentionOptions; submission?: 'host' } = {}) {
     this.session = game.sessionIdentity;
-    const tools = createDroneTools(teamRoster(teamForDrone(id)), { alive: true, onboard: true, shop: true, gun: true, optics: game.toolCapabilities(id).optics }, teamForDrone(id));
-    this.profile = { id: `drone-${id}`, version: 'dronerts-nervelet/2', camera: { policy: 'capture_on_step' },
+    const tools = createDroneCatalog(teamRoster(teamForDrone(id)), teamForDrone(id));
+    this.profile = immutableProfile({ id: `drone-${id}`, version: 'dronerts-nervelet/3', camera: { policy: 'capture_on_step' },
       instructions: droneInstructions(id, teamRoster(teamForDrone(id)), teamForDrone(id)) + (game.acousticEnabled ? `\n\n${ACOUSTIC_BRIEFING}` : ''),
       commands: Object.fromEntries(tools.filter(tool => !['observe', 'wait'].includes(tool.name)).map(tool => [tool.name, { description: tool.description!, schema: tool.inputSchema }])),
       waitFields: { cargo: { source: 'state', path: ['currentTelemetry', 'cargo', 'amount'], maxAgeMs: 150 },
-        altitude: { source: 'state', path: ['currentTelemetry', 'position', 'y'], maxAgeMs: 150 } } };
+        altitude: { source: 'state', path: ['currentTelemetry', 'position', 'y'], maxAgeMs: 150 } } });
     this.bridge = new Bridge(this, undefined, { environmentOwnership: 'borrowed', retainCommandArguments: false, submission: 'host', attention: options.attention,
       instructions: { transport: 'tools', waitMode: 'hold', commandSchemas: 'transport', stop: false, refreshTools: tools.map(tool => tool.name) },
       goalProvider: { get: () => game.receivedGoal(id) },
       limits: { maxGoalBytes: 24 * 1024, maxProfileBytes: 48 * 1024, maxRecoveryBytes: 640 * 1024, maxBundleBytes: 512 * 1024,
-        maxRequestBytes: 512 * 1024, maxCommandBytes: 400 * 1024, receiptHistory: 64, bundleHistory: 32,
+        maxRequestBytes: 512 * 1024, maxCommandBytes: 400 * 1024, ...NERVELET_RESULT_LIMITS,
         maxImages: 1, maxMediaBytes: 512 * 1024, maxJobs: 2, operationMs: 5000 },
       trace: trace => {
-        if (trace.type === 'admission' && trace.id) { const execution = this.executions.get(trace.id); if (execution) execution.unresolved = trace.reason === 'unknown'; }
         game.emit('nervelet-trace', { drone: id, ...trace });
       } });
-    game.on('change', this.onChange); game.on('onboard-tick', this.onTick); game.on('onboard-change', this.onMail); game.on('received-goal', this.onGoal);
+    cacheAccounting(this.profile, this.bridge.profileText);
+    game.on('onboard-lifecycle', this.onLifecycle); game.on('onboard-tick', this.onTick); game.on('onboard-change', this.onMail); game.on('received-goal', this.onGoal);
     game.onboardWorkspace(id).reserveCache('nervelet', NERVELET_CACHE_RESERVE);
     this.ready = this.bridge.start();
   }
@@ -74,7 +75,7 @@ export class DroneNervelet implements Environment {
   refresh(reason: string) { if (!this.closed) this.bridge.refresh(reason); }
   tools(): Tool[] {
     if (!this.alive()) return [];
-    const available = createDroneTools(teamRoster(teamForDrone(this.id)), this.game.toolCapabilities(this.id), teamForDrone(this.id));
+    const available = createDroneCatalog(teamRoster(teamForDrone(this.id)), teamForDrone(this.id));
     return available.map(tool => {
       const passive = ['observe', 'wait'].includes(tool.name);
       const properties = { ...tool.inputSchema.properties };
@@ -92,9 +93,9 @@ export class DroneNervelet implements Environment {
   async close() {
     if (this.closed) return;
     this.closed = true; this.active?.controller.abort(new Error('Drone session ended'));
-    this.game.off('change', this.onChange); this.game.off('onboard-tick', this.onTick); this.game.off('onboard-change', this.onMail); this.game.off('received-goal', this.onGoal);
+    this.game.off('onboard-lifecycle', this.onLifecycle); this.game.off('onboard-tick', this.onTick); this.game.off('onboard-change', this.onMail); this.game.off('received-goal', this.onGoal);
     await this.ready; await this.goalTask.catch(() => {}); await this.bridge.close();
-    this.captured = undefined; this.commit = undefined; this.effect = undefined;
+    this.captured = undefined; this.commit = undefined; this.executions.clear();
     this.game.existingOnboardWorkspace(this.id)?.releaseCache('nervelet');
   }
   async stop() { if (this.game.sessionIdentity === this.session) this.game.stopOnboard(this.id); this.changes.notify(); return { status: 'confirmed' as const }; }
@@ -105,7 +106,7 @@ export class DroneNervelet implements Environment {
     signal.throwIfAborted();
     const telemetry = this.game.onboardTelemetry(this.id);
     if (!this.game.toolCapabilities(this.id).shop) delete (telemetry as any).account;
-    const state = { ...this.effect?.result, ...(this.captured ?? {}), currentTelemetry: telemetry, routine: this.game.onboardRoutine(this.id) };
+    const state = { ...(this.captured ?? {}), currentTelemetry: telemetry, routine: this.game.onboardRoutine(this.id) };
     delete state.events; delete state.hasMore;
     const slice = this.game.onboardEvents(this.id, after);
     const jobs: Job[] = [telemetry.job, state.routine].filter(Boolean).map(job => ({ id: job.id,
@@ -127,14 +128,18 @@ export class DroneNervelet implements Environment {
       valid: camera.available && this.captured.sensors.validity === 'valid', reused: false }] : []);
   }
   execute(command: Command, context: CommandContext): Promise<Receipt> {
-    if (this.executions.size >= 64) {
-      const evict = [...this.executions].find(([, execution]) => !execution.unresolved);
-      if (!evict) return Promise.resolve({ id: command.id, status: 'not_executed', reason: 'Original execution records are full; reconcile unresolved results.' });
-      this.executions.delete(evict[0]);
-    }
+    // Core reserves result bytes and a record before entering this method. It
+    // releases the shared payload only after its current revision is seen.
+    if (this.executions.size >= NERVELET_RESULT_LIMITS.receiptHistory)
+      throw new Error('Original execution reservation invariant failed');
     const pending = this.executeOnce(command, context);
-    this.executions.set(command.id, { kind: command.kind, digest: digest(command), pending, unresolved: true });
+    this.executions.set(command.id, { kind: command.kind, digest: commandDigest(command), pending });
     return pending;
+  }
+  resultBudget(command: Command) { return resultBudget(command); }
+  releaseReceipt(identity: CommandIdentity) {
+    const record = this.executions.get(identity.id);
+    if (record?.kind === identity.kind && record.digest === identity.digest) this.executions.delete(identity.id);
   }
   async reconcileReceipt(identity: CommandIdentity, signal: AbortSignal): Promise<Receipt> {
     signal.throwIfAborted();
@@ -142,7 +147,6 @@ export class DroneNervelet implements Environment {
     if (!record || record.kind !== identity.kind || record.digest !== identity.digest)
       return { id: identity.id, status: 'unknown', reason: 'Authoritative execution identity is not retained or does not match' };
     const receipt = await withAbort(record.pending, signal);
-    record.unresolved = receipt.status === 'unknown';
     return receipt;
   }
   private async executeOnce(command: Command, context: CommandContext): Promise<Receipt> {
@@ -155,9 +159,9 @@ export class DroneNervelet implements Environment {
       this.jobCommands.set(jobId, command.id);
       while (this.jobCommands.size > 2) this.jobCommands.delete(this.jobCommands.keys().next().value!);
     }
-    if (!context.signal.aborted) this.effect = { result: value, isError: Boolean(result.isError) };
     const failed = result.isError || value.rejected || value.launchPending || value.stopped;
     return { id: command.id, status: failed ? 'rejected' : value.accepted || value.queued ? 'accepted' : 'completed',
+      data: immutableResult(json({ result: value, isError: Boolean(result.isError) })),
       ...(value.job?.id || value.routine?.id ? { jobId: value.job?.id ?? value.routine.id } : {}),
       ...(failed ? { reason: String(value.reason ?? value.error ?? value.instruction ?? 'not admitted').slice(0, 256) } : {}) };
   }
@@ -201,11 +205,10 @@ export class DroneNervelet implements Environment {
           try { await this.bridge.reconcile(id); } catch { /* Only unresolved retained receipts are reconcilable. */ }
         }
       }
-      this.game.markActorOnline(this.id); this.captured = undefined; this.commit = undefined; this.effect = undefined;
+      this.game.markActorOnline(this.id); this.captured = undefined; this.commit = undefined;
       let request: any;
       if (name === 'observe' || name === 'wait') request = { schemaVersion: 2, seen: args.seen,
-        ...(name === 'wait' ? args.until === undefined ? { waitMs: args.timeout_ms ?? 30000 }
-          : { wait: { until: args.until, reviewMs: args.timeout_ms ?? 30000 } } : {}) };
+        ...(name === 'wait' ? { wait: { until: args.until ?? [{ kind: 'anyEvent' }], reviewMs: args.timeout_ms ?? 30000 } } : {}) };
       else {
         if (!args.command_id) return text({ rejected: true, reason: 'command_id required. Use nervelet.nextCommandId from observe; echo nervelet.id as seen.' }, true);
         const { seen, command_id, generation, ...commandArgs } = args;
@@ -233,12 +236,12 @@ export class DroneNervelet implements Environment {
         // Recovery after reconciliation requires another delivered observation.
         return this.output(await this.bridge.step({ schemaVersion: 2 }, signal, { textEncoding: 'tool-result', wrapperBytes: 4096 }));
       }
-      return this.output(bundle);
+      return this.output(bundle, request.commands?.[0]?.id);
     } catch (error) {
       return text({ stopped: !this.alive(), cancelled: signal.aborted, rejected: true, reason: String(error), instruction: 'Observe again for fresh evidence; do not replay uncertain commands.' }, true);
-    } finally { this.captured = undefined; this.commit = undefined; this.effect = undefined; }
+    } finally { this.captured = undefined; this.commit = undefined; }
   }
-  private output(bundle: Bundle): ToolResult {
+  private output(bundle: Bundle, commandId?: string): ToolResult {
     const { state, attachments, events, ...metadata } = bundle;
     const included = (events ?? []).map(event => ({ ...(event.data as unknown as GameEvent), nerveletEventId: event.id, receivedAtMs: event.atMs, redelivered: event.redelivered }));
     const commit = this.commit;
@@ -262,9 +265,10 @@ export class DroneNervelet implements Environment {
     const final = { ...observation, events: included, hasMore: Boolean(bundle.hasMore),
       cursor: included.at(-1)?.cursor ?? this.game.inboxes[this.id].delivered,
       launchReady: this.game.launchReady, nervelet: { ...metadata, aliases: NERVELET_RULE },
-      availableTools: this.tools().map(tool => tool.name),
+      availableTools: createDroneTools(teamRoster(teamForDrone(this.id)), this.game.toolCapabilities(this.id), teamForDrone(this.id)).map(tool => tool.name),
     };
-    const result: SubmittedResult = text(compactObservationValue(final), this.effect?.isError);
+    const current = commandId ? bundle.results?.find(receipt => receipt.id === commandId) : undefined;
+    const result: SubmittedResult = text(compactObservationValue(final), Boolean((current?.data as any)?.isError));
     for (const image of attachments ?? []) result.content.push({ type: 'image', data: image.data, mimeType: image.mimeType });
     let settled = false;
     result[resultSubmission] = {

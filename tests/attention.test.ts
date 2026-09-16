@@ -206,18 +206,22 @@ test('backlogged urgent evidence is referenced in recovery while ordinary unread
   assert.ok(game.inboxes[pilot.id].events.some(e => e.cursor === urgent.cursor));
 });
 
-test('catalog and compaction refresh before fresh acquisition do not schedule another generation after input construction', async t => {
+test('compaction during closing-turn settlement precedes fresh acquisition without invalidating the replacement later', async t => {
   const { pilot, runtime, internal, requests, terminal, evidence, events } = await fixture(t);
-  const refresh = deferred(), entered = deferred();
-  internal.catalogYields.set(pilot.id, 1);
-  internal.awaitCurrentCatalog = async () => { entered.resolve(); await refresh.promise; };
-  const work = runtime.requestAttention(pilot.id, pilot, evidence()); await delay(5); terminal(); await entered.promise;
-  pilot.refresh('fixture-compaction'); refresh.resolve(); await work;
+  const ticket = internal.beginTool(pilot.id);
+  const work = runtime.requestAttention(pilot.id, pilot, evidence()); await delay(5);
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'child', turnId: 'old', item: { type: 'contextCompaction', id: 'current' } } });
+  pilot.refresh('fixture-compaction');
+  terminal(); await delay(5);
+  assert.equal(requests.some(r => r.method === 'turn/start'), false, 'replacement must join outstanding tool work');
+  ticket.settled(); await work;
   const input = JSON.parse(requests.find(r => r.method === 'turn/start')!.params.input[0].text);
   assert.equal(input.nervelet.generation, pilot.bridge.status().generation);
   internal.onMessage({ method: 'item/completed', params: { threadId: 'child', turnId: 'old', item: { type: 'contextCompaction', id: 'late' } } });
-  assert.equal(events.filter(e => e.type === 'actor-context-compacted').length, 0);
+  assert.equal(events.filter(e => e.type === 'actor-context-compacted').length, 1, 'only current-turn compaction reaches recovery coordination');
+  assert.equal(input.nervelet.generation, pilot.bridge.status().generation);
   assert.equal(requests.filter(r => r.method === 'turn/start').length, 1);
+  assert.ok(requests.every(r => ['turn/interrupt', 'turn/start'].includes(r.method)), 'attention needs no catalog discovery or reload');
 });
 
 for (const boundary of ['reasoning', 'held-wait'] as const) test(`delayed acquired camera reaches ${boundary} emergency once with its true age`, async t => {

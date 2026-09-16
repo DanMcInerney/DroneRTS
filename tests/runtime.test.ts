@@ -1,11 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { CodexFleetRuntime } from '../server/runtime.js';
-import { BOOTSTRAP_MESSAGE, MODEL, EFFORT, createParentInstructions, createDroneTools, droneInstructions } from '../server/runtime-tools.js';
+import { BOOTSTRAP_MESSAGE, MODEL, EFFORT, createParentInstructions, createDroneCatalog, createDroneTools, droneInstructions } from '../server/runtime-tools.js';
 import { validateRoster, type FleetRoster } from '../shared/fleet.ts';
 import { DEFAULT_AGENT_BACKEND, validateAgentBackend, type AgentBackendConfiguration } from '../server/agent-backend.ts';
 import { CARGO_CONFIG } from '../shared/rts.ts';
 import { RTS_BRIEFING, RTS_MISSION } from '../shared/mission.ts';
+import type { ToolResult } from '../shared/types.ts';
 
 function fixture(roster?: FleetRoster) {
   const events: any[] = [];
@@ -24,15 +28,18 @@ test('backend configuration is explicit and fails closed before inference for un
 });
 
 test('onboard catalog bounds batches and exposes blue commander chat without red access', () => {
-  const blue = createDroneTools(undefined, undefined, 'blue');
-  const red = createDroneTools(undefined, undefined, 'red');
+  const blue = createDroneCatalog(undefined, 'blue');
+  const red = createDroneCatalog(undefined, 'red');
   const to = (tools: typeof blue) => (tools.find(tool => tool.name === 'send')!.inputSchema.properties!.to as any).enum;
   assert.ok(to(blue).includes('player')); assert.ok(!to(red).includes('player'));
   const batch = blue.find(tool => tool.name === 'exchange')!.inputSchema.properties!.operations as any;
   assert.equal(batch.maxItems, 8);
-  for (const forbidden of ['wait', 'workspace', 'routine', 'transfer', 'exchange', 'fire', 'camera']) {
+  for (const forbidden of ['wait', 'workspace', 'routine', 'transfer', 'exchange', 'camera']) {
     assert.ok(!batch.items.properties.tool.enum.includes(forbidden), forbidden);
   }
+  assert.deepEqual(batch.items.properties.tool.enum, ['act', 'send', 'route', 'buy', 'fire', 'rearm']);
+  for (const name of ['buy', 'fire', 'rearm']) assert.ok(blue.some(tool => tool.name === name));
+  for (const name of ['camera', 'mine', 'jam', 'recharge']) assert.ok(!blue.some(tool => tool.name === name));
   const armed = createDroneTools(undefined, { shop: true, gun: true, optics: true, alive: true });
   const allowed = (armed.find(tool => tool.name === 'exchange')!.inputSchema.properties!.operations as any).items.properties.tool.enum;
   assert.ok(allowed.includes('fire')); assert.ok(allowed.includes('camera'));
@@ -172,7 +179,7 @@ test('overlapping failure and UI shutdown share one cleanup and retain the error
   assert.equal(events.at(-1).status, 'error');
 });
 
-test('catalog exposes purchases with team credit access and equipment tools only after attachment', () => {
+test('dynamic availability exposes purchases with team credit access and equipment tools only after attachment', () => {
   const base = createDroneTools().map(tool => tool.name);
   assert.deepEqual(base, ['observe', 'act', 'send', 'wait', 'route', 'workspace', 'routine', 'transfer', 'exchange']);
   const shop = createDroneTools(undefined, { shop: true, gun: false, alive: true }).map(tool => tool.name);
@@ -192,7 +199,8 @@ test('catalog exposes purchases with team credit access and equipment tools only
   const instructions = droneInstructions('drone-1', undefined, 'blue');
   assert.doesNotMatch(instructions, /battery|recharge|power loss/i);
   assert.match(instructions, /blue team/);
-  assert.match(instructions, /tool_catalog_changed[\s\S]*finish this turn immediately/);
+  assert.match(instructions, /availableTools reports your current permissions/);
+  assert.doesNotMatch(instructions, /tool_catalog_changed|finish this turn immediately/);
   assert.doesNotMatch(instructions, /Cincinnati|Smale|Fountain Square|chest-1|Vine Street/);
   assert.match(instructions, /ten meters/);
 });
@@ -230,61 +238,92 @@ test('an early child completion resumes the same actor with fixed model and no n
   assert.equal(events.some(event => event.status === 'error'), false);
 });
 
-test('policy binds known native session identity to its own capabilities', () => {
+test('policy binds known native session identity to its advertised tools; game admission owns capabilities', () => {
   const { internal } = fixture(); internal.stopped = false;
   internal.roles.set('child', 'drone-1');
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_2__observe' }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_parent__forward_next_instruction' }).hookSpecificOutput.permissionDecision, 'deny');
-  assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__buy' }).hookSpecificOutput.permissionDecision, 'deny');
+  assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__buy' }), {});
+  assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__fire' }), {});
+  assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__rearm' }), {});
   assert.deepEqual(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__workspace' }), {});
   assert.equal(internal.policy({ model: MODEL, session_id: 'child', tool_name: 'mcp__fleet_drone_1__mine' }).hookSpecificOutput.permissionDecision, 'deny');
 });
 
-test('catalog changes yield only at a completed tool boundary and preserve every sensor and event', async () => {
-  let shop = false;
+test('equipment changes preserve the advertised MCP catalog and fresh result without ending the native turn', async t => {
+  let gun = false;
   const events: any[] = [], requests: any[] = [];
-  const runtime = new CodexFleetRuntime({ projectDir: process.cwd(), toolsForRole: () => createDroneTools(undefined, { shop, gun: false, alive: true }), onStatus: () => {}, onEvent: event => events.push(event), toolHandler: async () => ({ content: [] }) });
+  const sensors = { position: { x: 1, y: 2, z: 3 }, heading: { degrees: 10 }, timestamp: { capturedAt: 'captured', simTime: 7 }, camera: 'image' };
+  const unreadEvents = [{ id: 'durable-mail', type: 'radio' }];
+  const pixels = Buffer.from('camera-pixels').toString('base64');
+  const runtime = new CodexFleetRuntime({ projectDir: process.cwd(), onStatus: () => {}, onEvent: event => events.push(event),
+    toolHandler: async (_role, name) => {
+      if (name === 'buy') gun = true;
+      return { content: [
+        { type: 'text', text: JSON.stringify({ sensors, events: unreadEvents, availableTools: createDroneTools(undefined, { shop: true, gun, alive: true }).map(tool => tool.name) }) },
+        { type: 'image', data: pixels, mimeType: 'image/png' },
+      ] };
+    },
+  });
   const internal = runtime as any; internal.stopped = false;
-  internal.rpc = { request: async (method: string, params: any) => { requests.push({ method, params }); return { turn: { id: 'next-turn' } }; } };
+  internal.rpc = { request: async (method: string, params: any) => { requests.push({ method, params }); return {}; }, stop: async () => {} };
   internal.roles.set('same-child', 'drone-1');
   internal.ownTurn('same-child', 'initial-turn');
-  internal.recordToolsListed('drone-1', runtime.toolsForRole('drone-1'));
-  shop = true;
+  const endpoint = await internal.startMcp();
+  const client = new Client({ name: 'stable-catalog-test', version: '1' });
+  t.after(async () => { await client.close(); await runtime.stop(); });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
+  const initialCatalog = (await client.listTools()).tools;
+  let notifications = 0;
+  let notified!: () => void;
+  const retirementNotification = new Promise<void>(resolve => { notified = resolve; });
+  client.setNotificationHandler(ToolListChangedNotificationSchema, () => { notifications++; notified(); });
+  for (const name of ['observe', 'buy']) {
+    const result = await client.callTool({ name, arguments: name === 'buy' ? { mission: 1, item: 'gun' } : {} }) as ToolResult;
+    assert.equal(result.content.length, 2, 'equipment changes append no yield instruction');
+    const body = JSON.parse((result.content[0] as { text: string }).text);
+    assert.deepEqual(body.sensors, sensors);
+    assert.deepEqual(body.events, unreadEvents);
+    assert.equal(body.availableTools.includes('fire'), name === 'buy');
+    assert.equal(body.availableTools.includes('rearm'), name === 'buy');
+    assert.deepEqual(result.content[1], { type: 'image', data: pixels, mimeType: 'image/png' });
+    assert.deepEqual((await client.listTools()).tools, initialCatalog);
+  }
+  gun = false;
   await runtime.refreshTools();
-  assert.equal(requests.length, 0, 'a catalog notification must not interrupt private reasoning');
-  const sensors = { position: { x: 1, y: 2, z: 3 }, heading: { degrees: 10 }, timestamp: { capturedAt: 'captured', simTime: 7 }, camera: 'image' };
-  const original = { content: [{ type: 'text' as const, text: JSON.stringify({ sensors, events: [{ id: 'durable-mail', type: 'radio' }] }) }, { type: 'image' as const, data: 'camera-pixels', mimeType: 'image/png' }] };
-  const boundary = internal.catalogBoundary('drone-1', original);
-  assert.deepEqual(boundary.content.slice(0, 2), original.content);
-  assert.match(boundary.content[2].text, /tool_catalog_changed/);
-  assert.equal(requests.length, 0, 'the actor must finish naturally after reading the fresh bundle');
-  internal.onMessage({ method: 'turn/completed', params: { threadId: 'same-child', turn: { id: 'initial-turn', status: 'completed' } } });
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.deepEqual(requests.map(request => request.method), ['config/mcpServer/reload', 'mcpServerStatus/list'], 'resumption waits for native MCP discovery acknowledgement');
-  internal.recordToolsListed('drone-1', runtime.toolsForRole('drone-1'));
-  await new Promise(resolve => setTimeout(resolve, 0));
-  assert.equal(requests.length, 3); assert.equal(requests[2].method, 'turn/start');
-  assert.equal(requests[2].params.threadId, 'same-child'); assert.equal(requests[2].params.model, MODEL); assert.equal(requests[2].params.effort, EFFORT);
-  assert.doesNotMatch(requests[2].params.input[0].text, /gun|armor|buy|mine|location|enemy/);
-  assert.equal(internal.resumptions.size, 0, 'expected catalog yields do not consume failure recovery allowance');
-  assert.deepEqual(internal.catalogBoundary('drone-1', original), original);
-  assert.ok(events.some(event => event.type === 'catalog-turn-resumed'));
+  assert.deepEqual((await client.listTools()).tools, initialCatalog);
+  assert.equal(notifications, 0);
+  assert.equal(requests.length, 0, 'equipment changes neither interrupt nor restart the actor');
+  assert.equal(internal.activeTurns.get('same-child').id, 'initial-turn');
+  assert.equal(internal.resumptions.size, 0);
+  assert.ok(!events.some(event => event.type === 'catalog-yield-requested'));
+  await runtime.retireDrone('drone-1');
+  await Promise.race([retirementNotification, new Promise((_, reject) => setTimeout(() => reject(new Error('Missing retirement notification')), 3000).unref())]);
+  assert.equal(notifications, 1, 'MCP catalog notifications still revoke retired actors');
+  assert.deepEqual((await client.listTools()).tools, []);
+  assert.equal((await client.callTool({ name: 'observe' })).isError, true);
+  assert.deepEqual(requests.map(request => request.method), ['turn/interrupt']);
 });
 
-test('retirement during catalog discovery cancels the pending continuation', async () => {
-  let shop = false;
-  const runtime = new CodexFleetRuntime({ projectDir: process.cwd(), toolsForRole: () => createDroneTools(undefined, { shop, gun: false, alive: true }), onStatus: () => {}, onEvent: () => {}, toolHandler: async () => ({ content: [] }) });
-  const internal = runtime as any; internal.stopped = false;
+test('retirement while terminal tool work settles cancels the pending ordinary continuation', async () => {
+  const { runtime, internal } = fixture(); internal.stopped = false;
   const requests: string[] = [];
   internal.rpc = { request: async (method: string) => { requests.push(method); return { turn: { id: 'unexpected' } }; } };
-  internal.recordToolsListed('drone-1', runtime.toolsForRole('drone-1'));
-  shop = true; internal.catalogBoundary('drone-1', { content: [] });
-  const resume = internal.resumeActor('child', 'drone-1', true);
+  internal.roles.set('child', 'drone-1');
+  internal.ownTurn('child', 'closing-turn');
+  const ticket = internal.beginTool('drone-1');
+  internal.onMessage({ method: 'turn/completed', params: { threadId: 'child', turn: { id: 'closing-turn', status: 'completed' } } });
+  const resume = internal.resumeActor('child', 'drone-1');
   await new Promise(resolve => setTimeout(resolve, 0));
-  await runtime.retireDrone('drone-1'); await resume;
+  assert.equal(requests.length, 0, 'terminal notification alone does not settle outstanding tool work');
+  await runtime.retireDrone('drone-1');
+  assert.equal(ticket.signal.aborted, true);
+  ticket.settled(); await resume;
   assert.ok(!requests.includes('turn/start'));
   assert.ok(!requests.includes('turn/interrupt'));
-  assert.equal(internal.catalogWaiters.size, 0);
+  assert.equal(internal.activeTurns.get('child').settled, true);
+  assert.deepEqual(runtime.toolsForRole('drone-1'), []);
+  assert.deepEqual(runtime.toolsForRole('drone-99'), []);
 });
 
 test('terse common opening states the empty loadout and lights without exposing map geometry', () => {

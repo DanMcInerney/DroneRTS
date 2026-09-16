@@ -7,7 +7,7 @@ import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { FleetMcpServer } from './runtime-mcp.ts';
 import { AppServerRpc } from './runtime-rpc.js';
 import { RuntimeReasoning, REASONING_CONFIG, REASONING_CONFIG_TOML } from './runtime-reasoning.ts';
-import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
+import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneCatalog, createParentInstructions, relayTool, type FleetRole } from './runtime-tools.js';
 import type { ToolResult } from '../shared/types.js';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
 import { validateAgentBackend, type AgentBackend, type AgentBackendOptions } from './agent-backend.ts';
@@ -40,10 +40,6 @@ export class CodexFleetRuntime implements AgentBackend {
   private nativeTurnCount = 0;
   private retired = new Set<FleetRole>();
   private resumptions = new Map<FleetRole, number>();
-  private turnCatalogs = new Map<FleetRole, string>();
-  private servedCatalogs = new Map<FleetRole, string>();
-  private catalogYields = new Map<FleetRole, number>();
-  private catalogWaiters = new Set<() => void>();
   private resuming = new Map<string, { promise: Promise<void>; reason: 'ordinary' | 'attention' }>();
   private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
@@ -61,7 +57,7 @@ export class CodexFleetRuntime implements AgentBackend {
     this.configuration = validateAgentBackend(options.backend);
     this.roster = validateRoster(options.roster ?? DEFAULT_FLEET);
     this.drones = this.roster.map(member => member.id);
-    this.droneTools = createDroneTools(this.roster, undefined, options.team);
+    this.droneTools = createDroneCatalog(this.roster, options.team);
     this.parentInstructions = createParentInstructions(this.roster);
   }
 
@@ -159,7 +155,7 @@ export class CodexFleetRuntime implements AgentBackend {
     if (pilot && ['pending', 'ready'].includes(pilot.bridge.attention()?.status ?? '')) {
       void this.attend(threadId, role, pilot); return;
     }
-    void this.resumeActor(threadId, role, this.catalogYields.has(role));
+    void this.resumeActor(threadId, role);
   }
   private async startTurn(threadId: string, input: unknown[]) {
     this.assertActive();
@@ -193,7 +189,7 @@ export class CodexFleetRuntime implements AgentBackend {
   private attend(threadId: string, role: FleetRole, pilot: DroneNervelet): Promise<void> {
     const previous = this.resuming.get(threadId);
     if (previous?.reason === 'attention') return previous.promise;
-    // A pending generic/catalog continuation relinquishes its next start below.
+    // A pending ordinary continuation relinquishes its next start below.
     const work = Promise.resolve().then(async () => {
       await previous?.promise;
       if (this.stopped || this.retired.has(role) || pilot.bridge.status().loop === 'stopped') return;
@@ -212,7 +208,6 @@ export class CodexFleetRuntime implements AgentBackend {
         if (route !== 'restart') { this.options.onEvent({ type: 'attention-settled', role, threadId, route, attentionId: attention.id }); return; }
         if (this.stopped || this.retired.has(role) || pilot.bridge.attention()?.id !== attention.id || pilot.bridge.attention()?.status !== 'ready') return;
         if (turn) await withAbort(turn.ended, deadline.signal);
-        if (this.catalogYields.has(role)) await withAbort(this.awaitCurrentCatalog(threadId, role), deadline.signal);
         if (this.stopped || this.retired.has(role)) return;
         const result = await pilot.call('observe', {}, deadline.signal) as SubmittedResult;
         try {
@@ -224,7 +219,6 @@ export class CodexFleetRuntime implements AgentBackend {
           if (count > pilot.bridge.attentionOptions!.maxTransitions) throw new Error('Emergency restart budget exhausted');
           this.attentionRestarts.set(threadId, count);
           verifyFleetResult(result);
-          this.turnCatalogs.set(role, JSON.stringify(this.toolsForRole(role))); this.catalogYields.delete(role);
           const replacement = await withAbort(this.startTurn(threadId, result.content.map(item => item.type === 'text'
             ? { type: 'text', text: item.text, text_elements: [] } : { type: 'image', url: `data:${item.mimeType};base64,${item.data}` })), deadline.signal);
           deadline.signal.throwIfAborted();
@@ -246,60 +240,18 @@ export class CodexFleetRuntime implements AgentBackend {
 
   toolsForRole(role: FleetRole): Tool[] {
     if (this.retired.has(role)) return [];
-    return role === 'parent' ? [relayTool] : this.options.toolsForRole?.(role) ?? this.droneTools;
+    if (role === 'parent') return [relayTool];
+    if (!this.drones.includes(role)) return [];
+    return this.options.toolsForRole?.(role) ?? this.droneTools;
   }
 
+  // MCP still revokes a retired actor's advertised inventory. Equipment changes
+  // leave the current-ruleset catalog unchanged; game admission owns permissions.
   async refreshTools() { await this.mcp?.refreshTools(); }
-
-  private recordToolsListed(role: FleetRole, tools: Tool[]) {
-    const catalog = JSON.stringify(tools);
-    this.servedCatalogs.set(role, catalog);
-    // A native turn freezes its callable schemas. Later MCP list refreshes alone
-    // do not change that turn's model request on Codex 0.144.
-    if (!this.turnCatalogs.has(role)) this.turnCatalogs.set(role, catalog);
-    for (const wake of this.catalogWaiters) wake();
-  }
-
-  private catalogBoundary(role: FleetRole, result: ToolResult): ToolResult {
-    if (role === 'parent' || this.stopped || this.retired.has(role)) return result;
-    const catalog = JSON.stringify(this.toolsForRole(role));
-    const previous = this.turnCatalogs.get(role);
-    if (!previous) { this.turnCatalogs.set(role, catalog); return result; }
-    if (previous === catalog) return result;
-    const attempts = (this.catalogYields.get(role) ?? 0) + 1;
-    this.catalogYields.set(role, attempts);
-    if (attempts > 3) { this.failRuntime(`${role} did not yield for its controller interface refresh.`); return result; }
-    this.options.onEvent({ type: 'catalog-yield-requested', role, attempt: attempts });
-    // The original fresh camera and unread events remain untouched. The actor
-    // ends its own turn after reading them; no private reasoning is interrupted.
-    return { ...result, content: [...result.content, { type: 'text', text: JSON.stringify({ controller: {
-      type: 'tool_catalog_changed', instruction: 'Read this complete tool result, then finish this turn now with a brief acknowledgement and no more tool calls. Your same drone session will resume automatically with refreshed callable tools. This is not a new mission.',
-    } }) }] };
-  }
-
-  private async awaitCurrentCatalog(threadId: string, role: FleetRole) {
-    await this.refreshTools();
-    // This supported app-server operation queues MCP configuration refresh for
-    // loaded threads. It is issued only after this actor's turn has completed;
-    // other actors keep their active turns and consume the queued refresh later.
-    await this.rpc?.request('config/mcpServer/reload', {}, 8000);
-    // On older Codex builds the notification marks inventory stale but does not
-    // fetch it until an inventory read. This read is scoped to the idle child.
-    await this.rpc?.request('mcpServerStatus/list', { threadId, detail: 'toolsAndAuthOnly' }, 8000);
-    const current = () => this.servedCatalogs.get(role) === JSON.stringify(this.toolsForRole(role));
-    if (current()) return;
-    await new Promise<void>((resolve, reject) => {
-      const done = (error?: Error) => { clearTimeout(timer); this.catalogWaiters.delete(wake); error ? reject(error) : resolve(); };
-      const wake = () => { if (this.stopped || this.retired.has(role)) done(new Error('Actor stopped during interface refresh')); else if (current()) done(); };
-      const timer = setTimeout(() => done(new Error('Native MCP client did not refresh its callable tool catalog')), 8000);
-      this.catalogWaiters.add(wake); wake();
-    });
-  }
 
   async retireDrone(role: FleetRole) {
     if (!this.drones.includes(role as typeof this.drones[number])) return;
     this.retired.add(role);
-    for (const wake of this.catalogWaiters) wake();
     this.options.onEvent({ type: 'actor-retired', role });
     await Promise.allSettled([...this.roles].filter(([, actor]) => actor === role).map(async ([threadId]) => {
       const turn = this.activeTurns.get(threadId);
@@ -315,7 +267,6 @@ export class CodexFleetRuntime implements AgentBackend {
     this.mcp = new FleetMcpServer({
       roles: ['parent', ...this.drones], active: () => !this.stopped,
       tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: event => this.options.onEvent(event as Record<string, unknown>),
-      onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
       onToolEvidence: this.options.onToolEvidence,
       beginTool: role => this.beginTool(role),
       call: async (role, name, args, signal) => {
@@ -323,7 +274,7 @@ export class CodexFleetRuntime implements AgentBackend {
         this.toolCalls++;
         const original: SubmittedResult = await this.options.toolHandler(role, name, args, signal);
         let result: ToolResult;
-        try { signal?.throwIfAborted(); result = this.catalogBoundary(role, original[resultSubmission] ? original : compactObservation(original)); }
+        try { signal?.throwIfAborted(); result = original[resultSubmission] ? original : compactObservation(original); }
         catch (error) { original[resultSubmission]?.failed(error); throw error; }
         this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
         return result;
@@ -463,29 +414,24 @@ export class CodexFleetRuntime implements AgentBackend {
     void this.stop(false);
   }
 
-  private resumeActor(threadId: string, role: string, catalogRefresh = false): Promise<void> {
+  private resumeActor(threadId: string, role: string): Promise<void> {
     const existing = this.resuming.get(threadId); if (existing) return existing.promise;
-    const work = Promise.resolve().then(() => this.resumeActorOwned(threadId, role, catalogRefresh));
+    const work = Promise.resolve().then(() => this.resumeActorOwned(threadId, role));
     this.resuming.set(threadId, { promise: work, reason: 'ordinary' });
     void work.finally(() => { if (this.resuming.get(threadId)?.promise === work) { this.resuming.delete(threadId); this.continueEnded(threadId); } }).catch(() => {});
     return work;
   }
-  private async resumeActorOwned(threadId: string, role: string, catalogRefresh: boolean) {
+  private async resumeActorOwned(threadId: string, role: string) {
     if (this.stopped || this.retired.has(role as FleetRole)) return;
     try {
       await this.activeTurns.get(threadId)?.ended;
-      if (catalogRefresh) await this.awaitCurrentCatalog(threadId, role as FleetRole);
       if (this.stopped || this.retired.has(role as FleetRole)) return;
       if (['pending', 'ready'].includes(this.attentionPilots.get(threadId)?.bridge.attention()?.status ?? '')) return;
       const count = (this.resumptions.get(role as FleetRole) ?? 0) + 1;
-      if (role === 'unknown actor' || (!catalogRefresh && count > 2)) { this.failRuntime(`${role} repeatedly stopped its event loop. The match cannot continue with a missing actor.`); return; }
-      if (!catalogRefresh) this.resumptions.set(role as FleetRole, count);
-      this.turnCatalogs.set(role as FleetRole, JSON.stringify(this.toolsForRole(role as FleetRole)));
-      this.catalogYields.delete(role as FleetRole);
-      this.options.onEvent({ type: catalogRefresh ? 'catalog-turn-resumed' : 'actor-resumed', role, attempt: count });
-      await this.startTurn(threadId, [{ type: 'text', text: catalogRefresh
-        ? 'Your controller interface is refreshed. Continue your existing drone event loop with your current mission, received observations and currently callable fleet tools.'
-        : role === 'parent'
+      if (role === 'unknown actor' || count > 2) { this.failRuntime(`${role} repeatedly stopped its event loop. The match cannot continue with a missing actor.`); return; }
+      this.resumptions.set(role as FleetRole, count);
+      this.options.onEvent({ type: 'actor-resumed', role, attempt: count });
+      await this.startTurn(threadId, [{ type: 'text', text: role === 'parent'
         ? 'Continue your existing mechanical relay event loop. Do not create additional actors. Call forward_next_instruction until stopped.'
         : 'Continue your existing drone event loop using only your fleet tools. Call wait for current events. Finish only when destroyed or stopped.', text_elements: [] }]);
       if (this.retired.has(role as FleetRole)) await this.retireDrone(role as FleetRole);
@@ -497,7 +443,6 @@ export class CodexFleetRuntime implements AgentBackend {
     if (this.stopped && !this.startPromise && !this.runDir && !this.rpc) return Promise.resolve();
     this.stopped = true;
     for (const turn of this.activeTurns.values()) { clearTimeout(turn.terminalTimer); for (const request of turn.requests) request.abort(new Error('Runtime stopped')); }
-    for (const wake of this.catalogWaiters) wake();
     this.stopPromise = this.stopInternal(updateStatus).finally(() => { this.stopPromise = undefined; });
     return this.stopPromise;
   }

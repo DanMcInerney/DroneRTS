@@ -161,7 +161,8 @@ test('64 KiB files remain usable; duplicate command IDs cannot repeat a mutation
   const conflict = body(await p.call('workspace', { ...args, seen: next.nervelet.id, content: 'changed' }));
   assert.equal(conflict.nervelet.results.at(-1).reason, 'id_conflict');
   const read = await effect(p, conflict, 'workspace', { op: 'read', path: 'large.txt' });
-  assert.equal(read.workspace.content.length, 65536);
+  assert.equal(read.nervelet.results.at(-1).data.result.workspace.content.length, 65536);
+  assert.equal(read.workspace, undefined, 'historical command data stays outside current telemetry');
 });
 
 test('responsive hover cancels a blocked capture promptly; its late completion cannot replace newer evidence', async t => {
@@ -196,9 +197,10 @@ test('invalid waits and incompatible batches have no side effects; valid partial
   const args = { seen: refused.nervelet.id, command_id: refused.nervelet.nextCommandId, mission: 1,
     operations: [command, { id: 'purchase', tool: 'buy', args: { item: 'gun' } }] };
   const result = body(await p.call('exchange', args));
-  assert.equal(result.atomic, false);
-  assert.equal(typeof result.outcomes[0].result.sent, 'string');
-  assert.equal(result.outcomes[1].result.rejected, true);
+  const original = result.nervelet.results.at(-1).data.result;
+  assert.equal(original.atomic, false);
+  assert.equal(typeof original.outcomes[0].result.sent, 'string');
+  assert.equal(original.outcomes[1].result.rejected, true);
   await p.call('exchange', { ...args, seen: result.nervelet.id });
   assert.equal(game.state.radio.filter(m => m.text === 'valid effect').length, 1);
 });
