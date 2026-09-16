@@ -89,7 +89,8 @@ store.expire(now + 101)
 assert store.status()['records'] == 0`, 90_000);
 });
 
-test('radio quotas count actual SQLite pages, Unicode bytes and bounded journal growth', async () => {
+// Filling and reclaiming the real database is a capacity check, not a disk-speed benchmark.
+test('radio quotas count actual SQLite pages, Unicode bytes and bounded journal growth', { timeout: 120_000 }, async () => {
   await scenario(`payload = '\\U0001f680' * 3900
 rejected(lambda: store.accept(message('too-large', '\\U0001f680' * 5000), now + 100))
 accepted = 0
@@ -123,7 +124,7 @@ for index in range(30):
     assert store.consume([body['id']]) == 1
 assert store.status()['storageBytes'] <= RADIO_BYTES
 assert store.status()['journalPeakBytes'] <= TRANSACTION_BYTES
-assert store.db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'`);
+assert store.db.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'`, 90_000);
 });
 
 test('received status messages persist in receipt order across expiry and restart until consumed', async () => {

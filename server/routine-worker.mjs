@@ -1,7 +1,7 @@
 // This host worker boots one isolated QuickJS heap. Guest source is never evaluated by Node.
 import { parentPort, workerData } from 'node:worker_threads';
 import { posix } from 'node:path';
-import { newQuickJSWASMModuleFromVariant } from 'quickjs-emscripten-core';
+import { newQuickJSWASMModuleFromVariant, newVariant } from 'quickjs-emscripten-core';
 import RELEASE_SYNC from '@jitl/quickjs-wasmfile-release-sync';
 
 const { path: entry, files, argumentJson, limits } = workerData;
@@ -19,7 +19,11 @@ function slice(fn) {
   const end = performance.now(), elapsedCpu = threadCpuMs() - sliceCpuStart, bucket = Math.ceil(end / 50) * 50;
   const current = cpuSamples.at(-1);
   if (current?.at === bucket) current.ms += elapsedCpu; else cpuSamples.push({ at: bucket, ms: elapsedCpu });
-  if (interrupted || elapsedCpu > limits.sliceMs) { result?.dispose?.(); fail('guest_slice_deadline'); return; }
+  // Windows CPU counters are coarse. One thread cannot consume more CPU than
+  // elapsed wall time; require both to cross the per-slice limit. Keep the full
+  // counter delta above so short slices cannot evade the rolling CPU budget.
+  const sliceExceeded = elapsedCpu > limits.sliceMs && end - sliceStart > limits.sliceMs;
+  if (interrupted || sliceExceeded) { result?.dispose?.(); fail('guest_slice_deadline'); return; }
   if (cpuUsed(end) > limits.cpuMsPerSecond) { result?.dispose?.(); fail('guest_cpu_budget'); return; }
   return result;
 }
@@ -72,13 +76,18 @@ parentPort.on('message', message => {
 try {
   if (typeof process.threadCpuUsage !== 'function') throw new Error('thread_cpu_accounting_unavailable: routines require Node 22.19+ or 24+');
   threadCpuMs();
-  const quickJS = await newQuickJSWASMModuleFromVariant(RELEASE_SYNC);
+  // Bound linear memory too: the engine's allocation accounting alone does not
+  // cap accumulated ArrayBuffer backing storage. Each worker owns this memory.
+  const memoryPages = Math.floor(limits.heapBytes / 65536);
+  const wasmMemory = new WebAssembly.Memory({ initial: Math.min(256, memoryPages), maximum: memoryPages });
+  const quickJS = await newQuickJSWASMModuleFromVariant(newVariant(RELEASE_SYNC, { wasmMemory }));
   runtime = quickJS.newRuntime();
   runtime.setMemoryLimit(limits.heapBytes); runtime.setMaxStackSize(256 * 1024);
   runtime.setInterruptHandler(() => {
     const now = performance.now();
     const currentCpu = threadCpuMs() - sliceCpuStart;
-    if (stopped || currentCpu >= limits.sliceMs || cpuUsed(now) + currentCpu >= limits.cpuMsPerSecond) { interrupted = true; return true; }
+    const sliceExceeded = currentCpu >= limits.sliceMs && now - sliceStart >= limits.sliceMs;
+    if (stopped || sliceExceeded || cpuUsed(now) + currentCpu >= limits.cpuMsPerSecond) { interrupted = true; return true; }
     return false;
   });
   runtime.setModuleLoader(name => {

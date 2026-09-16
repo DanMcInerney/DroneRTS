@@ -42,8 +42,23 @@ test('runaway guest terminates under its slice deadline while main loop remains 
 });
 
 test('memory exhaustion and an async microtask runaway fail inside bounded workers', async t => {
-  const { runner, workspace } = harness('const hold = new ArrayBuffer(40 * 1024 * 1024);'); t.after(() => runner.cancel('test_cleanup'));
-  runner.start({ path: 'entry.js', mission: 1 }); const memory = await ended(runner); assert.equal(memory.state, 'failed'); assert.equal(memory.error, 'guest_heap_limit');
+  // Cross the heap limit in small slices so a single large allocation cannot hit the CPU limit first.
+  const { runner, workspace } = harness(`
+    const hold = [];
+    for (let n = 0; n < 40; n++) {
+      hold.push(new ArrayBuffer(1024 * 1024));
+      await drone.sleep(20);
+    }
+    await drone.files.write('retained.json', JSON.stringify({
+      count: hold.length, bytes: hold.reduce((total, item) => total + item.byteLength, 0)
+    }));
+  `);
+  t.after(() => runner.cancel('test_cleanup'));
+  runner.start({ path: 'entry.js', mission: 1 });
+  const memory = await ended(runner);
+  assert.equal(memory.state, 'failed', JSON.stringify(memory));
+  assert.equal(memory.error, 'guest_heap_limit');
+  assert.equal(workspace.list().some(file => file.path === 'retained.json'), false);
   workspace.write('entry.js', 'while (true) await Promise.resolve();'); runner.start({ path: 'entry.js', mission: 1 });
   const result = await ended(runner); assert.equal(result.state, 'failed'); assert.match(result.error!, /guest_cpu_budget|guest_slice_deadline/);
 });
