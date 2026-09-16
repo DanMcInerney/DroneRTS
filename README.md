@@ -1,160 +1,144 @@
 # DroneRTS
 
-A local Three.js RTS in downtown Cincinnati: your blue swarm and an enemy red swarm each have three autonomous drones. Gather finite salvage, share the team's income, choose attachments and eliminate the opposing team. The last team with a surviving drone wins. Both swarms use real native Codex actors, peer-to-peer Zenoh radio and MAVLink 2 vehicle control.
+### Six LLM pilots. Two swarms. One city.
 
-All eight gameplay actors—six drones and two mechanical relay parents—use **gpt-5.6-luna / xhigh**. The runtime verifies the installed model list and never substitutes another model or effort. Each parent starts exactly three clean-context children and forwards its team's instructions unchanged; the drones make the decisions.
+**built by [orchflows](https://github.com/DanMcInerney/orchflows)**
 
-## Run a match
+Give six AI pilots cameras, peer-to-peer radios, and drones. Drop them into downtown Cincinnati with no money, no weapons, and no shared map. Ask them to haul salvage, equip themselves, and be the last team flying.
 
-The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, retained command results, recovery and conditional waits. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the current copying/wait guidance and checks; [interface QA](NERVELET-INTERFACE-QA.md) and [reliability QA](RELIABILITY-QA.md) preserve previous dependency qualifications. [Camera-age QA](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate. The current pin is available on upstream `main` through [Nervelet PR #7](https://github.com/DanMcInerney/nervelet/pull/7). Setup builds and verifies its package locally; it is not published to npm. [Documentation and evidence index](DOCUMENTATION.md).
+**DroneRTS is a watchable, three-versus-three agent experiment built in Three.js.** Teammates talk over real **Zenoh peer-to-peer networks**. Flight commands and telemetry cross real **MAVLink 2 UDP sockets**. Each pilot sees its own acquired camera images and local sensors, makes its own decisions, and can write JavaScript that keeps running while the model thinks.
 
-Requires Node.js 24+, Python (tested with 3.12.4 and 3.14.6), and an installed, signed-in Codex CLI. Nervelet requires Node 24; bounded routines also use per-thread CPU accounting. Python dependencies stay in the project `.venv`.
+[![DroneRTS demo: six drone camera feeds over downtown Cincinnati. Click to watch the full video.](docs/media/dronerts-preview.gif)](docs/media/dronerts.mp4)
+
+*Preview: 1:10 through the end of the recording (23.4 seconds).*
+
+<details>
+<summary>Watch the full 93-second demo</summary>
+
+https://github.com/user-attachments/assets/514f1d77-928d-41aa-8769-caf24d784f55
+
+[Download the MP4](docs/media/dronerts.mp4)
+
+</details>
+
+[Run it](#run-it) · [Inside the network](#inside-the-network) · [What the pilots know](#what-the-pilots-know) · [Measured results](#what-has-actually-worked) · [Documentation](DOCUMENTATION.md)
+
+## Inside the network
+
+The radio and vehicle protocols are part of the running system:
+
+- **Two isolated Zenoh networks.** Each team has three drone peers and one operator peer, connected directly without a central router. Messages are durably stored before acknowledgement, retried after partitions, and subject to storage limits and backpressure. A stored message, a message delivered to a model, and a completed action are separate events.
+- **Six MAVLink 2 vehicle identities.** Python's `pymavlink` serializes binary packets; receiving sockets parse them and validate CRCs and identities. Decoded setpoints determine actual movement. Position, velocity, heading, and camera orientation return through the same wire boundary.
+- **Local control continues during inference.** Ordered routes and bounded QuickJS routines run independently of model turns. Finite range sensors support braking; controller leases and cancellation prevent stale work from continuing after its authority expires.
+- **Code can travel over the radio.** A drone can offer a private script to a teammate. Transfers are chunked, quota-accounted, hash-verified, and inert until the recipient explicitly imports and runs the file.
+
+```mermaid
+flowchart TB
+    subgraph Blue["Blue team · isolated Zenoh peer network"]
+        BO[Operator] --- B1[Pilot 1]
+        BO --- B2[Pilot 2]
+        BO --- B3[Pilot 3]
+        B1 --- B2
+        B2 --- B3
+        B3 --- B1
+    end
+    subgraph Red["Red team · isolated Zenoh peer network"]
+        RO[Operator] --- R1[Pilot 4]
+        RO --- R2[Pilot 5]
+        RO --- R3[Pilot 6]
+        R1 --- R2
+        R2 --- R3
+        R3 --- R1
+    end
+    B1 & B2 & B3 & R1 & R2 & R3 <-->|MAVLink 2 over UDP| SIM[Node.js simulation]
+    SIM <--> VIEW[Three.js browser · six cameras + spectator view]
+```
+
+All of this runs locally over loopback. The vehicle endpoints implement a small simulator profile with game-unit coordinates; this is not PX4/ArduPilot SITL or a model of physical RF propagation. [Network design](NETWORK.md) · [Exact MAVLink messages and coordinate conventions](MAVLINK.md)
+
+## What the pilots know
+
+Each drone starts with a clean context, the same rules and vehicle briefing, and its team's objective. It receives:
+
+- Its own **512 × 288 acquired pixels**, with the original capture timestamp and camera pose.
+- Its own position, velocity, heading, equipment, cargo, jobs, and finite anonymous range measurements.
+- Messages actually delivered by its teammates or operator, plus the team's shared balance.
+- A private workspace and a restricted JavaScript SDK.
+
+The overhead map, resource coordinates, opponent telemetry, collision geometry, and replay archive stay on the spectator side. The two parent actors forward instructions unchanged; they do not assign roles, plan routes, or select purchases. The pilots have to discover and communicate what matters.
+
+Each drone has a **16 MiB application storage budget**, including a 2 MiB workspace and 4 MiB durable radio allocation. Model weights and inference hardware are abstracted away; scripts, retained messages, execution limits, and real decision latency still count. [Onboard contract](ONBOARD.md)
+
+[Nervelet](https://github.com/DanMcInerney/nervelet) connects model turns to this continuously running world: acknowledged observation bundles, retained command results, retry deduplication, recovery gates, and conditional waits. [Integration details](NERVELET-INTEGRATION.md)
+
+## The game
+
+The battlefield is an **820 × 660 m** approximation of Cincinnati's landmark core, built from sourced geography around Fountain Square, Carew Tower, and Great American Tower.
+
+Both teams start unarmored, with empty attachment slots and zero shared salvage. Three finite rooftop caches contain the entire economy. Hover low and slow over a marked loading apron to collect cargo; bring it home to put credits in the shared bank. Loaded drones fly 20% slower.
+
+| Equipment | Cost | Tradeoff |
+| --- | ---: | --- |
+| Free cargo grip | Free | Carries 30 salvage; every drone starts with one. |
+| Cargo module | 30 | Doubles capacity to 60; uses one of two module slots. |
+| Gun | 30 | Twelve rounds, physical aiming, cover, and friendly fire. |
+| Armor | 20 | Absorbs one hit or collision; uses no module slot. |
+| Rearm | 10 | Eight uninterrupted simulation seconds at a friendly base. |
+
+Unarmored collisions are lethal. There are no respawns, passive income, or regenerating caches. The last surviving team wins. [Full rules and controls](GUIDE.md#economy-and-combat)
+
+## Run it
+
+You need **Git, Node.js 24+, Python 3.12+**, and a browser with WebGL. Live matches also need an installed, signed-in **Codex CLI with access to `gpt-5.6-luna` at `xhigh`**. The runtime checks model availability and fails explicitly if it is unavailable; it never substitutes another model. Live matches consume your Codex usage.
 
 ```sh
+git clone https://github.com/DanMcInerney/DroneRTS.git
+cd DroneRTS
 npm run nervelet:setup
 npm ci
 npm run network:setup
 npm run dev
 ```
 
-Emergency attention and the acoustic sensor are independent, disabled-by-default experiments. Set `FLEET_ATTENTION=experimental` and/or `FLEET_ACOUSTIC=experimental` before starting the server to opt in; their qualification limits are documented in [the integration contract](NERVELET-INTEGRATION.md). Neither feature chooses flight or targeting actions.
+Open **[localhost:4317](http://127.0.0.1:4317)** and click **Launch match**. Keep the browser open: it renders the actual images delivered to the pilots. Both teams receive the same opening objective before simulation, movement, or spending begins. **Stop match** shuts down the actors and protocol helpers.
 
-For bounded native qualification, `node --import tsx scripts/qualify-nervelet.ts attention` opens an isolated real Playwright camera, starts the existing six Luna/xhigh children and compares an ordinary notice with synthetic local emergency evidence. `haul-single`, `haul-repeat` and `haul-team` select autonomy trials in that order. `RTS_TRIAL_PORT` defaults to 4328; `RTS_TRIAL_SECONDS` is bounded to 30–600, and `RTS_TRIAL_LABEL` separates repeat evidence. The runner inspects 4317/4318 and its trial port, refuses occupied ports, uses managed artifacts and closes owned processes. A protocol fixture is not an autonomous hauling or acoustic-accuracy result.
+`nervelet:setup` builds an exact upstream source revision and verifies its archive checksum. It must run before `npm ci`; Nervelet is not published to npm. Python dependencies install into the project's `.venv`. Python 3.12.4 and 3.14.6 have recorded validation. [Dependency details](NERVELET-INTEGRATION.md)
 
-Open [the local game](http://127.0.0.1:4317) and click **Launch match**. Both teams receive the same elimination-and-resource objective and common briefing: visible crates and hauling, team-painted bases and service, drone recognition and vehicle calibration. The commander is an ordinary **blue-only chat** participant who can send messages and receive drone replies. Chat preserves the active objective; red continues independently.
+Watch all six FPV feeds, open a drone's **Cockpit** to inspect the actual tool bundles and private files it received or wrote, or use **Admin → Match replay** to inspect recorded flights, messages, cargo, and camera acquisitions. Ordinary player chat reaches blue only and preserves the active objective.
 
-Keep a current game browser open: it supplies the actual drone camera images. A renderer fingerprint must match the server before the browser is accepted; reload an out-of-date page. Simulation pauses when no matching camera browser remains, and the runtime stops after ten seconds. Flight, spending and simulation time begin only after all six pilots have received their opening objective in a tool bundle. **Stop match** halts simulation and shuts down both native sessions and protocol helpers. **Reset match** restores all six drones and every deposit while stopped. Launching again also starts a fresh match with no equipment or credits carried forward. A completed match stops its agents automatically.
+For another port, set `FLEET_PORT`; `CODEX_BIN` and `FLEET_PYTHON` override executable discovery. The server binds to `127.0.0.1`. Emergency attention and acoustic sensing are optional experiments, both off by default. [Operating guide, troubleshooting, and bounded playtests](GUIDE.md)
 
-The six FPV feeds show each drone's physical view. Equipment and slot counts share a compact row; cargo and controller status sit side by side when space permits. Expand the controller for source/storage details. Each feed has its own outgoing radio transcript; empty logs collapse, and scrolling back pauses automatic following until **Latest** is selected. The header shows both teams' survivors and credits, and the overhead map sits at the bottom. Tactical maps, team banks, loadouts, resource counts and the combat log are omniscient **player information**, not actor observations. **Fit downtown** frames the **820 × 660 m** landmark core around Fountain Square, Carew Tower and Great American Tower. Click the map for invisible **God view**: WASD moves, Q/E changes altitude, Shift speeds up, mouse or arrow keys look, and Esc exits.
+## What has actually worked
 
-Click a drone card or its **Cockpit** link to inspect that actor's camera image, sensor bundle, unread message slice, tool requests/results, outgoing messages and private workspace files. The bottom feed follows emitted output, tool activity, **Native reasoning** and **Reasoning summary** entries when the runtime supplies readable text. Its availability indicator distinguishes waiting, native text, summaries, both or no readable text. Cockpit images come from actual MCP responses, with acquisition and response timestamps; they do not advance with the live FPV view. Response recording does not acknowledge when the model read it. Empty inbox slices and remaining unread events are explicit. The workspace and compute cards show virtual authored/imported files and bounded QuickJS capability; inspecting them neither executes code nor exposes host files. Optional guest libraries are absent; Zenoh and pymavlink remain host adapters. See [COCKPIT.md](COCKPIT.md) for the evidence contract and extension points.
+A [recorded native cargo-v3 trial](QA-REPORT-2026-09-16-1705-BATTLE.md) completed **six pickups, five deliveries, and four gun purchases**. All 85 expected pilot-recipient copies of peer messages appeared in submitted bundles. Pilots shared discoveries and pad estimates, and multiple drones contributed income. Those results belong to the source revision recorded in that report.
 
-New actors use `model_reasoning_summary = "auto"` and `show_raw_agent_reasoning = true`, with Luna/xhigh unchanged. These settings expose text the model/runtime chooses to emit; they do not guarantee a complete internal reasoning trace. Live Luna support for these streams remains unconfirmed; existing actors need a new launch, and previously discarded text cannot be recovered. The available settings and distinct reasoning streams are documented in the [Codex configuration reference](https://developers.openai.com/codex/config-reference) and [app-server item deltas](https://learn.chatgpt.com/docs/app-server#item-deltas).
+That trial also ended with **all six drones alive, zero shots, and no completed second haul**. Repeated logistics, reliable targeting, moving-target hits, and full autonomous battle outcomes remain open evaluation work. Native held-wait camera behavior also has an [unresolved qualification gate](CAMERA-AGE-POLICY-QA.md). Watching a good-looking replay is not sufficient evidence of reliable autonomy.
 
-**Admin** opens live fleet health and bounded current/historical session audits. Filter by category or actor, search, inspect JSON or export records. Completed readable native reasoning and summaries are logged separately; interrupted streams retain explicitly partial records. Streaming updates stay in the bounded cockpit. Credentials and camera image payloads are redacted; encrypted reasoning payloads are not decoded. Camera capture continues while Admin or God view is open.
-
-New audit records identify each actor's native turn, reasoning/tool/compaction start and completion boundaries, input/context token counts and retry errors. These timestamps describe observed runtime activity, not private reasoning or guaranteed inference progress. Older logs without these records cannot distinguish a silent model interval from context compaction or backend delay.
-
-New sessions also have **Match replay** inside Admin. Select a session, scrub simulation time or play at different speeds, and select a drone to inspect its recorded flight, attachments and actual acquired camera images. The tactical plot includes sampled projectile paths, exact fire/contact endpoints and the last eight seconds of flight trails. Event buttons seek to their timestamps; totals count only evidence up to the selected time. Cameras show acquisition time and age. Missing images and recording gaps are explicit; an old audit file cannot reconstruct a replay.
-
-Replay records stay separate from audit exports under `artifacts/replays/<session>/`: `frames.jsonl`, a status marker and individual camera image files. Each recording is bounded to 32 MiB of data and 64 MiB of images, at most 512 KiB per image, with a bounded asynchronous write queue. Routine poses are sampled every 0.5 simulation seconds, with exact frames at command/event boundaries. A reserved final summary retains the outcome and totals even if detailed recording fills; the viewer distinguishes final totals from recorded coverage. Limits preserve the recorded prefix and show omitted evidence; storage failures leave gameplay running and appear in diagnostics. Limits apply per session, so remove old local session/replay folders when no longer needed. Replay never changes live drone sensors or exposes player information to agents.
-
-## Economy and combat
-
-Both teams receive the same short opening commander order through the existing launch gate. Detailed calibration remains in each pilot’s vehicle briefing. Drones have flashing team-colored navigation lights, cargo aprons have amber beacons, and bases have team-colored beacons. The lights obey ordinary visual occlusion; historical recordings retain saved equipment, geometry and camera modes.
-
-New matches use **cargo-v3**. Each team begins with zero salvage; drones start unarmored with empty module slots and a free cargo grip. Opposite west/east rooftop bases bracket three rooftop caches: Westin and Atrium One hold 120 each, and Dixie Terminal North holds 600. Crates are matte yellow/ochre on dark pallets. Loading aprons have a broad bright-yellow surface, black edge bars, a large boxed X cargo symbol and opposed **CARGO / LOAD** labels. Team-colored bases say **BASE / UNLOAD**. These are ordinary occluded surface markings; the whole painted footprint accepts service. Stock is finite, the opening bases have no resource piles, and empty pallets and paint remain visible. Four nearly transparent walls and a ceiling enclose the map and share the simulator's collision and finite-range sensing.
-
-Pickup requires the drone center over the marked apron, 0.6–2.4 local units above its surface, moving at most 0.3 local units per simulation second for three simulation seconds. One interval fills available capacity from available stock, with atomic reservations and partial final loads. The free grip carries 30 salvage; the cargo module carries 60. Loaded maximum speed is 20% lower. Cargo becomes shared credits only after two simulation seconds of the same low/slow service at a friendly base. Cancelling loading releases stock; cancelling unloading keeps cargo. Accessible crash-site drops can be collected by either team; inaccessible cargo is recorded lost.
-
-Bases use team-painted aprons, three pad marks, a service cabinet and the cargo symbol. Friendly service occupancy means the drone center is horizontally inside the painted footprint and 0–6 local units above its surface. Fitting equipment and paid rearming use this volume. Cargo unloading retains its narrower low/slow conditions and can overlap timed rearming. Resource/base props do not add solid collision geometry.
-
-| Item or service | Cost | Behavior |
-| --- | ---: | --- |
-| Free grip | 0 | Carries one 30-salvage crate, no module slot. |
-| Cargo module | 30 | Carries 60 salvage total, one slot. |
-| Gun | 30 | Initially contains 12 rounds; physical camera-aimed shots, cover and friendly fire. |
-| Armor | 20 | One armor charge, outside module slots. |
-| Rearm | 10 | Refills to 12 rounds after eight uninterrupted simulation seconds at friendly service. |
-
-Two module slots accept gun and cargo. Fitting/replacement requires friendly service occupancy and explicit replacement without resale refunds. Refitting creates no free ammunition. Optics, batteries, mining drills, upgrades and jamming are unavailable in new matches; historical recordings keep their original equipment meaning.
-
-Rearming reserves payment and grants no ammunition before completion. Movement commands, translation, firing, refitting, damage, a received replacement objective, destruction and Stop cancel it with exactly one refund. Looking, camera mode, radio, waiting and unloading may continue. Ordinary chat does not cancel service or flight.
-
-Flight has no endurance limit. New matches have no battery charge, drain, recharge service, battery attachment or power-loss death. Historical cargo-v1 and cube recordings retain their original battery state and death causes.
-
-One armor charge absorbs one collision or bullet, then is lost. A protected collision stops movement and generates generic local collision/armor-loss feedback; bullet absorption gives generic hit/armor-loss feedback. Alerts reveal no attacker, obstacle identity or impact coordinates. Unprotected contacts with terrain, buildings, drones or bullets are lethal. Cargo may remain recoverable at a valid crash site. Eliminated drones lose all tool access and cannot respawn; last-team-standing victory and simultaneous-elimination draws remain unchanged.
-
-Armor loss leaves the living team-colored airframe visible. A drone killed by gunfire falls as a dark, unlit wreck onto the first rooftop or ground beneath it, leaving smoke that expands and gradually dissipates. The wreck is cosmetic debris: death, tool retirement, cargo resolution and victory take effect immediately. Smoke and debris obey scene occlusion and appear in actual acquired cameras at their acquisition time. The spectator animation can finish after the winning shot. Other eliminated airframes disappear; historical acquisitions retain their recorded pixels and state. Cargo drops remain separately controlled by the economy.
-
-These are initial simulator balance values. Historical cube-economy playtests do not validate cargo hauling or balance. The common briefing teaches recognition, rules, vehicle calibration and private radio. Each pilot sends one brief team message acknowledging that it is online, then proceeds without waiting for replies or negotiating an opening plan or first purchase. Throughout the mission, pilots are asked to promptly share useful discoveries, intentions, progress, threats and requests for help, answer actionable questions, revise plans together and coordinate shared spending. Concise meaningful changes replace repetitive status and acknowledgement loops. The briefing does not assign tactics, roles, equipment, routes or reporting schedules.
-
-## Actor tools and sensors
-
-Each living drone has `observe`, `act`, `send`, `wait`, `route`, `workspace`, `routine`, `transfer`, `exchange` and the initially available `buy`. Gun unlocks `fire`/`rearm`. Historical equipped optics retain the `camera` interpretation in recordings. Equipment removal revokes corresponding capabilities. There is no active `mine` or `jam` tool.
-
-`server/runtime-tools.ts` composes a compact role/compute/encoding prompt with the exact common briefing from `shared/mission.ts`. [DRONE-PROMPT.md](DRONE-PROMPT.md) documents that composition. Numeric onboard and routine limits come from their authoritative profiles; `shared/actor-environment.ts` describes the matching guest/host capability boundary for the cockpit. The current cargo-v3 rules and three-cache rooftop layout supersede the earlier five-cache cargo-v2 revision; historical recordings keep their own geometry and rules.
-
-| Tool | Effect |
-| --- | --- |
-| `observe({})` | Fresh own acquired pixels, timestamped telemetry and unread events. |
-| `act({mission,kind,...})` | Asynchronous absolute local waypoint, heading/camera aim or physical braking/hover; optional travel/precision profile and explicit replacement. |
-| `send({mission,to,kind,text,data?})` | Team radio; blue alone may address `player`. Mail acknowledgment follows the [Nervelet contract](NERVELET-INTEGRATION.md). |
-| `wait({timeout_ms})` | Relevant local/mail event, cancellation or bounded timeout. |
-| `route({mission,op,waypoints?,profile?,replace?,job_id?})` | Start/status/cancel up to 32 ordered caller-chosen waypoints. |
-| `workspace({mission,op,path?,content?})` | Private atomic list/read/write/delete/stat. |
-| `routine({mission,op,path?,input?,replace?,job_id?})` | Start/status/cancel an isolated, bounded QuickJS module. |
-| `transfer({mission,operation,to?,path?,transferId?})` | Offer/list/status/import/cancel bounded inert peer file transfers. |
-| `exchange({mission,operations})` | Up to eight compatible operations with per-entry outcomes and one aggregate fresh bundle. |
-| `buy({mission,item,replace?})` | Atomically fit an allowed item to the caller inside friendly service. |
-| `fire({mission})` | Spend a round along actual camera aim; no target ID or hidden hit answer. |
-| `rearm({mission})` | Begin timed magazine replenishment. |
-| `camera({mission,mode})` | Select wide/zoom with equipped optics. |
-
-The versioned onboard observation adds own velocity, measured camera orientation, calibrated finite range sensing and explicit sequence/freshness to own position, heading, timestamp and camera. Frame-associated pose remains the acquired pose; newer current telemetry is separately labeled. One local unit represents ten meters, X is east, Y up, Z south, and heading is clockwise from north. Camera output is 512×288 with 76° vertical field of view (32° zoom), and pitch reaches a true downward -90°. No body roll/pitch dynamics are invented.
-
-Directional proximity uses 26 fixed finite beams with declared swept-sphere coverage; an independent downward sensor supplies range. Readings are anonymous distances with validity/coverage, never object IDs or world contact coordinates. Where extra sensing padding overlaps a nearby obstruction but the airframe is clear, the sensor reports a narrower footprint that still protects the full physical radius; this lets drones retreat from overlapping guard shells. Local assistance brakes/holds on obstruction or stale/unsupported coverage; it chooses no alternative route and does not provide collision immunity. The travel profile limits speed to 3 local units/s and acceleration to 6; precision uses 0.8 and 3. Loaded speed applies the cargo multiplier. This calibration describes simulated controls, not measured aircraft performance.
-
-Own cargo/loading/unloading progress, service inactivity reasons, equipment/ammo, jobs, storage and shared balance are allowed feedback. Resource/base locations, enemy state, map geometry, arbitrary raycasts and future observations remain private. Pixel visibility and actual received messages are the only ways to learn battlefield facts.
-
-Command admission and physical completion are different. One movement writer owns each drone; replacements are explicit. Ordered routes stop when blocked; routines fail or cancel on their enforced limits. Optional `observation_sequence` and `event_cursor` associate commands with actually delivered input. Mission versions are checked at admission and execution. Objective changes cancel only when that drone receives them; ordinary player/peer chat does not. Stop/death/capability loss invalidate affected work. Radio partitions leave valid local work running.
-
-Every direct tool or aggregate exchange delivers one fresh acquired camera bundle and the next unread event slice, including eligible mail arriving during capture. Event slices use a 128 KiB budget; `hasMore:true` means more unread events remain for the next tool result or `wait`. The 1 MiB logs/cache partition reserves 512 KiB for unread local events and 512 KiB for rotating diagnostics, separate from the 4 MiB native radio quota. Batches return separate accepted/rejected/queued outcomes and do not roll back completed side effects. A wait or camera acquisition must not hold command admission or prevent cancellation. Models receive input at supported tool/next-turn boundaries; finishing private reasoning is not an injection point. Catalog changes request a natural turn yield after the existing fresh bundle, then resume the same actor with refreshed tools and history.
-
-See [ONBOARD.md](ONBOARD.md) for private files, SDK syntax, package accounting and execution limits. [IMPLEMENTATION-VERIFICATION.md](IMPLEMENTATION-VERIFICATION.md) records current checks and outstanding autonomy gates. The [implementation handoff](DRONE-RTS-IMPLEMENTATION-HANDOFF.md) specifies the current revision; [STRATEGY-PLAN.md](STRATEGY-PLAN.md) remains earlier design evidence.
-
-## Architecture and verification
-
-The first [Blender graphics pass](GRAPHICS.md) adds consumer-style aircraft and cargo assets, PBR downtown façades, daylight reflections, building shadows and antialiasing. Editable `.blend` sources are in `assets/blender/`; run `npm run assets:build` to regenerate the game GLBs with Blender. Camera readiness waits for the required assets.
-
-[ARCHITECTURE.md](ARCHITECTURE.md) maps ownership. [CITY.md](CITY.md) describes private battlefield layout and the separate vehicle calibration; [CINCINNATI-SOURCES.md](CINCINNATI-SOURCES.md) records geographic evidence and approximations. [NETWORK.md](NETWORK.md) and [MAVLINK.md](MAVLINK.md) describe the native protocols. [AGENTS.md](AGENTS.md) gives development constraints. The current [QA handoff](QA-HANDOFF.md) prioritizes the reproduced braking failure, decision latency and remaining autonomy gates, with an offline reproduction command.
-
-`server/team-session.ts` composes two isolated three-drone networks, two native parents and one six-vehicle MAVLink helper. Each team's drone bridges connect directly in peer mode, with an operator bridge carrying only that team's objectives and chat. Separate network UUIDs, roles, endpoints and durable SQLite stores isolate radio traffic. Network lab controls simulate a drone partition by closing/reopening its Zenoh session. This is real loopback protocol traffic; RF propagation, aerodynamic flight and a full autopilot remain outside the PoC. Missing dependencies or helper failure explicitly stop the session, with no silent in-memory gameplay fallback.
+The deterministic suite exercises conservation, collision/control behavior, observation isolation, bounded storage, cancellation, and real native Zenoh/MAVLink traffic **without model inference**:
 
 ```sh
-npm test
+npm test -- --test-concurrency=2
 npm run build
-npm start
 ```
 
-`npm test` includes deterministic RTS rules, camera isolation, real Zenoh/MAVLink helpers and runtime policy without inference. The build checks TypeScript and creates the production bundle; `npm start` serves it. Restart the dev server and reload camera pages after changing renderer/shared source so the compiled and server fingerprints agree. Set `FLEET_PORT` for another port, `CODEX_BIN` if the installed CLI cannot be found, or `FLEET_PYTHON` for a configured Python interpreter.
+See [current and historical playtest evidence](RTS-PLAYTEST.md) and the [documentation index](DOCUMENTATION.md) for the tested revisions and their limits.
 
-Before a server restart or trial, inspect `/api/state` and preserve an active player session on port 4317. Start an isolated server with `FLEET_PORT=4318` for QA. `node --import tsx scripts/verify-rts.ts` exercises the deterministic browser fixture without starting model inference. `node --import tsx scripts/playtest-rts.ts` runs the bounded two-team Luna/xhigh live trial with an open browser and stops the test fleet afterward. Read [RTS-PLAYTEST.md](RTS-PLAYTEST.md) for the actual tested revision and results; deterministic physics success and autonomous model success are separate claims.
+## Explore or contribute
 
-`node --import tsx scripts/verify-replay.ts` separately checks actual browser images, live recording append, scrubbing, playback, event navigation and camera isolation through local replay HTTP APIs. Its no-inference fixture includes cargo delivery, service, neutral QuickJS execution and inert archived source, plus an explicitly historical equipment frame. It keeps its data under `artifacts/test-runs/<run-directory>/`. Both deterministic browser scripts accept `FLEET_QA_PORT` when another checkout already owns 4318; start an owned idle server with the matching `FLEET_PORT`. [REPLAY-VERIFICATION.md](REPLAY-VERIFICATION.md) records historical replay validation; [STRATEGY-VERIFICATION.md](STRATEGY-VERIFICATION.md) records a historical economy milestone.
+Start with [CONTRIBUTING.md](CONTRIBUTING.md). Useful work includes reproducible autonomy evaluations, camera reliability, protocol fault handling, and clearer visual recognition at the pilots' actual camera resolution.
 
-Test runners and `npm test` save raw output in a new `artifacts/test-runs/<run-directory>/`. After the process exits, only the newest run is retained across test kinds, including failed runs; active runs are protected. Analyze a live trial before starting another test. Related checks may share an active managed run through `FLEET_TEST_RUN`; its owner performs cleanup after all children finish. `FLEET_QA_OUTPUT`, when used, must name a new direct child of `artifacts/test-runs/`. Checked-in historical reports remain; old raw recordings are deliberately pruned. Player session archives outside the managed test directory are not swept. Historical browser fixtures verified batteries, charging, radio interference, power loss and recorded operational state under their recorded rules; they do not launch gameplay inference or substitute for native-network tests. [ENDURANCE-VERIFICATION.md](ENDURANCE-VERIFICATION.md) records that earlier milestone's checks and their limits.
+| Interest | Start here |
+| --- | --- |
+| How the pieces fit | [Architecture](ARCHITECTURE.md) |
+| P2P delivery, partitions, and storage | [Network](NETWORK.md) |
+| Binary vehicle control and telemetry | [MAVLink](MAVLINK.md) |
+| Sensors, private scripts, and compute limits | [Onboard interface](ONBOARD.md) |
+| Inspecting a pilot's actual inputs | [Cockpit](COCKPIT.md) |
+| City geometry and original artwork | [City](CITY.md) · [Graphics](GRAPHICS.md) |
+| Full commands and evaluation workflow | [Operating guide](GUIDE.md) |
 
-Focused evaluation has separate deterministic and autonomous commands:
+## License and credits
 
-```sh
-node --import tsx scripts/measure-controls.ts
-node --import tsx scripts/playtest-focused.ts haul-single
-node --import tsx scripts/playtest-focused.ts haul-team
-node --import tsx scripts/playtest-focused.ts flight
-node --import tsx scripts/playtest-focused.ts aim-stationary
-node --import tsx scripts/playtest-focused.ts aim-moving
-node --import tsx scripts/playtest-focused.ts encounter
-node --import tsx scripts/playtest-focused.ts encounter-reversed
-node --import tsx scripts/playtest-focused.ts match
-node --import tsx scripts/analyze-trial.ts artifacts/test-runs/<run-directory>
-node --import tsx scripts/analyze-haul.ts artifacts/test-runs/<run-directory>
-node --import tsx scripts/analyze-engagement.ts artifacts/test-runs/<run-directory>
-node --import tsx scripts/analyze-decision-latency.ts artifacts/test-runs/<run-directory>
-```
+DroneRTS's original code and artwork are [MIT licensed](LICENSE). Map data includes **© OpenStreetMap contributors**, under [ODbL](https://www.openstreetmap.org/copyright), and separately attributed geographic sources. [Source notes](CINCINNATI-SOURCES.md) and [third-party notices](THIRD_PARTY_NOTICES.md) preserve those distinctions.
 
-`measure-controls.ts` runs 34 prescribed cargo-v3 flight, finite-sensor braking and ballistic fixtures with synthetic camera placeholders and no inference; actual contact damage is checked separately in the automated tests. All `playtest-focused.ts` modes **launch real Luna/xhigh inference**. Run them individually; each command owns its test server and requires a camera browser within 60 seconds. The default is [port 4318](http://127.0.0.1:4318). Set `RTS_TRIAL_PORT` to another free port when a different checkout owns 4318; player port 4317 is forbidden. The runner checks 4317, 4318 and the selected port, and refuses any existing server at its selected port. The defaults are 180 wall seconds for focused trials and 480 for a match; `RTS_TRIAL_SECONDS` accepts 30–600. Time includes native actor startup. Normal completion, time limit, Stop and signals stop the owned fleet and server. Other servers are preserved.
-
-Flight uses the normal opening with a flight-only operator objective. Aiming fixtures position three visible pairs above the city and grant blue guns; red receives either a holding or a repeated-flight objective. Fixture objectives supply no battlefield coordinates or enemy telemetry; all actors retain the common vehicle calibration. Moving targets choose their own waypoints and can pause between commands, so a hit during that trial does not necessarily mean a hit on a moving target. `match` uses the production opening, equipment and missions. The test host disables other UI mutations except Stop.
-
-`haul-single` designates one blue hauler and holds the other five drones; `haul-team` lets all three blue actors choose their logistics while red holds. Both use normal stock, bank and equipment, with no supplied resource positions, routes or helpers. Haul trials default to 300 wall seconds, adjustable within the same bounded range. Prove a fresh single haul, repeat it, then demonstrate useful overlapping team work with delivered income before running another full battle. `analyze-haul.ts` reports conservation, deliveries, contact events, actual radio, script/transfer use and storage. Its motion/service overlap counts alone do not establish useful cooperation.
-
-`encounter` gives both teams guns, equal camera offsets and the same combat objective, with movement and aiming chosen by the drones. `encounter-reversed` swaps the teams' starting positions and viewing directions. These fixtures help separate close combat from exploration and purchases; allowing movement does not guarantee the actors will move.
-
-Each live trial saves its source manifest, fixture description, audit, actual camera replay and result under ignored `artifacts/test-runs/`. `analyze-trial.ts` calculates flight distance, delivered arrivals, shots, physical contacts and pre-shot camera age from those files. It separates expired shots from projectiles still unresolved when the match stops; target speed is estimated from recorded poses. Analysis refuses a checkout whose `shared/rts.ts` differs from the saved calibration, preserving existing results. Replay is watchable in Admin while the test host is running. Raw evidence is local; the measured outcomes and limitations are recorded in [RTS-PLAYTEST.md](RTS-PLAYTEST.md).
-
-`analyze-engagement.ts` separately measures team proximity, exploration, geometric camera opportunities and acquisition/delivery/next-command timing. It uses saved optics and buildings, verifies the relevant geometry/renderer source hashes and reports sampled-pose age. An unobstructed projected body center is a viewing opportunity, not proof that a drone recognized an enemy. Post-delivery time includes response transport, model processing and tool dispatch; it is not a direct measurement of private reasoning.
-
-Session audits and screenshots are local under ignored `artifacts/`; temporary isolated Codex settings are cleaned up on Stop and never change the user's standing configuration. Earlier `PLAYTEST.md`, `NETWORK-PLAYTEST.md`, `CITY-PLAYTEST.md` and review reports document previous treasure-hunt revisions, not proof of current RTS behavior. Regenerate city geometry with `node scripts/build-city.mjs` after geographic source edits and preserve the displayed OpenStreetMap attribution.
-
-`analyze-decision-latency.ts` reports retained model-result text bytes by field, actual image bytes, exact range-table duplication/sharing, backend token reports, acquisition delivery time, completed-tool-to-next-call distributions and compaction boundaries. It separates sampled motion/job/service activity from stationary gaps; holding may be intentional in focused fixtures. An optional trailing number (for example `300`) restricts measurement to that many wall seconds after match startup and writes `decision-latency-300s.json`, keeping the full report separate. Image/text bytes are not tokenizer counts, and native aggregate usage does not attribute tokens to individual fields. Single-run timing differences do not establish causality.
+The pinned Nervelet revision currently declares no license; its licensing remains an open release item. DroneRTS's MIT license does not relicense its dependencies or geographic data.

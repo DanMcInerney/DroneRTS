@@ -1,0 +1,13 @@
+title = "DroneRTS secret scanning"
+
+[extend]
+useDefault = true
+
+# RFC 6455's public example nonce is used in a raw WebSocket upgrade fixture.
+# Match both this file and this exact value; other findings remain enabled.
+[[allowlists]]
+description = "Public WebSocket handshake example, not an authentication secret"
+condition = "AND"
+paths = ['''(?:^|/)tests/trial-host\.test\.ts$''']
+regexTarget = "match"
+regexes = ['''Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==''']

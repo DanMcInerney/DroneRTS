@@ -2,7 +2,10 @@
 
 Current contracts and setup:
 
-- [README](README.md) and [development instructions](AGENTS.md): setup, source requirements and verification entrypoints.
+- [README](README.md): project overview, demo, quick start and measured results.
+- [Operating guide](GUIDE.md) and [development instructions](AGENTS.md): full rules, setup, source requirements and verification entrypoints.
+- [Contributing](CONTRIBUTING.md), [security](SECURITY.md) and [third-party notices](THIRD_PARTY_NOTICES.md): public contribution and reuse boundaries.
+- [Public release preparation](PUBLIC-RELEASE.md): dated verification and remaining launch items.
 - [Architecture](ARCHITECTURE.md), [onboard interface](ONBOARD.md), [network](NETWORK.md), [MAVLink](MAVLINK.md) and [city](CITY.md): application owners and boundaries.
 - [Nervelet integration](NERVELET-INTEGRATION.md): current exact pin, result retention, waits, catalog and submission contract.
 - [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md): shorter scoped IDs, explicit acknowledgement guidance and completion-only waits.
