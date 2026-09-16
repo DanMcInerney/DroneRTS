@@ -1,5 +1,11 @@
 # RTS verification — September 14, 2026
 
+## Graphics PR integration — September 16, 2026
+
+The graphics revision was combined with main `b95d4f4`, preserving its online-acknowledgement mission and cockpit/radio/replay fixes. The briefing retains the rooftop, beacon and physical-enclosure descriptions. Integration review found one obsolete test still requiring the removed opening negotiation; it now asserts the current acknowledgement/proceed-without-waiting behavior in both briefing and objective. The initial combined run passed 510/511; after that assertion repair, **511/511 tests pass**, including native Zenoh/MAVLink integration without inference. The TypeScript/Vite build and both deterministic RTS/graphics browser fixtures pass. The existing bundle-size advisory remains.
+
+Renderer fingerprint: `a9a20ffcae97c6f1e968bdbecb56949dda1de1ffca205c266f547883c35466b1`. Current grouped evidence is `artifacts/test-runs/2026-09-16T15-29-28-143Z-graphics-pr-33c412e2/`, with tests, build output, browser results and inspected renders. Production 512 × 288 capture/encoding over 30 samples: **p50 158.5 ms / p95 205.8 ms / max 211.4 ms**. Independent integration review found no other high-impact issues. No gameplay inference ran. Earlier raw runs are pruned on completion; their reports below retain their historical meaning.
+
 ## Mapped ground follow-up — September 16, 2026
 
 The prior graphics pass still left featureless infill and a uniform horizon. Ground now uses an official OSM surface extract cross-checked visually against Google Maps satellite imagery: actual empty parking polygons, P&G lawn panels with paved promenades, southern planting, pedestrian paths, and a paved private fountain court. The broader researched downtown streets, footprint artwork and CAGIS river fill the surrounding scenery. All textures are original; no cars, people or satellite pixels are embedded. Source ground remains flat and unclassified gaps receive approximate paving. No collision, economy, actor knowledge or camera calibration changed in this follow-up.
