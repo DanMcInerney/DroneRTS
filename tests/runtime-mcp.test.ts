@@ -114,3 +114,33 @@ test('MCP actor session IDs cannot be reused with another actor bearer URL', asy
     assert.equal(response.status, 404);
   } finally { await client.close(); await server.stop(); }
 });
+
+test('concurrent MCP requests correlate final submission and overflow to their own output', async t => {
+  const entered = new Map<string, () => void>(), releases = new Map<string, () => void>();
+  const started = (label: string) => new Promise<void>(resolve => entered.set(label, resolve));
+  const firstStarted = started('first'), secondStarted = started('second');
+  const submitted: string[] = [], failed: string[] = [];
+  const server = new FleetMcpServer({ roles: ['drone-1'], active: () => true,
+    tools: () => [{ name: 'echo', inputSchema: { type: 'object', properties: { label: { type: 'string' } } } }],
+    call: async (_role, _name, args) => {
+      const label = String(args.label);
+      const gate = new Promise<void>(resolve => releases.set(label, resolve));
+      entered.get(label)!(); await gate;
+      const result: SubmittedResult = { content: [{ type: 'text', text: label === 'first' ? 'x'.repeat(640 * 1024) : label }],
+        [resultSubmission]: { submitted: () => { submitted.push(label); }, failed: () => { failed.push(label); } } };
+      return result;
+    }, policy: () => ({}), onEvent: () => {} });
+  const endpoint = await server.start(), client = new Client({ name: 'concurrent-output-test', version: '1' });
+  t.after(async () => { for (const release of releases.values()) release(); await client.close(); await server.stop(); });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
+  const first = client.callTool({ name: 'echo', arguments: { label: 'first' } });
+  const second = client.callTool({ name: 'echo', arguments: { label: 'second' } });
+  await Promise.all([firstStarted, secondStarted]);
+  releases.get('second')!();
+  assert.deepEqual((await second).content, [{ type: 'text', text: 'second' }]);
+  assert.deepEqual(submitted, ['second']); assert.deepEqual(failed, []);
+  releases.get('first')!();
+  assert.equal((await first).isError, true);
+  assert.deepEqual(submitted, ['second']); assert.deepEqual(failed, ['first']);
+  assert.equal([...(server as any).connections][0].requests.size, 0);
+});

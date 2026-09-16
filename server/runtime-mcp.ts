@@ -55,6 +55,9 @@ export class FleetMcpServer {
           const owned = connection;
           this.connections.add(owned);
           server.onclose = () => { for (const request of owned.requests.values()) request.fail(new Error('MCP session closed')); this.connections.delete(owned); if (transport.sessionId) this.sessions.delete(transport.sessionId); };
+          // SDK 1.30.0 is pinned: inspect the instance's final JSON-RPC result
+          // here, after SDK formatting, and confirm only its HTTP finish below.
+          // Keep the real-client overflow/disconnect/correlation tests on upgrades.
           const send = transport.send.bind(transport);
           transport.send = async (message, options) => {
             const request = 'id' in message && !('method' in message) ? owned.requests.get(message.id) : undefined;

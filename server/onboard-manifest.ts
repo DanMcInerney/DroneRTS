@@ -8,7 +8,7 @@ export interface OnboardPackageManifest { schema: 'drone-onboard-package/v1'; ru
 const localFiles = ['server/onboard-manifest.ts', 'server/onboard-workspace.ts', 'server/routine-runner.ts', 'server/routine-worker.mjs', 'server/radio-transfer.ts', 'server/nervelet.ts', 'server/abort.ts', 'server/onboard-attention.ts', 'server/observation-format.ts', 'server/acoustic-sensor.ts', 'server/rts-geometry.ts', 'shared/acoustic-profile.ts', 'shared/onboard.ts'];
 // Runtime imports of the onboard adapter/briefing are charged as well, even when
 // their simulator-side implementation also serves other vehicles.
-localFiles.push('server/runtime-tools.ts', 'server/agent-backend.ts', 'server/drone-motion.ts', 'server/local-sensors.ts',
+localFiles.push('server/nervelet-results.ts', 'server/runtime-tools.ts', 'server/agent-backend.ts', 'server/drone-motion.ts', 'server/local-sensors.ts',
   'shared/mission.ts', 'shared/fleet.ts', 'shared/rts.ts', 'shared/camera-profile.ts', 'shared/actor-environment.ts');
 const measuredBytes = new WeakMap<OnboardPackageManifest, Map<string, Buffer>>();
 /** Includes all installed files and every transitive runtime package, even unused variants/source maps. */
