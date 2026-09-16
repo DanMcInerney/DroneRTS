@@ -1,5 +1,11 @@
 # RTS verification — September 14, 2026
 
+## Street View PR integration — September 16, 2026
+
+Integrated the graphics revision with main `3903dba`, including its Nervelet `6c36b0a4` compact-bundle update. Preserved both sets of QA reports when resolving their adjacent additions. The exact pinned archive rebuilt with the documented digest, fresh `npm ci` succeeded, and **535/535 tests** (`npm test -- --test-concurrency=2`) plus the production build passed. No further renderer changes or inference were introduced; the inspected graphics/RTS browser evidence below remains tied to its recorded source. The build retains its existing chunk-size advisory.
+
+Integration evidence: `artifacts/test-runs/2026-09-16T17-57-12-732Z-streetview-pr-c34ecde1/`. Renderer fingerprint: `7dc8b77563f5e9014f3a94a59a0a6e61be5e80109cf107e30e5b933d363776ac`; source-manifest SHA-256: `367babdacd4a984f807af419c0f8aff8784d6fae1796b376e4f2db4858ac3b6e` (253 source/asset files at merge `1161286`). Runtime/SDK: **3,603,755 / 8,388,608 bytes**. Managed retention pruned the previously analyzed raw graphics run; its measurements and reference links remain below.
+
 ## Street View landmarks, brighter drones and bullet trails — September 16, 2026
 
 Inspected Google Street View previews along East Third, Vine and East Fifth, plus a Carew architectural photograph; exact links and imagery limitations are in [GRAPHICS.md](GRAPHICS.md). Original Blender façades now distinguish Carew/Netherland's buff brick and window stacks, Fourth & Vine's cream stone and lower arches, Fifth Third's continuous pale piers and Great American Tower's silver/blue curtain wall. Three green cantilever guide signs, four black streetlights and two yellow hydrants add sparse ground detail. Sign legends/siting and crown geometry remain approximations; the authoritative building boxes and roof/service elevations are unchanged. The rebuilt city has 28 building material batches and 25,653 building triangles, plus five street-prop batches, in a 3,776,936-byte GLB. Editable `.blend` files and rebuild scripts are checked in.
