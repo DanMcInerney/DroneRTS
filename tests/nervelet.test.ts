@@ -32,7 +32,9 @@ test('six real game adapters isolate images, exact goals, workspaces and ack cur
   const { game, pilots, initial } = await fixture(t, true);
   assert.equal(game.launchReady, true);
   assert.equal(new Set(initial.map(b => b.nervelet.epoch)).size, 6);
+  assert.equal(new Set(initial.map(b => b.nervelet.id)).size, 6, 'compact IDs must remain distinct across pilots');
   initial.forEach((b, i) => {
+    assert.ok(b.nervelet.id.length < b.nervelet.epoch.length, 'the model copies a compact ID, not the epoch UUID');
     assert.equal('camera' in pilots[i].profile.commands, false, 'current-match recovery must not advertise removed optics');
     assert.equal(b.nervelet.goal.text, i < 3 ? 'Exact BLUE received objective.' : 'Exact RED received objective.');
     assert.equal(b.nervelet.loop, 'paused');
@@ -42,6 +44,7 @@ test('six real game adapters isolate images, exact goals, workspaces and ack cur
     assert.ok(recoveredProfile.instructions.includes(RTS_BRIEFING));
     assert.ok(Object.values(recoveredProfile.commands).every((command: any) => !command.schema), 'MCP supplies schemas; canonical recovery retains descriptions');
     assert.match(b.nervelet.recovery.instructions, /refresh observations/);
+    assert.match(b.nervelet.recovery.instructions, /observe whenever new evidence is needed/);
     assert.equal(b.nervelet.aliases, undefined, 'the generated rule is the sole recurring loop reminder');
     assert.equal(b.nervelet.rule, pilots[i].bridge.renderInstructions().rule);
     for (const reference of ['nervelet.id', 'seen', 'nervelet.nextCommandId', 'command_id', 'nervelet.goal.version', 'mission', 'nervelet.generation', 'generation', 'nervelet.results[].data'])
@@ -50,6 +53,13 @@ test('six real game adapters isolate images, exact goals, workspaces and ack cur
   });
   const rejected = body(await pilots[1].call('observe', { seen: initial[0].nervelet.id }));
   assert.match(rejected.reason, /Unknown or expired/);
+  assert.equal(rejected.error.code, 'unknown_bundle');
+  assert.equal(rejected.nervelet, undefined, 'an invalid acknowledgement supplies no replacement ID');
+  const copied = initial[0].nervelet.id;
+  const typo = copied.slice(0, -1) + (copied.endsWith('A') ? 'B' : 'A');
+  const mistyped = body(await pilots[0].call('observe', { seen: typo }));
+  assert.equal(mistyped.error.code, 'unknown_bundle', 'compact IDs still require an exact copy');
+  assert.equal(game.inboxes[pilots[0].id].delivered, 0, 'a typo cannot consume unread evidence');
   const next = await effect(pilots[0], initial[0], 'workspace', { op: 'write', path: 'private.md', content: 'only blue one' });
   assert.equal(next.nervelet.results.at(-1).status, 'completed');
   assert.throws(() => game.onboardWorkspace('drone-2').read('private.md'), /does not exist/);
@@ -156,6 +166,11 @@ test('numeric wait advertisement and corrective errors derive from the profile w
   const { game, pilots, initial } = await fixture(t);
   const p = pilots[0], expected = Object.keys(p.profile.waitFields!).sort();
   const wait = p.tools().find(tool => tool.name === 'wait')!;
+  const observe = p.tools().find(tool => tool.name === 'observe')!;
+  for (const tool of [observe, wait]) {
+    assert.match(tool.description!, /last received nervelet\.id exactly into seen/);
+    assert.match(tool.description!, /including on observe and wait/);
+  }
   const branches = (wait.inputSchema.properties!.until as any).items.oneOf;
   for (const kind of ['threshold', 'change']) {
     const field = branches.find((branch: any) => branch.properties.kind.const === kind).properties.field;
@@ -165,6 +180,7 @@ test('numeric wait advertisement and corrective errors derive from the profile w
     assert.match(field.description, /Carried salvage/);
   }
   assert.match(wait.description!, /jobTerminal.*blocked.*cancelled.*failed/);
+  assert.match(wait.description!, /only checking job completion; inspect returned status/);
   const delivered = game.inboxes[p.id].delivered;
   for (const condition of [{ kind: 'threshold', field: 'currentTelemetry.position.y', op: 'gt', value: 32 },
     { kind: 'change', field: 'cargo.amount', deadband: 1 }]) {
