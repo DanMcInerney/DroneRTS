@@ -10,6 +10,7 @@ import { createTrialHost } from './trial-host.ts';
 import { SCENARIOS, type TrialScenario } from './trial-scenarios.ts';
 import { MODEL, EFFORT } from '../server/runtime-tools.ts';
 import { createArtifactRun } from './test-artifacts.ts';
+import { finalizeFocusedTrial } from './finalize-focused-trial.ts';
 
 const scenario = process.argv[2] as TrialScenario;
 assert.ok(SCENARIOS.includes(scenario), `Choose ${SCENARIOS.join(', ')}`);
@@ -70,17 +71,7 @@ try {
   result.endReason = cancelled ? 'signal' : completedTrialObjective ? 'trial-objective-complete' : host.game.state.completed ? 'natural-completion' : host.failures.length ? 'failure' : host.game.state.running ? 'time-limit' : 'external-stop';
 } catch (error) { result.failures.push(String(error)); }
 finally {
-  // Preserve the actual final snapshot even if cleanup never settles.
-  result.cleanup = 'pending';
-  await writeFile(resolve(directory, 'result.json'), JSON.stringify({ ...result,
-    failures: [...result.failures, ...host.failures], warnings: host.warnings }, null, 2));
-  await host.close().then(() => { result.cleanup = 'complete'; }).catch(error => {
-    result.cleanup = 'failed'; result.failures.push(`Cleanup: ${error}`);
-  });
-  result.failures.push(...host.failures); result.warnings = host.warnings;
-  result.stopped = !host.game.state.running; result.completedAt = new Date().toISOString();
-  if (result.cleanup === 'complete') artifacts.collectNetwork(host.game.sessionIdentity);
-  await writeFile(resolve(directory, 'result.json'), JSON.stringify(result, null, 2));
+  process.exitCode = await finalizeFocusedTrial(directory, result, host, artifacts);
   console.log(JSON.stringify({ result: resolve(directory, 'result.json'), stopped: result.stopped, failures: result.failures }));
   process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel);
 }

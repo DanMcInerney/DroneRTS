@@ -6,17 +6,17 @@ import type { ReplayFrame, ReplayObservation, ReplayRecord } from '../shared/rep
 import { MATCH_DRONE_IDS } from '../shared/fleet.ts';
 import type { Point } from '../shared/rts.ts';
 import { RTS_CONFIG } from '../shared/rts.ts';
+import { loadRun } from './audit/load-run.ts';
+import { decodeContent, extractErrors } from './audit/decode.ts';
 
 const directory = resolve(process.argv[2]);
-const result = JSON.parse(await readFile(resolve(directory, 'result.json'), 'utf8'));
-const manifest = JSON.parse(await readFile(resolve(directory, 'source-manifest.json'), 'utf8'));
 const currentCalibration = createHash('sha256').update(await readFile(new URL('../shared/rts.ts', import.meta.url))).digest('hex');
-if (manifest['shared/rts.ts'] !== currentCalibration) {
-  throw new Error('Replay calibration differs from this checkout. Analyze with the recorded shared/rts.ts revision; existing analysis was preserved.');
-}
-const replayDir = resolve(directory, 'replays', result.sessionId.slice(0, -6));
-const records: ReplayRecord[] = (await readFile(resolve(replayDir, 'frames.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-const audit: any[] = (await readFile(resolve(directory, result.sessionId), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+const loaded = await loadRun(directory, { legacy: true, validateMetadata: (_result, manifest) => {
+  if (manifest['shared/rts.ts'] !== currentCalibration) throw new Error('Replay calibration differs from this checkout. Analyze with the recorded shared/rts.ts revision; existing analysis was preserved.');
+} });
+const { result } = loaded;
+const records: ReplayRecord[] = loaded.replay.map(r => r.data);
+const audit: any[] = loaded.audit.map(r => r.data);
 const frames = records.filter((r): r is ReplayFrame => r.type === 'frame');
 const observations = records.filter((r): r is ReplayObservation => r.type === 'observation').sort((a, b) => a.simTime - b.simTime);
 const commands = records.filter(r => r.type === 'command');
@@ -26,7 +26,8 @@ const wrap = (a: number) => ((a + 180) % 360 + 360) % 360 - 180;
 const count = (items: string[]) => Object.fromEntries([...new Set(items)].map(key => [key, items.filter(item => item === key).length]));
 const rounded = (n: number) => Math.round(n * 1000) / 1000;
 const bodies = audit.filter(r => r.type === 'agent' && r.value.type === 'tool-result').flatMap(r => {
-  try { return [{ role: r.value.role, name: r.value.name, body: JSON.parse(r.value.result.content[0].text) }]; } catch { return []; }
+  const { resultBody: body } = decodeContent(r.value.result);
+  return body ? [{ role: r.value.role, name: r.value.name, body }] : [];
 });
 const drones = Object.fromEntries(MATCH_DRONE_IDS.map(id => {
   const trace = frames.map(f => ({ time: f.simTime, drone: f.drones.find(d => d.id === id)! }));
@@ -97,8 +98,7 @@ const summary = { scenario: result.scenario, revision: result.revision, manifest
   failures: result.failures, warnings: result.warnings, verifiedModels: audit.filter(r => r.type === 'agent' && r.value.type === 'model-verified').map(r => r.value),
   nativeSpawns: audit.filter(r => r.type === 'agent' && r.value.type === 'native-agent-call').map(r => r.value),
   actors: result.finalState?.runtime.children, events: count(events.map(e => e.type)),
-  errors: audit.filter(r => ['tool-error', 'transport-error', 'trial-error'].includes(r.type)
-    || r.type === 'agent' && /error|denied/.test(r.value.type ?? '')),
+  errors: audit.filter(r => extractErrors(r).length || r.type === 'agent' && /error|denied/.test(r.value.type ?? '')),
   peerMessages: audit.filter(r => r.type === 'radio' && r.value.from !== 'player').length,
   teamEconomy: frames.at(-1)?.match?.teams, resources: frames.at(-1)?.match?.resources,
   replayEnd: records.findLast(r => r.type === 'end'), drones, shots, shotOutcomes: count(shots.map(s => s.outcome)),

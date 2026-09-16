@@ -123,6 +123,16 @@ npm run build
 
 See [current and historical playtest evidence](RTS-PLAYTEST.md) and the [documentation index](DOCUMENTATION.md) for the tested revisions and their limits.
 
+## Audit a saved trial
+
+Saved focused trials can be audited without a browser, actors or network access:
+
+```sh
+npm run audit:run -- artifacts/test-runs/<stopped-run>
+```
+
+The command writes `audit-report.json` and `audit-report.md`. Exit codes are `0` for all required checks passing, `1` for a confirmed violation and `2` for incomplete required evidence. Focused trials also run it after their writers and helpers close. Optional evidence gaps remain explicit and do not imply a pass for that check. See [the design](OFFLINE-AUDIT-DESIGN.md) and [implementation QA](OFFLINE-AUDIT-QA.md) for coverage, historical compatibility and limits. The auditor never launches inference or changes Nervelet.
+
 ## Explore or contribute
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md). Useful work includes reproducible autonomy evaluations, camera reliability, protocol fault handling, and clearer visual recognition at the pilots' actual camera resolution.

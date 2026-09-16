@@ -6,21 +6,21 @@ import type { ReplayFrame, ReplayHeader, ReplayObservation, ReplayRecord } from 
 import type { Drone, Pose } from '../shared/types.ts';
 import { intersectsBuilding } from '../server/world-geometry.ts';
 import { extractObservationBoundaries } from './analysis-boundaries.ts';
+import { loadRun } from './audit/load-run.ts';
 
 if (!process.argv[2]) throw new Error('Usage: node --import tsx scripts/analyze-engagement.ts <saved-trial-directory>');
 const directory = resolve(process.argv[2]);
-const result = JSON.parse(await readFile(resolve(directory, 'result.json'), 'utf8'));
-const manifest = JSON.parse(await readFile(resolve(directory, 'source-manifest.json'), 'utf8'));
 // Optics and geometry come from the recording. These implementations own
 // segment intersection, camera orientation and the visible body center offset.
-for (const file of ['server/world-geometry.ts', 'client/scene.ts', 'client/drone-model.ts']) {
-  const current = createHash('sha256').update(await readFile(new URL(`../${file}`, import.meta.url))).digest('hex');
-  if (manifest[file] !== current) throw new Error(`Recorded ${file} differs from this checkout; existing engagement analysis was preserved.`);
-}
-const replayDirectory = resolve(directory, 'replays', result.sessionId.slice(0, -6));
-const jsonLines = async (path: string) => (await readFile(path, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-const records: ReplayRecord[] = await jsonLines(resolve(replayDirectory, 'frames.jsonl'));
-const audit: any[] = await jsonLines(resolve(directory, result.sessionId));
+const loaded = await loadRun(directory, { legacy: true, validateMetadata: async (_result, manifest) => {
+  for (const file of ['server/world-geometry.ts', 'client/scene.ts', 'client/drone-model.ts']) {
+    const current = createHash('sha256').update(await readFile(new URL(`../${file}`, import.meta.url))).digest('hex');
+    if (manifest[file] !== current) throw new Error(`Recorded ${file} differs from this checkout; existing engagement analysis was preserved.`);
+  }
+} });
+const { result } = loaded;
+const records: ReplayRecord[] = loaded.replay.map(r => r.data);
+const audit: any[] = loaded.audit.map(r => r.data);
 const header = records.find((record): record is ReplayHeader => record.type === 'header')!;
 const camera = header.camera as ReplayHeader['camera'] & { fov?: number; near?: number; far?: number };
 if (![camera.fov, camera.near, camera.far].every(value => typeof value === 'number' && Number.isFinite(value))) {
