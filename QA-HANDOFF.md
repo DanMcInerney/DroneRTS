@@ -1,5 +1,13 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Compact acknowledgements and completion waits — September 16, 2026
+
+[Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the follow-up to the 17:05 battle: shorter per-Bridge bundle IDs, explicit `seen` guidance on observe/wait calls, and bounded job-terminal waits for completion-only checks. Nervelet `6c36b0a4` is pinned from reviewed local source; **141 library tests**, **527 DroneRTS tests**, package verification and the production build pass. Explicit receipt semantics, fresh camera acquisition and quotas remain intact. No new inference was run; fewer model mistakes and better gameplay remain unmeasured.
+
+## Code-informed battle QA — September 16, 2026, 17:05 UTC
+
+[Full report](QA-REPORT-2026-09-16-1705-BATTLE.md): normal 600-wall-second battle on `eacc8a26` with Nervelet `4c5d0c15`; six pickups, five deliveries, blue **90** / red **60** earned, four guns, six survivors and no shots/collisions/winner. All **393 submitted images**, **85 expected pilot mail copies** and conservation over **1,179 frames** passed audit. No runtime failure before shutdown; three pending calls logged HTTP errors during connection closure. No compaction; maximum completed-tool gap **32.034 s**. Red 3's four bundle-ID typos and 61 observe calls without `seen` caused rejected inputs and extra reliable redelivery, not duplicate effects. Two out-of-bounds movement jobs failed explicitly. No gameplay changes were made. Repeated hauling, combat effectiveness and the previous optional-attention qualifications remain unproven; owned trial services are stopped.
+
 ## Gunshot wrecks and fading smoke — September 16, 2026
 
 Lethal gunshots now leave an unlit, tumbling wreck that falls onto the first roof below it or ground, with a smoke trail that expands and fades. Death, cargo accounting, victory and actor retirement remain immediate. The new scene-only seed never enters actor telemetry; acquired pixels reconstruct the effect at their own timestamp. Reset removes debris, Stop freezes it, and spectator animation can finish after victory. Historical recordings without seeds retain disappearance.

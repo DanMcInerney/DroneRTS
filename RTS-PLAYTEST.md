@@ -1,5 +1,13 @@
 # RTS verification — September 14, 2026
 
+## Code-informed normal battle — September 16, 2026, 17:05 UTC
+
+The requested 600-wall-second Luna/xhigh battle on **`eacc8a26`**, with exact unpatched Nervelet **`4c5d0c15`**, ended at sim **570.211** after cleanup. All six pilots survived and each loaded 30 salvage; five delivered. Blue earned **90**, red **60**, with **30 aboard**, **660 remaining stock** and no lost salvage. Four guns were purchased, but **no shots, collisions or winner** occurred. This demonstrates multiple autonomous contributors to income on this source, not repeated hauling or combat success.
+
+All **393 submitted images**, **85 expected pilot-recipient copies of 45 peer-originated messages**, and conservation across **1,179 replay frames** were verified. No runtime/transport failure occurred before shutdown; three pending calls logged HTTP errors during connection closure. No camera timeout or compaction was recorded. Maximum completed-tool gap was **32.034 s**. Red 3 made four mistyped bundle-ID requests and omitted `seen` on all 61 observe calls, causing correct redelivery of **73 repeated event appearances** and **34 repeated original-result payload appearances**; no duplicate admissions or changed retained payloads were found. Two out-of-bounds waypoint jobs failed explicitly. Final shutdown cancellation is distinct from healthy-run errors.
+
+Build and four offline analyzers passed. Gameplay source remained unchanged across all **223 source-manifest files**; manifest SHA-256 **`147d4be50264be86fc16a16a9ed14c8d3c87fc4d868eb2813b62e2f4ca855222`**. All owned actors/helpers/server/camera stopped, with 4317 untouched. See [the full report](QA-REPORT-2026-09-16-1705-BATTLE.md) for code contracts, actual acquired-image references, timing and limitations. Raw evidence: `artifacts/test-runs/2026-09-16T17-05-37-555Z-focused-match-4254b4f5/`, subject to managed retention. Emergency attention/acoustics were off; their previous qualifications remain separate.
+
 ## Gunshot wreck animation — September 16, 2026
 
 User-requested follow-up to the cargo/roof repair: a drone killed by a bullet falls as a dark, unlit, tumbling airframe onto the highest supported roof below its death position or onto ground. Smoke follows its prior positions, expands, drifts and fades over **9.5 seconds per puff**; emission ends shortly after landing. Debris remains until reset. Rendering is bounded to six wrecks and 432 instanced smoke quads. Wrecks add no collision, loot or actor-visible coordinate data. Death, equipment/tool retirement, cargo resolution and victory remain immediate. Surviving pilots receive only the effect's physically visible pixels.

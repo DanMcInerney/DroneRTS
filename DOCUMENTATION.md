@@ -5,6 +5,7 @@ Current contracts and setup:
 - [README](README.md) and [development instructions](AGENTS.md): setup, source requirements and verification entrypoints.
 - [Architecture](ARCHITECTURE.md), [onboard interface](ONBOARD.md), [network](NETWORK.md), [MAVLink](MAVLINK.md) and [city](CITY.md): application owners and boundaries.
 - [Nervelet integration](NERVELET-INTEGRATION.md): current exact pin, result retention, waits, catalog and submission contract.
+- [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md): shorter scoped IDs, explicit acknowledgement guidance and completion-only waits.
 - [Interface QA](NERVELET-INTERFACE-QA.md): generated wait arguments, corrective errors, protocol ownership and corrected offline timing checks.
 - [Reliability QA](RELIABILITY-QA.md): previous dependency qualification, bounded-storage evidence and performance measurements.
 - [Camera-age QA](CAMERA-AGE-POLICY-QA.md): current image-age policy and the unresolved native held-wait acquisition gate. Its measurements apply to its recorded revision.
