@@ -1,5 +1,13 @@
 # RTS verification — September 14, 2026
 
+## Main-tip normal battle — September 16, 2026, 14:48 UTC
+
+[The battle/UI QA report](QA-REPORT-2026-09-16-BATTLE.md) records a user-requested 600-wall-second normal match on `origin/main` **`debebc27cb78802937872b700d3fdced66b861bd`**, with the exact reliability dependency, six Luna/xhigh pilots, real native protocols and a watchable Codex camera browser on isolated 4318. It stopped at **566.844 simulation seconds**: six survivors, no winner, **zero pickups/deliveries/purchases/shots/collisions**, all **840 salvage** still in caches. Pilots saw yellow aprons but failed to navigate into loading service. No gameplay source changed.
+
+All **364 delivered images** were saved; camera age median/p95/max was **65.9/145.1/436.4 ms**. No camera timeout, runtime/transport failure or replay omission was recorded. All **103 expected peer copies of 53 messages** reached actual input bundles; 101 had been acknowledged before shutdown. All **1,280 frames** conserved value. The longest completed-tool gap was **39.043 s**, mostly idle, with **no compaction**. Two invented `seen` IDs were rejected and recovered.
+
+UI findings: the cockpit outbox omits real sends inside `exchange` batches; current cargo-v3 replay still displays the historical “Jammer off” detail. Desktop/phone layouts, cockpit acquisition evidence, Admin filters, replay, map and God view were inspected. The production build and four offline analyzers passed. Owned actors/helpers/server/tab stopped; 4317 was idle and untouched. This battle does not qualify hauling/combat or resolve the prior opposing-motion issue. Source manifest **`6146e649ddc58b580f31baf251d30711339f011184101ad4fe884718f9c0ca24`**, 207 files; raw evidence `artifacts/test-runs/2026-09-16T14-38-03-993Z-focused-match-2d81d53f/`.
+
 ## Camera-age correction — September 16, 2026, 05:08 UTC
 
 [Camera-age QA](CAMERA-AGE-POLICY-QA.md) records **465 passing tests**, production build, and one bounded native stationary trial on isolated port 4318. Completed camera captures now retain their honest age without a hard two-second rejection. Same-session reasoning interruption delivered an actual **2,256 ms-old image** after **2.288 s**; the pilot acknowledged it and later reported the uncertain synthetic notice. The later held-wait episode failed to acquire replacement pixels within the existing bound and stopped at sim **70.077**, all six alive. No native turn overlap was observed; owned processes were stopped. Attention and acoustic sensing remain independently off by default. This qualifies delayed-image delivery in one native interruption, not the full emergency system, camera throughput, acoustic accuracy or autonomous gameplay.

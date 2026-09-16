@@ -67,7 +67,7 @@ One armor charge absorbs one collision or bullet, then is lost. A protected coll
 
 Armor loss leaves the living team-colored airframe visible. Eliminated airframes disappear from player views and newly acquired cameras; a historical acquisition uses its own recorded alive state. Cargo drops remain separately controlled by the economy.
 
-These are initial simulator balance values. Historical cube-economy playtests do not validate cargo hauling or balance. The common briefing teaches recognition, rules, vehicle calibration, private radio and the need for actual teammate agreement on an initial plan, first item and purchaser. It does not assign tactics, roles, equipment, routes or reporting schedules.
+These are initial simulator balance values. Historical cube-economy playtests do not validate cargo hauling or balance. The common briefing teaches recognition, rules, vehicle calibration and private radio. Each pilot sends one brief team message acknowledging that it is online, then proceeds without waiting for replies or negotiating an opening plan or first purchase. The briefing does not assign tactics, roles, equipment, routes or reporting schedules.
 
 ## Actor tools and sensors
 

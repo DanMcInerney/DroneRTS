@@ -1,5 +1,19 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Opening and UI follow-up — September 16, 2026, 15:16 UTC
+
+The user replaced opening negotiation with one brief team online acknowledgement per pilot, followed by proceeding without waiting for replies. `shared/mission.ts`, the single-haul objective and current instruction docs now agree; the six-pilot objective-delivery launch gate is unchanged.
+
+The two UI findings below are repaired. Radio outbox includes standalone sends and sends inside `exchange.operations`, preserving call sequence, command ID and operation index/ID. Both card refresh and rendering use the same extraction. Rows describe attempts; acceptance and delivery still require receipts. Cargo-v1/v2/v3 replays omit the obsolete jammer label, while historical cube/unspecified recordings retain recorded on/off state.
+
+Validation: **41 focused tests**, TypeScript/Vite production build, and an isolated no-inference browser fixture passed. The fixture rendered both real retained batched sends from the battle snapshot, checked refresh for multiple batched/direct sends, literal text rendering, desktop/mobile layout, current replay and historical jammer display; no page errors occurred. Independent review found no high-impact code issue, and two stale prompt-document descriptions were corrected. No new live battle or autonomy claim. The fixture server/browser were closed. [Current raw UI evidence](artifacts/test-runs/2026-09-16T15-16-27-460Z-online-ui-fixes-d52afdae/) includes the copied battle inputs and verification script; managed retention pruned the earlier fully analyzed battle run and the failed first fixture attempt (an incorrect test selector, corrected on rerun).
+
+## Main-tip battle/UI QA — September 16, 2026, 14:48 UTC
+
+Read [QA-REPORT-2026-09-16-BATTLE.md](QA-REPORT-2026-09-16-BATTLE.md) for the latest user-requested normal battle on main **`debebc2`**, using the exact reliability dependency in [RELIABILITY-QA.md](RELIABILITY-QA.md). The 600-wall-second run stopped at sim **566.844**, all six alive, **zero cargo income, purchases, shots or collisions**. Actual images contain yellow aprons, but the pilots' approaches did not reach service. All **364 delivered images**, **103 expected peer copies** and conservation across **1,280 frames** were verified. No camera timeout/runtime failure or compaction occurred; the maximum completed-tool gap was **39.043 s**.
+
+New actionable UI findings: `client/cockpit-cards.ts` omits nested `exchange` sends from Radio outbox, displaying “No sends” despite retained send operations; `client/equipment-presentation.ts` shows “Jammer off” in current cargo-v3 replay. Neither was repaired in this QA-only task. Keep autonomous image-to-position/navigation failure separate from healthy camera delivery and conservative obstruction holds. The older opposing-motion collision and emergency-camera qualifications remain open. Build and four offline analyzers passed; owned trial processes/tab stopped, with player port 4317 untouched. See the report for the source manifest, exact camera evidence and UI coverage limits.
+
 ## Camera-age correction — September 16, 2026, 05:08 UTC
 
 Read [CAMERA-AGE-POLICY-QA.md](CAMERA-AGE-POLICY-QA.md) for current behavior. A completed newly acquired image is delivered with its real timestamp/age even when older than two seconds. The age flag is descriptive; only missing/invalid captures trigger the one bounded retry. Physical range-sensor expiry and lifecycle guards are unchanged. **465 tests and production build pass**; runtime/SDK totals **3,546,848 / 8,388,608 bytes**.

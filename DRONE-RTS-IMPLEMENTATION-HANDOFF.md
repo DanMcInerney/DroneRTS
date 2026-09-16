@@ -199,7 +199,7 @@ Initially test real native delivery, bounded queueing, delay and whole-peer part
 
 ## 6. Coordination without prescribed strategy
 
-Teach the objective, visual recognition, pickup/delivery/charging conditions, vehicle calibration, equipment rules, tool syntax, storage limits and communication semantics. Keep the opening request to agree through actual peer replies on an initial plan, first item and purchaser before departure/purchase. Allow messages to reference a proposal/version without prescribing the proposal's content.
+Teach the objective, visual recognition, pickup/delivery/charging conditions, vehicle calibration, equipment rules, tool syntax, storage limits and communication semantics. The September 16 user update replaces opening negotiation with one brief team message acknowledging that the pilot is online; pilots then proceed without waiting for replies or agreement on a plan or first purchase. Allow messages to reference a proposal/version without prescribing the proposal's content.
 
 Do not assign permanent villager/scout/attacker roles, a leader, routes, purchases, radio schedules, target priorities or solved libraries. Shared delivered income, scarce opening funds, visible cargo, limited equipment and physical service capacity make coordination useful. Message counts earn nothing. A scout's report, a safe arrival or a reusable helper matters only if another drone receives and uses it successfully.
 
