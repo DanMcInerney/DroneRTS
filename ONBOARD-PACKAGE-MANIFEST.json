@@ -4527,7 +4527,7 @@
       "path": "node_modules/nervelet/DESIGN.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 16111,
       "sha256": "809d7a4de196dce1762335f8e4ec084fac3fb781d1c0f316ab716faeef35b406"
     },
@@ -4535,7 +4535,7 @@
       "path": "node_modules/nervelet/dist/adapters/demo.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1005,
       "sha256": "9c2efae0c1eb00993862babd373f0ea57dcc963f78ededa83e854a9aef7954b1"
     },
@@ -4543,7 +4543,7 @@
       "path": "node_modules/nervelet/dist/adapters/demo.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 4575,
       "sha256": "161e3f6cc85eee0ac52e131bb5905d56b447eb1623967156d66395c949c0fd8e"
     },
@@ -4551,7 +4551,7 @@
       "path": "node_modules/nervelet/dist/adapters/recorded.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1142,
       "sha256": "9bc8d0d58e44d856d9d979e6912f03127ab4db9c53309ac995086db1833b7e97"
     },
@@ -4559,7 +4559,7 @@
       "path": "node_modules/nervelet/dist/adapters/recorded.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3185,
       "sha256": "6a171b350c39fe5ec710be979248aed94b557fcdb7866b06dcd59b4f8817fccf"
     },
@@ -4567,7 +4567,7 @@
       "path": "node_modules/nervelet/dist/adapters/serial.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1707,
       "sha256": "343c9f1edc000a6216ec25203b5280603d412e6fa6ac7f4fa3a11658d7dec903"
     },
@@ -4575,7 +4575,7 @@
       "path": "node_modules/nervelet/dist/adapters/serial.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 13378,
       "sha256": "060ae47b3ff9b5921ee557d9ac8b786bb8591986211b7920e7584735e09107e1"
     },
@@ -4583,7 +4583,7 @@
       "path": "node_modules/nervelet/dist/attention.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 666,
       "sha256": "3f735520508d5cd8a3c01290569ec1c87dcc71355eac10adc268bb0d7044a05c"
     },
@@ -4591,7 +4591,7 @@
       "path": "node_modules/nervelet/dist/attention.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3348,
       "sha256": "76e93966b4b39376892dd0691fa78040ea4159b6e595486e676ca4df98522181"
     },
@@ -4599,7 +4599,7 @@
       "path": "node_modules/nervelet/dist/changes.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 366,
       "sha256": "c73adfdecc9f7b1e369cc929cbdd6b97b5dcd3c92944f7d9c8b6ca0db7c4fda2"
     },
@@ -4607,7 +4607,7 @@
       "path": "node_modules/nervelet/dist/changes.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 964,
       "sha256": "adf54b076f40e55e3b76c4bc26a80d6ef21740dcad20921fd46cc7e4857ab06d"
     },
@@ -4615,7 +4615,7 @@
       "path": "node_modules/nervelet/dist/cli.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 31,
       "sha256": "43e818adf60173644896298637f47b01d5819b17eda46eaa32d0c7d64724d012"
     },
@@ -4623,7 +4623,7 @@
       "path": "node_modules/nervelet/dist/cli.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 7403,
       "sha256": "d3e79898494d80887f9897beaf0d27cdca937220ff07efdaa394645e6e04afe2"
     },
@@ -4631,7 +4631,7 @@
       "path": "node_modules/nervelet/dist/core.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5463,
       "sha256": "f6ee3f40b517377a099030ee553ea030020189b3b93313300ff772bb85bb6296"
     },
@@ -4639,7 +4639,7 @@
       "path": "node_modules/nervelet/dist/core.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 53146,
       "sha256": "74a23f2396399126676de86d5c8ce6ad86c7f78bdc38279fff709975f4388f53"
     },
@@ -4647,7 +4647,7 @@
       "path": "node_modules/nervelet/dist/drivers/api.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1446,
       "sha256": "3ce44955340541d9025353970cc66e1258f48218571093462bdafb701018c554"
     },
@@ -4655,7 +4655,7 @@
       "path": "node_modules/nervelet/dist/drivers/api.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 12432,
       "sha256": "e4a532063c680bea819b9483e1fbca21a6f223293a1d5059a275b8840a8f2668"
     },
@@ -4663,7 +4663,7 @@
       "path": "node_modules/nervelet/dist/drivers/app-server.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 654,
       "sha256": "b68850fbaea5b206c1cf593a03ed20b2fbfb7c9c76883f1db7ab9e47a4d02ea4"
     },
@@ -4671,7 +4671,7 @@
       "path": "node_modules/nervelet/dist/drivers/app-server.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5240,
       "sha256": "8804ddd10542c8f2a4ce2956a902d2bb2d0964946166fff58cea038ccc18fae0"
     },
@@ -4679,7 +4679,7 @@
       "path": "node_modules/nervelet/dist/drivers/claude-code.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1426,
       "sha256": "f187a49ac267b54d54031a9459fb25ef27ea25344d3b42861cf4ed653d6d5205"
     },
@@ -4687,7 +4687,7 @@
       "path": "node_modules/nervelet/dist/drivers/claude-code.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 7441,
       "sha256": "75f54933e7f6916b93280a60569be4a163e645fd789ff7a29ce76f47aec6aabc"
     },
@@ -4695,7 +4695,7 @@
       "path": "node_modules/nervelet/dist/drivers/codex.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1548,
       "sha256": "ccd4b355159a92b050b93b8a224bdf8881744006adeac0be6be7b2b205d86df4"
     },
@@ -4703,7 +4703,7 @@
       "path": "node_modules/nervelet/dist/drivers/codex.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 8990,
       "sha256": "55648b4f906ac833c5d30bad72da1d335f4eeca1bb871770e94ade06ca37e010"
     },
@@ -4711,7 +4711,7 @@
       "path": "node_modules/nervelet/dist/handlers.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1292,
       "sha256": "980dd882d510dc2459ff3418b9f57ea1785ce7ec308b0d70cfd990442f04f3a9"
     },
@@ -4719,7 +4719,7 @@
       "path": "node_modules/nervelet/dist/handlers.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 6301,
       "sha256": "af4449e7fbd2e95d29ee3e3880dd809e4ca56ebd0f8350c0d59b969fc7c1a547"
     },
@@ -4727,7 +4727,7 @@
       "path": "node_modules/nervelet/dist/harnesses/claude-code.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 77,
       "sha256": "238e17f36a87be6a063a77905c0a71940e09b19e3a1b647d957ecaf9b3ca5ab4"
     },
@@ -4735,7 +4735,7 @@
       "path": "node_modules/nervelet/dist/harnesses/claude-code.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 218,
       "sha256": "55e335294456d4aff9ae0b71900ae461ad9d284dd64a0c12b404fd7f792195dd"
     },
@@ -4743,7 +4743,7 @@
       "path": "node_modules/nervelet/dist/harnesses/codex.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 71,
       "sha256": "b39962c8b0d51a4ea5a00aa7667ad19625c261c46a79b1c6a74e8d01d27df78c"
     },
@@ -4751,7 +4751,7 @@
       "path": "node_modules/nervelet/dist/harnesses/codex.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 652,
       "sha256": "a2ecfafdedb88913aece5db869dd001e455734933f6631373642224a02a073a8"
     },
@@ -4759,7 +4759,7 @@
       "path": "node_modules/nervelet/dist/harnesses/common.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 467,
       "sha256": "6eea845df3033ba0861c9649db6121ee63c60106420930c382a591c0b83e2a3f"
     },
@@ -4767,7 +4767,7 @@
       "path": "node_modules/nervelet/dist/harnesses/common.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5121,
       "sha256": "f885259bcad883d354a2aa690bf93c0ece36ac11af1afcdeec71c55aaec331e9"
     },
@@ -4775,7 +4775,7 @@
       "path": "node_modules/nervelet/dist/index.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1113,
       "sha256": "23d87c16534c9119c50041b4c36df6d19c54ec57bba67a7a9a96681d47ffe97f"
     },
@@ -4783,7 +4783,7 @@
       "path": "node_modules/nervelet/dist/index.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 784,
       "sha256": "bdb507ffa7d0f0d79ac25d8e86ef4a09f775f63e210249f391ab2a3ed512b34a"
     },
@@ -4791,7 +4791,7 @@
       "path": "node_modules/nervelet/dist/instructions.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 500,
       "sha256": "93dc1c9a39d194e11647a23a528d28a6346ae171b876f50e7dc8b52bb3907a86"
     },
@@ -4799,7 +4799,7 @@
       "path": "node_modules/nervelet/dist/instructions.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5319,
       "sha256": "1c588711253a7d37dfc63631df7383591c7c0d91add12dc32e80f4cf55e2c768"
     },
@@ -4807,7 +4807,7 @@
       "path": "node_modules/nervelet/dist/ipc.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 544,
       "sha256": "43c6a388407f79a7c1d2fa241cf4529af6fc8b843553ab3324af0880f8c9e732"
     },
@@ -4815,7 +4815,7 @@
       "path": "node_modules/nervelet/dist/ipc.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 11515,
       "sha256": "efd2aae8b0d8c9846cbd067cc247e447f11cad7667c3c4da54426ff24f865b2e"
     },
@@ -4823,7 +4823,7 @@
       "path": "node_modules/nervelet/dist/presentation.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 685,
       "sha256": "3461b84d4953dba198ed015333148c9e4c3c72e8dd6d2aaab20e8901ef6e5143"
     },
@@ -4831,7 +4831,7 @@
       "path": "node_modules/nervelet/dist/presentation.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1442,
       "sha256": "5dc7009aa89fdfc50a1a3abe80c61e4b14b8a99ef4d4e250b5bf5a5570f93ebc"
     },
@@ -4839,7 +4839,7 @@
       "path": "node_modules/nervelet/dist/profile.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 500,
       "sha256": "06b92ed72ef510a12c71fc674eb1c1c20d8666199feab9306622449ee7c18d71"
     },
@@ -4847,7 +4847,7 @@
       "path": "node_modules/nervelet/dist/profile.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3826,
       "sha256": "b14056316807ee833aa24e5f3819b00314021fea0b05e8cd3285936d50bd3ff5"
     },
@@ -4855,7 +4855,7 @@
       "path": "node_modules/nervelet/dist/results.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 819,
       "sha256": "ea8aa2e3f2a71af52931693ba3af249ea04428ff2a21d63d32c9d76f4f755f1b"
     },
@@ -4863,7 +4863,7 @@
       "path": "node_modules/nervelet/dist/results.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3957,
       "sha256": "e7713c1e4d82d308e39a34aa6cb62fea389592ef19c3f8495694ca57dba67a4d"
     },
@@ -4871,7 +4871,7 @@
       "path": "node_modules/nervelet/dist/schemas.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 11951,
       "sha256": "4fc4272ffeb69b65f50313430752178c6defaaecdc35eaf95c630d89c2b7375f"
     },
@@ -4879,7 +4879,7 @@
       "path": "node_modules/nervelet/dist/schemas.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 4271,
       "sha256": "2200119205ee5339e1efd354b5e3685a549e5d4faaa81de288c5a51dd438f2e1"
     },
@@ -4887,7 +4887,7 @@
       "path": "node_modules/nervelet/dist/store.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 977,
       "sha256": "1eda9decaf264774f80ad4b97336e362764a996f758c47415fcb9aaa2eab149a"
     },
@@ -4895,7 +4895,7 @@
       "path": "node_modules/nervelet/dist/store.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3682,
       "sha256": "86a785cc59e04ae091e4bf511023ec45786f6fc4a077daa6527049cf3e4eb1d9"
     },
@@ -4903,7 +4903,7 @@
       "path": "node_modules/nervelet/dist/supervisor.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 2194,
       "sha256": "dfc30d491b308a2a83d378b910ecdf00dde87895caec4e58130603c647e68404"
     },
@@ -4911,7 +4911,7 @@
       "path": "node_modules/nervelet/dist/supervisor.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 10614,
       "sha256": "a1ddd616c73c90287451c3634b500e3a58d04dd3020fe9041c9ae6a10cf800d6"
     },
@@ -4919,7 +4919,7 @@
       "path": "node_modules/nervelet/dist/transports/mcp.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 906,
       "sha256": "5261f7eb7022544fdf603993c04bfa2718aaf9c17e10013f341473e1fd65675c"
     },
@@ -4927,7 +4927,7 @@
       "path": "node_modules/nervelet/dist/transports/mcp.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 4718,
       "sha256": "1d2fa0714b3d0b983b09145730f59e966029c1f304ead79f12e44676a64261b8"
     },
@@ -4935,7 +4935,7 @@
       "path": "node_modules/nervelet/dist/types.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 10355,
       "sha256": "67f2f2674330832dec13707a8470fd079acefa505954414b2badc1422378a850"
     },
@@ -4943,7 +4943,7 @@
       "path": "node_modules/nervelet/dist/types.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 11,
       "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
     },
@@ -4951,7 +4951,7 @@
       "path": "node_modules/nervelet/dist/util.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1708,
       "sha256": "d4dc6fd13d0e4d18c3b947abc6ec5399cb7aa9d2dfb098af84ae92c1248ac5c2"
     },
@@ -4959,7 +4959,7 @@
       "path": "node_modules/nervelet/dist/util.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5508,
       "sha256": "a3ad3e821a4dcc9b126894f8ad7d353f18978937974e0a853281c504c68e6bc2"
     },
@@ -4967,7 +4967,7 @@
       "path": "node_modules/nervelet/dist/waits.d.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 960,
       "sha256": "acce1b3f3b0a77f1e13e9175a1d3d3a25b6f892c8dec671dd175c14408e8bc50"
     },
@@ -4975,7 +4975,7 @@
       "path": "node_modules/nervelet/dist/waits.js",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5622,
       "sha256": "ff556ba459b1d932b8b0af2446dd9b2060a0cb2f5956a941c3229e977fd01655"
     },
@@ -4983,15 +4983,15 @@
       "path": "node_modules/nervelet/docs/api.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 7348,
-      "sha256": "dd783fa71b2d6cb0e258c0410e5e337ee1c60830ca30e0d7e0f8328f63c8fa5b"
+      "license": "MIT",
+      "bytes": 7469,
+      "sha256": "cc15e1d8b6f7be963b48754b5964612dd899c2e467ecbf29caaeca8db0070c2a"
     },
     {
       "path": "node_modules/nervelet/docs/architecture-options.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 2848,
       "sha256": "5637c27ecdc51d7157ceec1de3d1ba0f643cb5bb6b95ee4e40618b9431e7dff3"
     },
@@ -4999,7 +4999,7 @@
       "path": "node_modules/nervelet/docs/arduino.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 5216,
       "sha256": "b1b07b60f9426e865721200421a5bdd6ec75581b39c00354aeda2cdad0a7aec2"
     },
@@ -5007,7 +5007,7 @@
       "path": "node_modules/nervelet/docs/dronerts.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 8775,
       "sha256": "39628a43875c18d2d21dcd87e858defc31046eb603cb521e9e6acc868c09bcd0"
     },
@@ -5015,7 +5015,7 @@
       "path": "node_modules/nervelet/docs/harnesses/claude-code.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3345,
       "sha256": "09002624fc5b0b16859ae54569d1b1b56efc030bdd07b3427d121ed6ec517298"
     },
@@ -5023,7 +5023,7 @@
       "path": "node_modules/nervelet/docs/harnesses/codex.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3820,
       "sha256": "4e3efc57822377e947b055a87cf7048612a67d10b7e3083c14c5658231953380"
     },
@@ -5031,7 +5031,7 @@
       "path": "node_modules/nervelet/docs/improvements.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 15420,
       "sha256": "fe9d8224dd0ce3ec3b2519867c97236dbf8bc641d3e53c42143a1d95aa9d2326"
     },
@@ -5039,15 +5039,15 @@
       "path": "node_modules/nervelet/docs/index.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 1456,
-      "sha256": "320f2bb14d4556a019f29aa700fdda664f9d8609d78ac7b73089d409a6d0b1fa"
+      "license": "MIT",
+      "bytes": 1542,
+      "sha256": "b7fa13aee1358cf15a0bdbaa0b1620bee32cad981a749cceacbc22c8d5a67919"
     },
     {
       "path": "node_modules/nervelet/docs/next/BACKGROUND-ENGINEER.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 2364,
       "sha256": "4e7d48164ed773a187412af80ccd51d4edbc622a28d9db2e1015ab11c6936186"
     },
@@ -5055,7 +5055,7 @@
       "path": "node_modules/nervelet/docs/next/CONTRACT.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 16652,
       "sha256": "0524d57bde55cfc4a98dcfab8d781cf3176266b3ec0894a1e5d3fede89a5f57d"
     },
@@ -5063,7 +5063,7 @@
       "path": "node_modules/nervelet/docs/next/QUALIFICATION.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 8239,
       "sha256": "04708389bd756673501a78291ae50a8d6b92b0744011698ea5ec3622e0c9f4f7"
     },
@@ -5071,15 +5071,23 @@
       "path": "node_modules/nervelet/docs/next/RATIONALE.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 13783,
       "sha256": "a11690af54f8530cf127281bc70b7e1a489beeaf9699b0e82fa7312a67d089c3"
+    },
+    {
+      "path": "node_modules/nervelet/docs/publishing.md",
+      "package": "nervelet",
+      "version": "0.2.0",
+      "license": "MIT",
+      "bytes": 2461,
+      "sha256": "39cf91d2eb1dcc2ca67abc64c53e348c4fb7440c47ccddc68e8833610b34f5b2"
     },
     {
       "path": "node_modules/nervelet/docs/reliability.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 4760,
       "sha256": "91c7af2e8ccd642572d9870f64419700bbb78d3c80df46158c55a13469971fb0"
     },
@@ -5087,7 +5095,7 @@
       "path": "node_modules/nervelet/docs/v2.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 20868,
       "sha256": "43b946191fa3bd293da0639ffefab0b9eebfffd54bd82a0f60632500a88cf2ba"
     },
@@ -5095,7 +5103,7 @@
       "path": "node_modules/nervelet/docs/validation.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 19015,
       "sha256": "ce7cf0e66a5fffa092a11a531c1a8d95bc81b10a7cf1cdeb293b9f325680d268"
     },
@@ -5103,7 +5111,7 @@
       "path": "node_modules/nervelet/examples/api-feed/monitor.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 1677,
       "sha256": "12d7f0ad92c550403cfe4428d3b7ede1fe6e30efb01636525958d4470e788710"
     },
@@ -5111,7 +5119,7 @@
       "path": "node_modules/nervelet/examples/arduino/bench/bench.ino",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 2373,
       "sha256": "d0f2227613523df06baf89024c9530e4fd18fbcc30195f3d8b67d6ffc354fe02"
     },
@@ -5119,7 +5127,7 @@
       "path": "node_modules/nervelet/examples/arduino/goal.txt",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 80,
       "sha256": "072a9ec8fc464f394308a0197f08b7c7095e63d22123af19c7584e916a44d701"
     },
@@ -5127,7 +5135,7 @@
       "path": "node_modules/nervelet/examples/arduino/nervelet.config.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 943,
       "sha256": "9618fb98a819fbb4c51b76d2de0547cd651478ab4f92040e80b51fddac840297"
     },
@@ -5135,7 +5143,7 @@
       "path": "node_modules/nervelet/examples/demo/goal.txt",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 112,
       "sha256": "4eb00b9ef4a79c2d39689aef373afec8c3275aeef5514c559d27b0ee07e5ffcd"
     },
@@ -5143,7 +5151,7 @@
       "path": "node_modules/nervelet/examples/demo/nervelet.config.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 164,
       "sha256": "10156a9c9380f2abf1f54ffab9654f4a70dde2a3e6df3572a318c40c1cfe4e85"
     },
@@ -5151,7 +5159,7 @@
       "path": "node_modules/nervelet/examples/dronerts/pilots.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 3602,
       "sha256": "53cf83dbbedc9f2e8522859de850277fc5c72d3aa1b75a3dec5e95cc62a12be0"
     },
@@ -5159,7 +5167,7 @@
       "path": "node_modules/nervelet/examples/managed/claude-code.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 971,
       "sha256": "7bc938fdf432744bd92714aee8518c16f87b53f9cd489e84b7686f21f4b29623"
     },
@@ -5167,15 +5175,23 @@
       "path": "node_modules/nervelet/examples/managed/codex.ts",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 941,
       "sha256": "e9bec3ef022e0b09b4438c50fa552b09cf9786dc8077cd05cb16ed528442630b"
+    },
+    {
+      "path": "node_modules/nervelet/LICENSE",
+      "package": "nervelet",
+      "version": "0.2.0",
+      "license": "MIT",
+      "bytes": 1070,
+      "sha256": "bb70f450da57ce3c90c7e4a8b658f8c3af5c71fdfdaa7f2824c4f11cab6ef2d9"
     },
     {
       "path": "node_modules/nervelet/NEXT-DESIGN.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
+      "license": "MIT",
       "bytes": 16881,
       "sha256": "9734b18d320dc0ca891d7c6d3b7002ba42aed6c98e1c4a0143aafc0e771ef12d"
     },
@@ -5183,17 +5199,17 @@
       "path": "node_modules/nervelet/package.json",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 2654,
-      "sha256": "9b13440845ada46cc195d11e080eaa7cc4a75c8fe0ce5a269f2bdeaef5c7b29e"
+      "license": "MIT",
+      "bytes": 3421,
+      "sha256": "5bf63c9f2ddd1f0122e6267ff289e739e5376077aa63ae04613cd167e939959f"
     },
     {
       "path": "node_modules/nervelet/README.md",
       "package": "nervelet",
       "version": "0.2.0",
-      "license": "User-owned Nervelet source; no upstream license declared",
-      "bytes": 10418,
-      "sha256": "ca34fe8ec9e2f75ce3c6d0ff0d255c9b7fe74dfad1e877945a3e0e7e5a27e6a0"
+      "license": "MIT",
+      "bytes": 11580,
+      "sha256": "3002d256d5b7e63bcefa11512cab42c38845e4908dcf0a2cacc7c004bfc7ebd8"
     },
     {
       "path": "node_modules/quickjs-emscripten-core/dist/chunk-TAV5CUKK.mjs",
@@ -5448,8 +5464,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 7710,
-      "sha256": "5dbe87d07f6e54e48ec729384af7a11fa41b2b67feb42fc7af94ee3f9229c58d"
+      "bytes": 7619,
+      "sha256": "8c0dbae89dc4eb90098ad5f94c5487c89e46fa2e064c4fa53e834b91d4fc7762"
     },
     {
       "path": "server/onboard-workspace.ts",
@@ -5556,9 +5572,9 @@
       "sha256": "bca2ce70d67cf8ffc68305448287510f7087dfce66db183131fea2b83353cf75"
     }
   ],
-  "artifactBytes": 3415136,
-  "manifestBytes": 188619,
-  "installedBytes": 3603755,
+  "artifactBytes": 3420712,
+  "manifestBytes": 184664,
+  "installedBytes": 3605376,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],

@@ -8,12 +8,11 @@ All eight gameplay actors—six drones and two mechanical relay parents—use **
 
 ## Run a match
 
-The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, retained command results, recovery and conditional waits. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the current copying/wait guidance and checks; [interface QA](NERVELET-INTERFACE-QA.md) and [reliability QA](RELIABILITY-QA.md) preserve previous dependency qualifications. [Camera-age QA](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate. The current pin is available on upstream `main` through [Nervelet PR #7](https://github.com/DanMcInerney/nervelet/pull/7). Setup builds and verifies its package locally; it is not published to npm. [Documentation and evidence index](DOCUMENTATION.md).
+The drones embed [Nervelet](NERVELET-INTEGRATION.md) for acknowledged observations, retained command results, recovery and conditional waits. [Npm qualification](NERVELET-NPM-QA.md) records the pinned MIT-licensed 0.2.0 release, installed directly by `npm ci`. [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md) records the copying/wait guidance and checks; [interface QA](NERVELET-INTERFACE-QA.md) and [reliability QA](RELIABILITY-QA.md) preserve previous dependency qualifications. [Camera-age QA](CAMERA-AGE-POLICY-QA.md) preserves the unresolved native held-wait camera gate. [Documentation and evidence index](DOCUMENTATION.md).
 
 Requires Node.js 24+, Python (tested with 3.12.4 and 3.14.6), and an installed, signed-in Codex CLI. Nervelet requires Node 24; bounded routines also use per-thread CPU accounting. Python dependencies stay in the project `.venv`.
 
 ```sh
-npm run nervelet:setup
 npm ci
 npm run network:setup
 npm run dev

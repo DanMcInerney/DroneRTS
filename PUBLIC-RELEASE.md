@@ -1,5 +1,7 @@
 # Public release preparation — September 16, 2026
 
+> Follow-up: the source-build and missing-license items below are superseded by the [Nervelet npm qualification](NERVELET-NPM-QA.md). Current setup installs the pinned MIT-licensed npm package with `npm ci`. The original preparation record below describes the earlier state.
+
 Prepared from DroneRTS `e496116` in a separate worktree. This change updates documentation, media, license/package metadata, repository automation, and two portability issues exposed by clean CI. Gameplay rules, model configuration, and the Nervelet pin are unchanged. The GitHub repository remains private; this preparation does not publish it or submit anything to Hacker News.
 
 ## Prepared

@@ -94,7 +94,6 @@ You need **Git, Node.js 24+, Python 3.12+**, and a browser with WebGL. Live matc
 ```sh
 git clone https://github.com/DanMcInerney/DroneRTS.git
 cd DroneRTS
-npm run nervelet:setup
 npm ci
 npm run network:setup
 npm run dev
@@ -102,7 +101,7 @@ npm run dev
 
 Open **[localhost:4317](http://127.0.0.1:4317)** and click **Launch match**. Keep the browser open: it renders the actual images delivered to the pilots. Both teams receive the same opening objective before simulation, movement, or spending begins. **Stop match** shuts down the actors and protocol helpers.
 
-`nervelet:setup` builds an exact upstream source revision and verifies its archive checksum. It must run before `npm ci`; Nervelet is not published to npm. Python dependencies install into the project's `.venv`. Python 3.12.4 and 3.14.6 have recorded validation. [Dependency details](NERVELET-INTEGRATION.md)
+`npm ci` installs the pinned **Nervelet 0.2.0** npm release using the lockfile's integrity checksum. Python dependencies install into the project's `.venv`. Python 3.12.4 and 3.14.6 have recorded validation. [Dependency details](NERVELET-INTEGRATION.md)
 
 Watch all six FPV feeds, open a drone's **Cockpit** to inspect the actual tool bundles and private files it received or wrote, or use **Admin → Match replay** to inspect recorded flights, messages, cargo, and camera acquisitions. Ordinary player chat reaches blue only and preserves the active objective.
 
@@ -151,4 +150,4 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md). Useful work includes reproducible
 
 DroneRTS's original code and artwork are [MIT licensed](LICENSE). Map data includes **© OpenStreetMap contributors**, under [ODbL](https://www.openstreetmap.org/copyright), and separately attributed geographic sources. [Source notes](CINCINNATI-SOURCES.md) and [third-party notices](THIRD_PARTY_NOTICES.md) preserve those distinctions.
 
-The pinned Nervelet revision currently declares no license; its licensing remains an open release item. DroneRTS's MIT license does not relicense its dependencies or geographic data.
+The pinned [Nervelet npm release](https://www.npmjs.com/package/nervelet/v/0.2.0) is also MIT licensed. DroneRTS's MIT license does not relicense its dependencies or geographic data.

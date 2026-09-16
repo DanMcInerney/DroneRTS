@@ -7,14 +7,13 @@ DroneRTS is a local simulation and agent experiment. Start with [the README](REA
 Use Node.js 24+ and Python 3.12+:
 
 ```sh
-npm run nervelet:setup
 npm ci
 npm run network:setup
 npm test -- --test-concurrency=2
 npm run build
 ```
 
-Setup builds the pinned Nervelet source before installing the local archive. `NERVELET_SOURCE` may select a clone containing that exact commit; do not patch the installed package or change its integrity hash to accept different source. Python dependencies belong in `.venv`.
+`npm ci` installs the exact Nervelet npm release pinned by `package.json` and the lockfile's registry URL and integrity checksum. No local source clone or archive build is required. Do not patch installed dependencies or change integrity hashes to accept different contents. Python dependencies belong in `.venv`.
 
 Tests include native Zenoh and MAVLink processes and require loopback sockets. They do not use model inference or require Codex credentials. The CI workflow runs these checks on Windows and Linux. Actual hosted CI results are the evidence of platform support; a workflow definition alone is not.
 

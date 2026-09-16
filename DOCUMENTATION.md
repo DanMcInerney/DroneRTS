@@ -9,6 +9,7 @@ Current contracts and setup:
 - [Architecture](ARCHITECTURE.md), [onboard interface](ONBOARD.md), [network](NETWORK.md), [MAVLink](MAVLINK.md) and [city](CITY.md): application owners and boundaries.
 - [Offline audit QA](OFFLINE-AUDIT-QA.md) and [authorized audit design](OFFLINE-AUDIT-DESIGN.md): deterministic saved-trial reports, integrity checks, source references and coverage limits.
 - [Nervelet integration](NERVELET-INTEGRATION.md): current exact pin, result retention, waits, catalog and submission contract.
+- [Nervelet npm qualification](NERVELET-NPM-QA.md): published package identity, MIT license, compiled-code comparison, fresh installation and checks.
 - [Compact bundle QA](NERVELET-COMPACT-BUNDLE-QA.md): shorter scoped IDs, explicit acknowledgement guidance and completion-only waits.
 - [Interface QA](NERVELET-INTERFACE-QA.md): generated wait arguments, corrective errors, protocol ownership and corrected offline timing checks.
 - [Reliability QA](RELIABILITY-QA.md): previous dependency qualification, bounded-storage evidence and performance measurements.

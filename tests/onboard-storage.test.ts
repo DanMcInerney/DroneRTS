@@ -90,6 +90,7 @@ test('actual Windows deployment includes measured pinned runtime transitives, no
   for (const pkg of ['quickjs-emscripten-core', '@jitl/quickjs-ffi-types', '@jitl/quickjs-wasmfile-release-sync']) {
     assert.ok(manifest.artifacts.some(item => item.package === pkg && item.path.endsWith('/LICENSE') && item.version === '0.32.0' && item.license === 'MIT'));
   }
+  assert.ok(manifest.artifacts.some(item => item.package === 'nervelet' && item.path.endsWith('/LICENSE') && item.version === '0.2.0' && item.license === 'MIT'));
   const worker = deployOnboardRuntime(); assert.ok(existsSync(worker));
   const deployment = resolve(dirname(worker), '..');
   const deployed = JSON.parse(readFileSync(resolve(deployment, 'manifest.json'), 'utf8'));
