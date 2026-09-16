@@ -5,6 +5,52 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/types.js';
 import { FleetMcpServer } from '../server/runtime-mcp.ts';
 import { createDroneTools } from '../server/runtime-tools.ts';
+import { resultSubmission, type SubmittedResult } from '../server/observation-format.ts';
+import { setTimeout as delay } from 'node:timers/promises';
+
+test('real MCP confirms only successful final output; appended overflow faults without a false submission', async () => {
+  let mode: 'normal' | 'overflow' = 'normal', submitted = 0, failed = 0, settled = 0;
+  const server = new FleetMcpServer({ roles: ['drone-1'], active: () => true, tools: () => createDroneTools(),
+    beginTool: () => ({ signal: new AbortController().signal, settled: () => { settled++; } }),
+    call: async () => {
+      const result: SubmittedResult = { content: [{ type: 'text', text: '{"recovery":"complete"}' }],
+        [resultSubmission]: { submitted: () => { submitted++; }, failed: () => { failed++; } } };
+      if (mode === 'overflow') result.content.push({ type: 'text', text: 'x'.repeat(640 * 1024) });
+      return result;
+    }, policy: () => ({}), onEvent: () => {} });
+  const endpoint = await server.start(), client = new Client({ name: 'submission-test', version: '1' });
+  try {
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`)));
+    await client.callTool({ name: 'observe', arguments: {} });
+    assert.equal(submitted, 1); assert.equal(settled, 1); assert.equal(failed, 0);
+    mode = 'overflow'; const result = await client.callTool({ name: 'observe', arguments: {} });
+    assert.equal(result.isError, true); assert.match(JSON.stringify(result), /exceeds capacity/);
+    assert.equal(submitted, 1); assert.equal(settled, 2); assert.equal(failed, 1);
+    assert.equal([...(server as any).connections][0].requests.size, 0);
+  } finally { await client.close(); await server.stop(); }
+});
+
+test('MCP disconnect during acquisition cancels and joins exact outstanding work', async () => {
+  let entered!: () => void, settled = 0, aborted = 0;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const server = new FleetMcpServer({ roles: ['drone-1'], active: () => true, tools: () => createDroneTools(),
+    beginTool: () => ({ signal: new AbortController().signal, settled: () => { settled++; } }),
+    call: async (_role, _name, _args, signal) => {
+      entered(); return await new Promise((_resolve, reject) => signal!.addEventListener('abort', () => { aborted++; reject(signal!.reason); }, { once: true }));
+    }, policy: () => ({}), onEvent: () => {} });
+  const endpoint = await server.start(), client = new Client({ name: 'disconnect-test', version: '1' });
+  const url = `http://127.0.0.1:${endpoint.port}/mcp/${endpoint.tokens['drone-1']}`;
+  const transport = new StreamableHTTPClientTransport(new URL(url));
+  try {
+    await client.connect(transport); const controller = new AbortController();
+    const call = fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-session-id': transport.sessionId! },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 'abandoned', method: 'tools/call', params: { name: 'observe', arguments: {} } }), signal: controller.signal });
+    await started; controller.abort(); await assert.rejects(call);
+    for (let i = 0; i < 50 && !settled; i++) await delay(10);
+    assert.equal(settled, 1); assert.equal(aborted, 1);
+    assert.equal([...(server as any).connections][0].requests.size, 0);
+  } finally { await client.close(); await server.stop(); }
+});
 
 test('real MCP connections discover unlocked tools, notify peers and reject guessed or retired capabilities', async () => {
   let shop = false, alive = true, gun = false, optics = false, jammer = false;

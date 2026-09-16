@@ -1,4 +1,4 @@
-import { compactObservation } from './observation-format.ts';
+import { compactObservation, resultSubmission, type SubmittedResult } from './observation-format.ts';
 import { copyFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -11,9 +11,15 @@ import { BOOTSTRAP_MESSAGE, EFFORT, MODEL, droneInstructions, createDroneTools, 
 import type { ToolResult } from '../shared/types.js';
 import { DEFAULT_FLEET, validateRoster, droneAgentType, droneIdFromAgentType, type FleetRoster } from '../shared/fleet.ts';
 import { validateAgentBackend, type AgentBackend, type AgentBackendOptions } from './agent-backend.ts';
+import { settleEmergency, type AttentionEvidence } from 'nervelet';
+import type { DroneNervelet } from './nervelet.ts';
+import { withAbort } from './abort.ts';
+import { verifyFleetResult } from './observation-format.ts';
 
 export type RuntimeOptions = AgentBackendOptions;
 const quoted = (value: string) => JSON.stringify(value);
+type NativeTurn = { id: string; terminal: boolean; settled: boolean; ended: Promise<void>; resolve(): void;
+  requests: Set<AbortController>; nativeTools: Set<string>; terminalTimer?: NodeJS.Timeout };
 
 
 export class CodexFleetRuntime implements AgentBackend {
@@ -26,14 +32,19 @@ export class CodexFleetRuntime implements AgentBackend {
   private roles = new Map<string, FleetRole>();
   private spawned = new Set<string>();
   private usage = new Map<string, number>();
-  private activeTurns = new Map<string, string>();
+  private activeTurns = new Map<string, NativeTurn>();
+  private oldTurns = new Set<string>();
+  private starting = new Set<string>();
+  private attentionPilots = new Map<string, DroneNervelet>();
+  private attentionRestarts = new Map<string, number>();
+  private nativeTurnCount = 0;
   private retired = new Set<FleetRole>();
   private resumptions = new Map<FleetRole, number>();
   private turnCatalogs = new Map<FleetRole, string>();
   private servedCatalogs = new Map<FleetRole, string>();
   private catalogYields = new Map<FleetRole, number>();
   private catalogWaiters = new Set<() => void>();
-  private resuming = new Set<string>();
+  private resuming = new Map<string, { promise: Promise<void>; reason: 'ordinary' | 'attention' }>();
   private startPromise?: Promise<void>;
   private stopPromise?: Promise<void>;
   private cleanupPromise?: Promise<void>;
@@ -113,8 +124,7 @@ export class CodexFleetRuntime implements AgentBackend {
       this.options.onStatus({ cliVersion: thread.thread.cliVersion });
       if (process.env.FLEET_RUNTIME_PREFLIGHT === '1') return;
       this.options.onStatus({ status: 'starting', message: `Luna verified. Bootstrapping ${this.drones.length} native drone agents…`, threadId: this.threadId, children: [] });
-      const turn = await this.rpc.request('turn/start', { threadId: this.threadId, model: MODEL, effort: EFFORT, summary: 'auto', input: [{ type: 'text', text: this.parentInstructions, text_elements: [] }] });
-      this.activeTurns.set(this.threadId!, turn.turn.id);
+      await this.startTurn(this.threadId!, [{ type: 'text', text: this.parentInstructions, text_elements: [] }]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!this.stopped) { this.failure = message; this.options.onStatus({ status: 'error', message }); }
@@ -124,6 +134,115 @@ export class CodexFleetRuntime implements AgentBackend {
   }
 
   private assertActive() { if (this.stopped) throw new Error('Fleet startup was cancelled.'); }
+
+  private ownTurn(threadId: string, id: string): NativeTurn | undefined {
+    if (!id || !this.roles.has(threadId) || this.oldTurns.has(`${threadId}:${id}`)) return;
+    const previous = this.activeTurns.get(threadId);
+    if (previous?.id === id) return previous;
+    if (previous && !previous.settled) { this.failRuntime('Native turn overlap before terminal and tool settlement'); return; }
+    if (++this.nativeTurnCount > 128) { this.failRuntime('Native runtime turn budget exhausted'); return; }
+    if (previous) { this.oldTurns.add(`${threadId}:${previous.id}`); while (this.oldTurns.size > 256) this.oldTurns.delete(this.oldTurns.values().next().value!); }
+    let resolve!: () => void;
+    const turn: NativeTurn = { id, terminal: false, settled: false, requests: new Set(), nativeTools: new Set(), ended: new Promise<void>(r => { resolve = r; }), resolve: () => resolve() };
+    this.activeTurns.set(threadId, turn); return turn;
+  }
+  private settleTurn(threadId: string, turn: NativeTurn) {
+    if (!turn.terminal || turn.requests.size || turn.nativeTools.size || turn.settled) return;
+    turn.settled = true; clearTimeout(turn.terminalTimer); turn.resolve();
+    this.options.onEvent({ type: 'actor-turn-settled', role: this.roles.get(threadId), threadId, turnId: turn.id, observedAtMs: performance.now() });
+    this.continueEnded(threadId);
+  }
+  private continueEnded(threadId: string) {
+    const role = this.roles.get(threadId), turn = this.activeTurns.get(threadId);
+    if (!role || !turn?.settled || this.stopped || this.retired.has(role) || this.resuming.has(threadId) || this.starting.has(threadId)) return;
+    const pilot = this.attentionPilots.get(threadId);
+    if (pilot && ['pending', 'ready'].includes(pilot.bridge.attention()?.status ?? '')) {
+      void this.attend(threadId, role, pilot); return;
+    }
+    void this.resumeActor(threadId, role, this.catalogYields.has(role));
+  }
+  private async startTurn(threadId: string, input: unknown[]) {
+    this.assertActive();
+    const previous = this.activeTurns.get(threadId);
+    if (this.starting.has(threadId) || previous && !previous.settled) throw new Error('Cannot start an overlapping native turn');
+    this.starting.add(threadId);
+    try {
+      const response = await this.rpc!.request('turn/start', { threadId, model: MODEL, effort: EFFORT, summary: 'auto', input });
+      const turn = this.ownTurn(threadId, response.turn.id);
+      if (!turn) throw new Error('Native turn identity was not accepted');
+      if (this.stopped || this.retired.has(this.roles.get(threadId)!)) await this.rpc?.request('turn/interrupt', { threadId, turnId: turn.id }, 2000);
+      return turn;
+    } finally { this.starting.delete(threadId); this.continueEnded(threadId); }
+  }
+  private beginTool(role: FleetRole) {
+    const [threadId, turn] = [...this.activeTurns].find(([id]) => this.roles.get(id) === role) ?? [];
+    if (!threadId || !turn || turn.terminal || this.stopped || this.retired.has(role)) throw new Error('No active native turn owns this tool request');
+    if (turn.requests.size >= 8) throw new Error('Native tool request capacity exceeded');
+    const controller = new AbortController(); turn.requests.add(controller);
+    return { signal: controller.signal, settled: () => { turn.requests.delete(controller); this.settleTurn(threadId, turn); } };
+  }
+
+  /** Trusted domain evidence only. Nervelet owns emergency sequencing and reconciliation. */
+  async requestAttention(role: FleetRole, pilot: DroneNervelet, evidence: AttentionEvidence): Promise<void> {
+    const threadId = [...this.roles].find(([, value]) => value === role)?.[0];
+    if (!threadId || role === 'parent' || this.stopped || this.retired.has(role)) return Promise.reject(new Error('Attention actor is inactive'));
+    pilot.bridge.requestAttention(evidence);
+    this.attentionPilots.set(threadId, pilot);
+    return this.attend(threadId, role, pilot);
+  }
+  private attend(threadId: string, role: FleetRole, pilot: DroneNervelet): Promise<void> {
+    const previous = this.resuming.get(threadId);
+    if (previous?.reason === 'attention') return previous.promise;
+    // A pending generic/catalog continuation relinquishes its next start below.
+    const work = Promise.resolve().then(async () => {
+      await previous?.promise;
+      if (this.stopped || this.retired.has(role) || pilot.bridge.status().loop === 'stopped') return;
+      const turn = this.activeTurns.get(threadId);
+      const attention = pilot.bridge.attention();
+      if (!attention || !['pending', 'ready'].includes(attention.status)) return;
+      const deadline = new AbortController();
+      const timer = setTimeout(() => deadline.abort(new Error('Emergency host transition deadline exceeded')), pilot.bridge.attentionOptions!.terminationMs);
+      try {
+        let route = attention.status === 'pending' ? await settleEmergency(pilot.bridge, turn && { turnId: turn.id, ended: turn.ended,
+          interrupt: async () => { if (!turn.terminal) await this.rpc!.request('turn/interrupt', { threadId, turnId: turn.id }, 5000); },
+          abortTools: () => { for (const request of turn.requests) request.abort(new Error('Emergency turn settlement')); pilot.abortTools(); },
+        }) : 'restart';
+        // Natural completion can race a successfully submitted open result.
+        if (route === 'boundary' && turn?.terminal) { await withAbort(turn.ended, deadline.signal); route = 'restart'; }
+        if (route !== 'restart') { this.options.onEvent({ type: 'attention-settled', role, threadId, route, attentionId: attention.id }); return; }
+        if (this.stopped || this.retired.has(role) || pilot.bridge.attention()?.id !== attention.id || pilot.bridge.attention()?.status !== 'ready') return;
+        if (turn) await withAbort(turn.ended, deadline.signal);
+        if (this.catalogYields.has(role)) await withAbort(this.awaitCurrentCatalog(threadId, role), deadline.signal);
+        if (this.stopped || this.retired.has(role)) return;
+        const result = await pilot.call('observe', {}, deadline.signal) as SubmittedResult;
+        try {
+          deadline.signal.throwIfAborted();
+          const value = JSON.parse(result.content.find(item => item.type === 'text')!.text);
+          if (this.stopped || this.retired.has(role) || value.nervelet?.generation !== pilot.bridge.status().generation || value.nervelet?.goal.version !== pilot.bridge.status().goal.version
+            || value.nervelet?.attention?.id !== attention.id || value.sensors?.camera?.available !== true || !result.content.some(item => item.type === 'image')) throw new Error('Emergency replacement requires current recovery and actual acquired camera content');
+          const count = (this.attentionRestarts.get(threadId) ?? 0) + 1;
+          if (count > pilot.bridge.attentionOptions!.maxTransitions) throw new Error('Emergency restart budget exhausted');
+          this.attentionRestarts.set(threadId, count);
+          verifyFleetResult(result);
+          this.turnCatalogs.set(role, JSON.stringify(this.toolsForRole(role))); this.catalogYields.delete(role);
+          const replacement = await withAbort(this.startTurn(threadId, result.content.map(item => item.type === 'text'
+            ? { type: 'text', text: item.text, text_elements: [] } : { type: 'image', url: `data:${item.mimeType};base64,${item.data}` })), deadline.signal);
+          deadline.signal.throwIfAborted();
+          result[resultSubmission]?.submitted();
+          pilot.bridge.emit({ type: 'replacement_submitted', id: value.nervelet.id, turnId: replacement.id, attentionId: attention.id, generation: value.nervelet.generation });
+          this.options.onToolEvidence?.({ type: 'delivery', role, name: 'attention-resume', result });
+          this.options.onEvent({ type: 'attention-turn-resumed', role, threadId, turnId: replacement.id, attentionId: attention.id, observedAtMs: performance.now() });
+        } catch (error) { result[resultSubmission]?.failed(error); throw error; }
+      } finally { clearTimeout(timer); }
+    }).catch(error => {
+      if (this.stopped || this.retired.has(role)) return;
+      const attention = pilot.bridge.attention(); if (attention) pilot.bridge.failAttention(attention.id, error);
+      this.failRuntime(`Emergency attention for ${role} failed: ${String(error)}`);
+    });
+    this.resuming.set(threadId, { promise: work, reason: 'attention' });
+    void work.finally(() => { if (this.resuming.get(threadId)?.promise === work) { this.resuming.delete(threadId); this.continueEnded(threadId); } });
+    return work;
+  }
 
   toolsForRole(role: FleetRole): Tool[] {
     if (this.retired.has(role)) return [];
@@ -183,8 +302,11 @@ export class CodexFleetRuntime implements AgentBackend {
     for (const wake of this.catalogWaiters) wake();
     this.options.onEvent({ type: 'actor-retired', role });
     await Promise.allSettled([...this.roles].filter(([, actor]) => actor === role).map(async ([threadId]) => {
-      const turnId = this.activeTurns.get(threadId);
-      if (turnId) await this.rpc?.request('turn/interrupt', { threadId, turnId }, 2000);
+      const turn = this.activeTurns.get(threadId);
+      if (turn) {
+        for (const request of turn.requests) request.abort(new Error('Actor retired'));
+        if (!turn.terminal) await this.rpc?.request('turn/interrupt', { threadId, turnId: turn.id }, 2000);
+      }
     }));
     await this.refreshTools();
   }
@@ -195,10 +317,14 @@ export class CodexFleetRuntime implements AgentBackend {
       tools: role => this.toolsForRole(role), policy: event => this.policy(event), onEvent: event => this.options.onEvent(event as Record<string, unknown>),
       onToolsListed: (role, tools) => this.recordToolsListed(role, tools),
       onToolEvidence: this.options.onToolEvidence,
-      call: async (role, name, args) => {
-        this.options.onEvent({ type: 'tool', role, name, arguments: args });
+      beginTool: role => this.beginTool(role),
+      call: async (role, name, args, signal) => {
+        this.options.onEvent({ type: 'tool', role, name, arguments: args, observedAtMs: performance.now() });
         this.toolCalls++;
-        const result = this.catalogBoundary(role, compactObservation(await this.options.toolHandler(role, name, args)));
+        const original: SubmittedResult = await this.options.toolHandler(role, name, args, signal);
+        let result: ToolResult;
+        try { signal?.throwIfAborted(); result = this.catalogBoundary(role, original[resultSubmission] ? original : compactObservation(original)); }
+        catch (error) { original[resultSubmission]?.failed(error); throw error; }
         this.options.onEvent({ type: 'tool-result', role, name, result: { ...result, content: result.content.map(item => item.type === 'image' ? { type: 'image', data: '[camera image omitted]', mimeType: item.mimeType } : item) } });
         return result;
       },
@@ -254,20 +380,24 @@ export class CodexFleetRuntime implements AgentBackend {
       }
     }
     if (message.method === 'turn/started') {
-      this.activeTurns.set(p.threadId, p.turn.id);
+      const turn = this.ownTurn(p.threadId, p.turn.id);
+      if (!turn || turn.terminal) return;
       const role = this.roles.get(p.threadId);
       this.options.onEvent({ type: 'actor-turn-started', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now() });
       if (role && this.retired.has(role)) void this.retireDrone(role);
     }
     if (message.method === 'turn/completed') {
-      this.reasoning.flush(p.threadId);
-      this.activeTurns.delete(p.threadId);
+      const turn = this.activeTurns.get(p.threadId);
+      if (!turn || turn.id !== p.turn.id || turn.terminal) {
+        this.options.onEvent({ type: 'late-turn-terminal', threadId: p.threadId, turnId: p.turn.id }); return;
+      }
+      this.reasoning.flush(p.threadId); turn.terminal = true;
       if (!this.stopped) {
         const role = this.roles.get(p.threadId) ?? 'unknown actor';
         this.options.onEvent({ type: 'actor-ended', role, threadId: p.threadId, turnId: p.turn.id, observedAtMs: performance.now(), status: p.turn.status, error: p.turn.error?.message });
-        if (this.retired.has(role as FleetRole)) return;
-        void this.resumeActor(p.threadId, role, this.catalogYields.has(role as FleetRole));
+        turn.terminalTimer = setTimeout(() => { if (!turn.settled) this.failRuntime(`${role} terminal tool work did not settle`); }, 20000);
       }
+      this.settleTurn(p.threadId, turn);
     }
     if (message.method === 'thread/tokenUsage/updated') {
       this.usage.set(p.threadId, p.tokenUsage?.total?.totalTokens ?? 0);
@@ -282,10 +412,23 @@ export class CodexFleetRuntime implements AgentBackend {
     // silent native-turn intervals. Readable reasoning is captured separately.
     if (['item/started', 'item/completed'].includes(message.method)
       && ['reasoning', 'contextCompaction', 'mcpToolCall'].includes(p.item?.type)) {
+      const turn = this.activeTurns.get(p.threadId);
+      if (turn && p.turnId !== turn.id) { this.options.onEvent({ type: 'late-turn-item', threadId: p.threadId, turnId: p.turnId, itemId: p.item.id }); return; }
+      if (turn && p.item.type === 'mcpToolCall') {
+        if (message.method === 'item/started') {
+          if (turn.settled || turn.nativeTools.size >= 16) { this.failRuntime('Late or excessive native tool work'); return; }
+          turn.nativeTools.add(p.item.id);
+        } else { turn.nativeTools.delete(p.item.id); this.settleTurn(p.threadId, turn); }
+      }
       this.options.onEvent({ type: 'actor-activity', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId,
         itemId: p.item.id, activity: p.item.type, phase: message.method === 'item/started' ? 'started' : 'completed', observedAtMs: performance.now() });
     }
-    if (message.method === 'thread/compacted') this.options.onEvent({ type: 'actor-context-compacted', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId, observedAtMs: performance.now() });
+    if (message.method === 'item/completed' && p.item?.type === 'contextCompaction') {
+      const turn = this.activeTurns.get(p.threadId);
+      // Use the correlated item instead of the deprecated thread-only notification.
+      // Uncorrelated/late compaction cannot invalidate an already constructed replacement.
+      if (turn && !turn.terminal && p.turnId === turn.id) this.options.onEvent({ type: 'actor-context-compacted', role: this.roles.get(p.threadId), threadId: p.threadId, turnId: p.turnId, observedAtMs: performance.now() });
+    }
     if (message.method === 'item/completed' && p.item?.type === 'collabAgentToolCall') this.options.onEvent({ type: 'native-agent-call', tool: p.item.tool, status: p.item.status, model: p.item.model, effort: p.item.reasoningEffort, children: p.item.receiverThreadIds });
     if (message.method === 'item/agentMessage/delta') this.options.onEvent({ type: 'actor-message-delta', role: this.roles.get(p.threadId), itemId: p.itemId, text: typeof p.delta === 'string' ? p.delta.slice(0, 24_000) : '' });
     this.reasoning.accept(message.method, p);
@@ -320,34 +463,40 @@ export class CodexFleetRuntime implements AgentBackend {
     void this.stop(false);
   }
 
-  private async resumeActor(threadId: string, role: string, catalogRefresh = false) {
-    if (this.resuming.has(threadId)) return;
-    const count = (this.resumptions.get(role as FleetRole) ?? 0) + 1;
-    if (role === 'unknown actor' || (!catalogRefresh && count > 2)) { this.failRuntime(`${role} repeatedly stopped its event loop. The match cannot continue with a missing actor.`); return; }
-    if (!catalogRefresh) this.resumptions.set(role as FleetRole, count);
+  private resumeActor(threadId: string, role: string, catalogRefresh = false): Promise<void> {
+    const existing = this.resuming.get(threadId); if (existing) return existing.promise;
+    const work = Promise.resolve().then(() => this.resumeActorOwned(threadId, role, catalogRefresh));
+    this.resuming.set(threadId, { promise: work, reason: 'ordinary' });
+    void work.finally(() => { if (this.resuming.get(threadId)?.promise === work) { this.resuming.delete(threadId); this.continueEnded(threadId); } }).catch(() => {});
+    return work;
+  }
+  private async resumeActorOwned(threadId: string, role: string, catalogRefresh: boolean) {
     if (this.stopped || this.retired.has(role as FleetRole)) return;
-    this.resuming.add(threadId);
     try {
+      await this.activeTurns.get(threadId)?.ended;
       if (catalogRefresh) await this.awaitCurrentCatalog(threadId, role as FleetRole);
       if (this.stopped || this.retired.has(role as FleetRole)) return;
+      if (['pending', 'ready'].includes(this.attentionPilots.get(threadId)?.bridge.attention()?.status ?? '')) return;
+      const count = (this.resumptions.get(role as FleetRole) ?? 0) + 1;
+      if (role === 'unknown actor' || (!catalogRefresh && count > 2)) { this.failRuntime(`${role} repeatedly stopped its event loop. The match cannot continue with a missing actor.`); return; }
+      if (!catalogRefresh) this.resumptions.set(role as FleetRole, count);
       this.turnCatalogs.set(role as FleetRole, JSON.stringify(this.toolsForRole(role as FleetRole)));
       this.catalogYields.delete(role as FleetRole);
       this.options.onEvent({ type: catalogRefresh ? 'catalog-turn-resumed' : 'actor-resumed', role, attempt: count });
-      const turn = await this.rpc?.request('turn/start', { threadId, model: MODEL, effort: EFFORT, summary: 'auto', input: [{ type: 'text', text: catalogRefresh
+      await this.startTurn(threadId, [{ type: 'text', text: catalogRefresh
         ? 'Your controller interface is refreshed. Continue your existing drone event loop with your current mission, received observations and currently callable fleet tools.'
         : role === 'parent'
         ? 'Continue your existing mechanical relay event loop. Do not create additional actors. Call forward_next_instruction until stopped.'
-        : 'Continue your existing drone event loop using only your fleet tools. Call wait for current events. Finish only when destroyed or stopped.', text_elements: [] }] });
-      if (turn) this.activeTurns.set(threadId, turn.turn.id);
+        : 'Continue your existing drone event loop using only your fleet tools. Call wait for current events. Finish only when destroyed or stopped.', text_elements: [] }]);
       if (this.retired.has(role as FleetRole)) await this.retireDrone(role as FleetRole);
     } catch (error) { if (!this.stopped && !this.retired.has(role as FleetRole)) this.failRuntime(`Could not resume ${role}: ${String(error)}`); }
-    finally { this.resuming.delete(threadId); }
   }
 
   stop(updateStatus = true): Promise<void> {
     if (this.stopPromise) return this.stopPromise;
     if (this.stopped && !this.startPromise && !this.runDir && !this.rpc) return Promise.resolve();
     this.stopped = true;
+    for (const turn of this.activeTurns.values()) { clearTimeout(turn.terminalTimer); for (const request of turn.requests) request.abort(new Error('Runtime stopped')); }
     for (const wake of this.catalogWaiters) wake();
     this.stopPromise = this.stopInternal(updateStatus).finally(() => { this.stopPromise = undefined; });
     return this.stopPromise;
@@ -368,7 +517,7 @@ export class CodexFleetRuntime implements AgentBackend {
 
   private async cleanupInternal() {
     if (this.rpc) {
-      await Promise.allSettled([...this.activeTurns].map(([threadId, turnId]) => this.rpc!.request('turn/interrupt', { threadId, turnId }, 2000)));
+      await Promise.allSettled([...this.activeTurns].filter(([, turn]) => !turn.terminal).map(([threadId, turn]) => this.rpc!.request('turn/interrupt', { threadId, turnId: turn.id }, 2000)));
       await this.rpc.stop();
       this.rpc = undefined;
     }

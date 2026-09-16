@@ -1,4 +1,7 @@
 import { LaunchGate } from './launch-gate.ts';
+import { withAbort } from './abort.ts';
+import { AcousticSensor } from './acoustic-sensor.ts';
+import { ACOUSTIC_PROFILE } from '../shared/acoustic-profile.ts';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { type Drone, type DroneId, type GameState, type Pose, type Role, type ToolResult, type RadioMessage, type GameEvent } from '../shared/types.ts';
@@ -36,7 +39,7 @@ const activityOf = (drone: Drone) => drone.action ? { id: drone.action.id, kind:
 class ControllerRejection extends Error {}
 interface VehicleTransport {
   command(id: DroneId, args: Record<string, unknown>, pose: Pose, simTime: number): Promise<Record<string, unknown>>;
-  sample(id: DroneId, pose: Pose, simTime: number, velocity?: { x: number; y: number; z: number }): Promise<{
+  sample(id: DroneId, pose: Pose, simTime: number, velocity?: { x: number; y: number; z: number }, signal?: AbortSignal): Promise<{
     position: { x: number; y: number; z: number }; heading: { degrees: number }; simTime: number;
     velocity?: { x: number; y: number; z: number }; cameraOrientation?: { heading: number; pitch: number };
   }>;
@@ -49,7 +52,10 @@ interface RadioTransport {
 }
 
 export class FleetGame extends EventEmitter {
+  private acoustic?: AcousticSensor;
+  get acousticEnabled() { return Boolean(this.acoustic); }
   private launchGate?: LaunchGate;
+  get launchReady() { return this.launchGate?.ready ?? true; }
   awaitFleetLaunch() { this.launchGate = new LaunchGate(this.state.drones.map(drone => drone.id)); }
   state: GameState;
   inboxes: Record<DroneId, Mailbox>;
@@ -58,6 +64,8 @@ export class FleetGame extends EventEmitter {
   private serial = 0;
   private rules = new RtsRules(event => {
     this.emit('match-event', event);
+    if (event.type === 'fired' && event.x !== undefined && event.y !== undefined && event.z !== undefined)
+      this.acoustic?.impulse({ x: event.x, y: event.y, z: event.z }, event.simTime);
     if (event.drone && event.type === 'armor_consumed') {
       this.jobs?.cancel(event.drone, 'armor-lost');
       this.routines?.get(event.drone)?.cancel('armor-lost');
@@ -82,6 +90,7 @@ export class FleetGame extends EventEmitter {
   private toolTurns = new Map<DroneId, Promise<unknown>>();
   private receivedRadio = new Map<string, number>();
   private droneMissions = Object.fromEntries(DRONE_IDS.map(id => [id, 0])) as Record<DroneId, number>;
+  private receivedGoals = new Map<DroneId, { text: string; version: number; status: 'active' }>();
   private deferredRadio = new Map<DroneId, RadioMessage[]>();
   private motion = new DroneMotion();
   private localSensors = new LocalSensors();
@@ -114,16 +123,80 @@ export class FleetGame extends EventEmitter {
   radioInterferenceChanged?: () => void;
   vehicleTransport?: VehicleTransport;
   get sessionIdentity() { return this.sessionId; }
-  capture: (id: DroneId, pose: Pose, simTime: number, drones: Drone[], match?: MatchState) => Promise<string> = async () => { throw new Error('Camera browser is disconnected'); };
+  capture: (id: DroneId, pose: Pose, simTime: number, drones: Drone[], match?: MatchState, signal?: AbortSignal) => Promise<string> = async () => { throw new Error('Camera browser is disconnected'); };
 
-  constructor() {
+  constructor(options: { acoustic?: boolean } = { acoustic: process.env.FLEET_ACOUSTIC === 'experimental' }) {
     super();
     this.inboxes = this.newInboxes();
     this.state = this.newState();
+    if (options.acoustic) this.acoustic = new AcousticSensor((id, measurement) => {
+      if (this.state.running && this.drone(id).alive !== false) this.inboxes[id].push({ ...measurement, mission: this.droneMissions[id] });
+    });
   }
 
   private drone(id: DroneId) { return this.state.drones.find(drone => drone.id === id)!; }
   receivedMission(id: DroneId) { return this.droneMissions[id]; }
+  receivedGoal(id: DroneId) { return this.receivedGoals.get(id); }
+  /** Narrow borrowed-environment seams: same game authority, no new actor capability. */
+  markActorOnline(id: DroneId) {
+    const drone = this.drone(id);
+    if (this.state.running && drone.alive !== false && !drone.online) {
+      drone.online = true; drone.status = 'Ready';
+      for (const wake of [...this.playerWake]) wake();
+    }
+  }
+  executeOnboard(id: DroneId, name: string, args: Record<string, unknown>, assertCurrent: () => void) {
+    return this.dispatch(id, name, args, undefined, assertCurrent);
+  }
+  onboardTelemetry(id: DroneId) { return this.ownTelemetry(id); }
+  onboardRoutine(id: DroneId) { return this.routines.get(id)?.status() ?? null; }
+  onboardEvents(id: DroneId, after: number) {
+    const slice = this.inboxes[id].peek(after);
+    return { ...slice, events: slice.events.map(event => event.type === 'player' && mailExpired(event as { expiresAt?: string; expiresMonotonicMs?: number })
+      ? { cursor: event.cursor, type: 'message_expired', mission: this.droneMissions[id], id: event.id } : event) };
+  }
+  onboardJobArguments(id: DroneId, jobId: string) {
+    return this.jobs.arguments(id, jobId) ?? this.routines.get(id)?.arguments(jobId) ?? {};
+  }
+  stopOnboard(id: DroneId, reason = 'nervelet-stop') {
+    this.motionVersions.set(id, (this.motionVersions.get(id) ?? 0) + 1);
+    this.routines.get(id)?.cancel(reason); this.jobs.cancel(id, reason);
+    const drone = this.drone(id);
+    this.rules.cancelLogistics(this.state, drone, 'stopped'); this.rules.cancelService(this.state, drone);
+    this.motion.hover(drone); drone.action = undefined;
+  }
+  cancelOnboard(id: DroneId, jobId: string) {
+    const routine = this.routines.get(id)?.status(), job = this.jobs.status(id);
+    if (routine?.id === jobId) { this.routines.get(id)!.cancel('requested', jobId); return true; }
+    if (job?.id === jobId) { this.jobs.cancel(id, 'requested'); return true; }
+    return false;
+  }
+  acknowledgeOnboard(id: DroneId, through: number) {
+    const events = this.inboxes[id].events.filter(event => event.cursor <= through && event.cursor > this.inboxes[id].delivered);
+    this.radioTransport?.consume(id, events.flatMap(event => event.type === 'radio' ? [(event.message as RadioMessage).id]
+      : event.type === 'player' && typeof event.id === 'string' ? [event.id] : []));
+    this.inboxes[id].acknowledge(through);
+  }
+  /** Actual submitted events count even when acquisition correctly reports no image. */
+  deliveredOnboard(role: DroneId, events: GameEvent[]) {
+    if (!this.state.running || this.drone(role).alive === false) return;
+    const mailIds = events.flatMap(event => event.type === 'radio' ? [(event.message as RadioMessage).id]
+      : event.type === 'player' && typeof event.id === 'string' ? [event.id] : []);
+    for (const id of mailIds) {
+      const message = this.state.radio.find(item => item.id === id);
+      if (message && (message.kind !== 'mission' || !mailExpired(message))) {
+        message.delivery ??= { queuedAt: message.sentAt, storedBy: [], bundledBy: [] };
+        message.delivery.bundledBy = [...new Set([...message.delivery.bundledBy, role])];
+        this.emit('radio-delivery', structuredClone(message));
+      }
+    }
+    if (this.launchGate?.delivered(role, events.some(event => event.type === 'player' && event.mission === this.droneMissions[role] && Number(event.mission) > 0))) {
+      for (const member of this.state.drones) this.inboxes[member.id].push({ type: 'launch_ready', mission: this.droneMissions[member.id] });
+    }
+  }
+  acquireOnboard(id: DroneId, signal: AbortSignal, delivered: (commit: (events: GameEvent[]) => void) => void) {
+    return this.withObservation(id, textResult({}), undefined, { signal, delivered });
+  }
   /** Player inspection never allocates an onboard workspace. */
   existingOnboardWorkspace(id: DroneId) { return this.workspaces.get(id); }
   onboardWorkspace(id: DroneId): OnboardWorkspace {
@@ -134,6 +207,7 @@ export class FleetGame extends EventEmitter {
         eventBytes: () => this.inboxes[id].localBytes,
         radioBytes: () => Number((this.radioTransport?.storage?.(id) as { storageBytes?: number } | undefined)?.storageBytes ?? 0) });
       this.workspaces.set(id, workspace);
+      if (this.acoustic) workspace.reserveCache('acoustic', ACOUSTIC_PROFILE.cacheBytes);
     }
     return workspace;
   }
@@ -211,6 +285,8 @@ export class FleetGame extends EventEmitter {
       this.stop(); this.emit('transport-error', { role: id, message: `Onboard ${partition} inbox capacity exhausted; unread messages preserved` });
     };
     mailbox.onPush = event => {
+      this.emit('onboard-change', { drone: id });
+      if (event.type === 'armor_lost' || event.type === 'acoustic_impulse') this.emit('onboard-local-evidence', { drone: id, event });
       const events = this.routineEvents.get(id);
       if (!events || !this.activeRoutine(id)) return;
       if (Buffer.byteLength(JSON.stringify(events)) + Buffer.byteLength(JSON.stringify(event)) > 64 * 1024) {
@@ -239,12 +315,14 @@ export class FleetGame extends EventEmitter {
     this.playerQueue = []; this.emit('change');
   }
   start() {
+    this.acoustic?.clear();
     this.launchGate = undefined;
     if (!this.connected) throw new Error('Open the game browser before launching the fleet');
     this.inboxes = this.newInboxes();
     this.toolErrors.clear();
     this.sessionId = randomUUID();
     this.receivedRadio.clear();
+    this.receivedGoals.clear();
     for (const id of DRONE_IDS) this.droneMissions[id] = 0;
     this.deferredRadio.clear();
     this.motion.clear();
@@ -266,6 +344,7 @@ export class FleetGame extends EventEmitter {
     this.emit('change');
   }
   stop() {
+    if (this.acoustic) { this.emit('acoustic-metrics', { ...this.acoustic.metrics }); this.acoustic.clear(); }
     this.state.running = false;
     for (const id of DRONE_IDS) this.motionVersions.set(id, (this.motionVersions.get(id) ?? 0) + 1);
     for (const runner of this.routines.values()) runner.cancel('stopped');
@@ -355,6 +434,7 @@ export class FleetGame extends EventEmitter {
     if (message.from === 'player' && message.kind === 'mission') {
       if (message.mission <= this.droneMissions[recipient]) { this.radioTransport?.consume(recipient, [message.id]); return; }
       this.droneMissions[recipient] = message.mission;
+      this.receivedGoals.set(recipient, { text: message.text, version: message.mission, status: 'active' });
       this.motionVersions.set(recipient, (this.motionVersions.get(recipient) ?? 0) + 1);
       const drone = this.state.drones.find(d => d.id === recipient)!;
       this.jobs.cancel(recipient, 'objective-replaced');
@@ -365,6 +445,7 @@ export class FleetGame extends EventEmitter {
       drone.jamming = false; this.rules.syncInterference(this.state);
       drone.action = undefined; drone.status = 'New instruction';
       this.inboxes[recipient].push({ type: 'player', mission: message.mission, text: message.text, id: message.id, simTime: message.simTime, occurredAt: message.sentAt, expiresAt: message.expiresAt, expiresMonotonicMs: message.expiresMonotonicMs });
+      this.emit('received-goal', { drone: recipient, goal: this.receivedGoals.get(recipient) });
       const pending = this.deferredRadio.get(recipient) ?? [];
       this.deferredRadio.delete(recipient);
       for (const item of pending) { this.receivedRadio.delete(`${recipient}:${item.id}`); this.receiveRadio(recipient, item); }
@@ -454,7 +535,8 @@ export class FleetGame extends EventEmitter {
     return result;
   }
 
-  private async snapshot(role: DroneId) {
+  private async snapshot(role: DroneId, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const sessionId = this.sessionId;
     const drone = this.state.drones.find(d => d.id === role)!, mission = this.droneMissions[role];
     const pose = poseOf(drone), simTime = this.state.simTime, capturedAt = new Date().toISOString(), acquiredAtMs = performance.now();
@@ -466,11 +548,14 @@ export class FleetGame extends EventEmitter {
     const zones = { mining: Boolean(drone.mining), charging: Boolean(drone.charging) };
     const peers = structuredClone(this.state.drones), matchState = structuredClone(this.state.match);
     const cameraFov = cameraFovFor(peers.find(peer => peer.id === role)!);
-    const telemetry = this.vehicleTransport ? await this.vehicleTransport.sample(role, pose, simTime, velocity) : undefined;
+    const telemetry = this.vehicleTransport ? await withAbort(this.vehicleTransport.sample(role, pose, simTime, velocity, signal), signal) : undefined;
+    signal?.throwIfAborted();
     let camera: { available: boolean; width: number; height: number; error?: string } = { available: true, width: DRONE_CAMERA.width, height: DRONE_CAMERA.height };
     let image: ToolResult['content'][number] | undefined;
     try {
-      const url = await this.capture(role, pose, simTime, peers, matchState);
+      const url = await withAbort(this.capture(role, pose, simTime, peers, matchState, signal), signal);
+      signal?.throwIfAborted();
+      if (sessionId !== this.sessionId || !this.state.running || this.drone(role).alive === false) throw new Error('Capture session ended');
       const match = /^data:image\/(jpeg|png);base64,([A-Za-z0-9+/=]+)$/.exec(url);
       if (!match) throw new Error('Invalid camera image');
       image = { type: 'image', mimeType: `image/${match[1]}`, data: match[2] };
@@ -479,6 +564,7 @@ export class FleetGame extends EventEmitter {
       camera = { ...camera, available: false, error: 'Camera unavailable; no image supplied. Wait for a fresh observation.' };
     }
     const ageMs = performance.now() - acquiredAtMs;
+    signal?.throwIfAborted();
     if (sessionId === this.sessionId && this.state.running && this.drone(role).alive !== false
       && acquiredAtMs >= (this.latestCameras.get(role)?.acquiredAtMs ?? -Infinity)) {
       this.latestCameras.set(role, { available: camera.available, acquiredAtMs, simTime, pose, image });
@@ -489,21 +575,25 @@ export class FleetGame extends EventEmitter {
       heading: telemetry?.heading ?? { degrees: (360 - pose.yaw) % 360 }, cameraOrientation: telemetry?.cameraOrientation ?? { heading: (360 - pose.yaw) % 360, pitch: pose.pitch },
       timestamp: { capturedAt, acquiredAtMs, simTime: telemetry?.simTime ?? simTime },
       ranges: { ...ranges, fresh: rangeSampleFresh(ranges), ageMs },
+      ...(this.acoustic ? { acoustic: { enabled: true, profile: ACOUSTIC_PROFILE.version } } : {}),
       camera: { ...camera, sequence, acquiredAt: capturedAt, acquiredAtMs, simTime, framePose: pose,
         fovDegrees: cameraFov, ageMs, fresh: this.connected && ageMs <= 2000 } };
     return { sensors, image, currentAction, mission, pose, simTime, matchState, cameraFov, zones };
   }
 
-  private async withObservation(role: DroneId, result: ToolResult, after: unknown): Promise<ToolResult> {
+  private async withObservation(role: DroneId, result: ToolResult, after: unknown,
+    boundary?: { signal: AbortSignal; delivered: (commit: (events: GameEvent[]) => void) => void }): Promise<ToolResult> {
     const sessionId = this.sessionId;
-    let sample = await this.snapshot(role);
+    let sample = await this.snapshot(role, boundary?.signal);
+    boundary?.signal.throwIfAborted();
     const active = () => this.state.running && sessionId === this.sessionId && this.state.drones.find(d => d.id === role)?.alive !== false;
     const drone = this.state.drones.find(d => d.id === role)!;
     // A short flight can finish while the browser encodes its frame. Refresh once
     // rather than pairing an arrival event with a pre-arrival picture by default.
     if (active() && (sample.currentAction?.id !== activityOf(drone)?.id || sample.currentAction?.kind !== activityOf(drone)?.kind
       || sample.zones.mining !== Boolean(drone.mining) || sample.zones.charging !== Boolean(drone.charging)
-      || sample.mission !== this.droneMissions[role])) sample = await this.snapshot(role);
+      || sample.mission !== this.droneMissions[role])) sample = await this.snapshot(role, boundary?.signal);
+    boundary?.signal.throwIfAborted();
     if (!active()) return textResult({ stopped: true, instruction: 'This drone session has ended.' });
     const deferred = this.deferredRadio.get(role) ?? [];
     const expired = deferred.filter(message => mailExpired(message));
@@ -513,19 +603,11 @@ export class FleetGame extends EventEmitter {
       this.radioTransport?.consume(role, [message.id]);
     }
     // Drain after capture so mail arriving during rendering is included. No await after this cut.
-    const inbox = this.inboxes[role].drain(typeof after === 'number' && Number.isFinite(after) ? after : undefined);
+    const inbox = boundary ? this.inboxes[role].peek() : this.inboxes[role].drain(typeof after === 'number' && Number.isFinite(after) ? after : undefined);
     const mailIds = inbox.events.filter(event => event.type === 'radio' || event.type === 'player')
       .map(event => event.type === 'radio' ? (event.message as RadioMessage | undefined)?.id : event.id)
       .filter((id): id is string => typeof id === 'string');
-    this.radioTransport?.consume(role, mailIds);
-    for (const id of mailIds) {
-      const message = this.state.radio.find(item => item.id === id);
-      if (message && (message.kind !== 'mission' || !mailExpired(message))) {
-        message.delivery ??= { queuedAt: message.sentAt, storedBy: [], bundledBy: [] };
-        message.delivery.bundledBy = [...new Set([...message.delivery.bundledBy, role])];
-        this.emit('radio-delivery', structuredClone(message));
-      }
-    }
+    if (!boundary) this.radioTransport?.consume(role, mailIds);
     inbox.events = inbox.events.map(event => {
       const expiry = event.type === 'radio' ? event.message as RadioMessage : { expiresAt: event.expiresAt as string | undefined, expiresMonotonicMs: event.expiresMonotonicMs as number | undefined };
       return event.type !== 'radio' && mailExpired(expiry)
@@ -533,10 +615,7 @@ export class FleetGame extends EventEmitter {
         : event;
     });
     const { sensors, image } = sample;
-    if (this.launchGate?.delivered(role, inbox.events.some(event => event.type === 'player' && event.mission === this.droneMissions[role] && Number(event.mission) > 0))) {
-      for (const member of this.state.drones) this.inboxes[member.id].push({ type: 'launch_ready', mission: this.droneMissions[member.id] });
-    }
-    this.deliveredObservationSequences.set(role, [...(this.deliveredObservationSequences.get(role) ?? []), sensors.sequence].slice(-64));
+    if (!boundary) this.deliveredOnboard(role, inbox.events);
     this.storageStatus(role);
     const original = result.content.find(c => c.type === 'text');
     const value = original?.type === 'text' ? JSON.parse(original.text) : {};
@@ -574,13 +653,17 @@ export class FleetGame extends EventEmitter {
     const bundle = textResult({ ...feedback, currentTelemetry, deliveredAt, deliveredAtMs, deliverySimTime: this.state.simTime });
     if (image) bundle.content.push(image);
     if (result.isError) bundle.isError = true;
-    this.emit('observation', { drone: role, sensors, mission: this.droneMissions[role], deliveredCursor: inbox.cursor, eventCount: inbox.events.length });
-    // Acquisition evidence goes only to the player recorder, never into the tool bundle.
-    // Emit the final delivered sample, excluding obsolete recaptures and retired actors.
-    if (this.listenerCount('recorded-observation')) this.emit('recorded-observation', {
-      drone: role, pose: sample.pose, simTime: sample.simTime, capturedAt: sensors.timestamp.capturedAt,
-      mission: sample.mission, cameraFov: sample.cameraFov, ...(image?.type === 'image' ? { image: { mimeType: image.mimeType, data: image.data } } : {}),
-    } satisfies RecordedObservation);
+    const commit = (events: GameEvent[]) => {
+      if (!active() || boundary?.signal.aborted) return;
+      this.deliveredObservationSequences.set(role, [...(this.deliveredObservationSequences.get(role) ?? []), sensors.sequence].slice(-64));
+      this.emit('observation', { drone: role, sensors, mission: this.droneMissions[role], deliveredCursor: events.at(-1)?.cursor ?? this.inboxes[role].delivered, eventCount: events.length });
+      // Acquisition evidence goes only to the player recorder, never into the tool bundle.
+      if (this.listenerCount('recorded-observation')) this.emit('recorded-observation', {
+        drone: role, pose: sample.pose, simTime: sample.simTime, capturedAt: sensors.timestamp.capturedAt,
+        mission: sample.mission, cameraFov: sample.cameraFov, ...(image?.type === 'image' ? { image: { mimeType: image.mimeType, data: image.data } } : {}),
+      } satisfies RecordedObservation);
+    };
+    if (boundary) boundary.delivered(commit); else commit(inbox.events);
     return bundle;
   }
 
@@ -604,8 +687,9 @@ export class FleetGame extends EventEmitter {
     return status;
   }
 
-  private async dispatch(role: Role, name: string, args: Record<string, unknown>, routineContext?: RoutineCallContext): Promise<ToolResult> {
+  private async dispatch(role: Role, name: string, args: Record<string, unknown>, routineContext?: RoutineCallContext, assertCurrent?: () => void): Promise<ToolResult> {
     try {
+      assertCurrent?.();
       if (role === 'parent') {
         if (name !== 'forward_next_instruction') throw new Error('The relay parent has no drone tools');
         return await this.forwardTeam('blue');
@@ -686,7 +770,7 @@ export class FleetGame extends EventEmitter {
             continue;
           }
           const response = await this.dispatch(role, operation.tool, { ...operation.args, mission: args.mission,
-            observation_sequence: args.observation_sequence, event_cursor: args.event_cursor });
+            observation_sequence: args.observation_sequence, event_cursor: args.event_cursor }, undefined, assertCurrent);
           const block = response.content.find(item => item.type === 'text');
           outcomes.push({ id: operation.id, tool: operation.tool, result: block?.type === 'text' ? JSON.parse(block.text) : {}, isError: Boolean(response.isError) });
         }
@@ -726,6 +810,7 @@ export class FleetGame extends EventEmitter {
         const message = this.log(role, to, kind, text, data, this.droneMissions[role]);
         if (this.radioTransport) {
           const beforeSend = () => {
+            assertCurrent?.();
             if (message.sessionId !== this.sessionId) throw new ControllerRejection('Drone session has ended; radio cancelled');
             this.validateMission(role, message.mission);
             if (routineContext) this.validateRoutine(role, routineContext);
@@ -781,6 +866,7 @@ export class FleetGame extends EventEmitter {
       }
       const motionVersion = this.motionVersions.get(role) ?? 0;
       const decoded = this.vehicleTransport ? await this.vehicleTransport.command(role, args, poseOf(drone), this.state.simTime) : args;
+      assertCurrent?.();
       if (!this.state.running) return textResult({ stopped: true });
       if (!this.toolCapabilities(role).alive) return textResult({ stopped: true, destroyed: true });
       if (routineContext) this.validateRoutine(role, routineContext);
@@ -830,6 +916,7 @@ export class FleetGame extends EventEmitter {
     const steps = Math.ceil(dt * 120);
     for (let i = 0; i < steps && this.state.running; i++) this.step(dt / steps);
     for (const id of this.workspaces.keys()) if (this.drone(id).alive !== false) this.storageStatus(id);
+    this.emit('onboard-tick');
   }
 
   private step(dt: number) {
@@ -860,6 +947,7 @@ export class FleetGame extends EventEmitter {
       }
     }
     for (const id of this.rules.step(this.state, dt, previous)) this.motion.clear(this.state.drones.find(drone => drone.id === id)!);
+    this.acoustic?.tick(this.state.simTime, this.state.drones, this.state.obstacles);
     for (const drone of this.state.drones) {
       if (alive.has(drone.id) && drone.alive === false) {
         this.jobs.cancel(drone.id, 'destroyed');

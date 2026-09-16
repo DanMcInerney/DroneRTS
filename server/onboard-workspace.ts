@@ -25,6 +25,16 @@ export class OnboardWorkspace {
   private transfers = new Map<string, Transfer>();
   private logs: Buffer[] = [];
   private logBytes = 0;
+  private caches = new Map<string, number>();
+  private get cacheBytes() { return [...this.caches.values()].reduce((a, b) => a + b, 0); }
+  reserveCache(key: string, bytes: number) {
+    this.check();
+    if (!Number.isSafeInteger(bytes) || bytes < 0 || this.cacheBytes - (this.caches.get(key) ?? 0) + bytes > ONBOARD_LIMITS.diagnosticLogs)
+      throw new OnboardStorageError('cache_full', 'logs', 'Protocol cache exceeds diagnostic/cache partition');
+    this.caches.set(key, bytes);
+    while (this.logBytes + this.cacheBytes > ONBOARD_LIMITS.diagnosticLogs) this.logBytes -= this.logs.shift()!.length;
+  }
+  releaseCache(key: string) { this.caches.delete(key); }
   private sequence = 0;
   private revoked = false;
   constructor(private options: { runtimeBytes?: number; radioBytes?: () => number; eventBytes?: () => number; now?: () => number } = {}) {
@@ -136,7 +146,8 @@ export class OnboardWorkspace {
     if (this.revoked) return;
     const line = Buffer.from(JSON.stringify(value) + '\n');
     if (line.length > 16 * KiB) return;
-    while (this.logBytes + line.length > ONBOARD_LIMITS.diagnosticLogs || this.logs.length >= 2048) this.logBytes -= this.logs.shift()!.length;
+    if (line.length + this.cacheBytes > ONBOARD_LIMITS.diagnosticLogs) return;
+    while (this.logBytes + this.cacheBytes + line.length > ONBOARD_LIMITS.diagnosticLogs || this.logs.length >= 2048) this.logBytes -= this.logs.shift()!.length;
     this.logs.push(line); this.logBytes += line.length;
   }
   status(): OnboardStorageStatus {
@@ -145,8 +156,8 @@ export class OnboardWorkspace {
   }
   private describeStatus(): OnboardStorageStatus {
     const usage = (usedBytes: number, limitBytes: number): PartitionUsage => ({ usedBytes, limitBytes, freeBytes: Math.max(0, limitBytes - usedBytes) });
-    return { runtime: usage(this.options.runtimeBytes ?? 0, ONBOARD_LIMITS.runtime), workspace: usage(this.used(), ONBOARD_LIMITS.workspace), radio: usage(this.options.radioBytes?.() ?? 0, ONBOARD_LIMITS.radio), staging: usage(ONBOARD_LIMITS.networkTransaction + [...this.staging.values()].reduce((a,b) => a+b, 0), ONBOARD_LIMITS.staging), logs: usage(this.logBytes + (this.options.eventBytes?.() ?? 0), ONBOARD_LIMITS.logs), files: this.files.size, retainedVersions: [...this.versions].filter(value => this.files.get(value.path) !== value).length, revoked: this.revoked };
+    return { runtime: usage(this.options.runtimeBytes ?? 0, ONBOARD_LIMITS.runtime), workspace: usage(this.used(), ONBOARD_LIMITS.workspace), radio: usage(this.options.radioBytes?.() ?? 0, ONBOARD_LIMITS.radio), staging: usage(ONBOARD_LIMITS.networkTransaction + [...this.staging.values()].reduce((a,b) => a+b, 0), ONBOARD_LIMITS.staging), logs: usage(this.logBytes + this.cacheBytes + (this.options.eventBytes?.() ?? 0), ONBOARD_LIMITS.logs), files: this.files.size, retainedVersions: [...this.versions].filter(value => this.files.get(value.path) !== value).length, revoked: this.revoked };
   }
-  revoke(): void { this.revoked = true; this.files.clear(); this.versions.clear(); this.transfers.clear(); this.staging.clear(); this.logs = []; this.logBytes = 0; }
+  revoke(): void { this.revoked = true; this.files.clear(); this.versions.clear(); this.transfers.clear(); this.staging.clear(); this.caches.clear(); this.logs = []; this.logBytes = 0; }
   reset(): void { this.revoke(); this.revoked = false; this.sequence = 0; }
 }

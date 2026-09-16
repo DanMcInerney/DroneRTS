@@ -179,7 +179,7 @@ sockets.on('connection', socket => {
   socket.on('close', () => cameras.detach(socket));
 });
 game.capture = (...args) => cameras.capture(...args);
-for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended']) game.on(event, value => audit(event, value));
+for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended', 'nervelet-trace']) game.on(event, value => audit(event, value));
 game.on('tool', ({ drone, name, args }) => { replay?.recordFrame(game.state, true); replay?.recordCommand(drone, name, args, game.state.simTime); });
 game.on('recorded-observation', (sample: RecordedObservation) => replay?.recordObservation(sample));
 game.on('match-event', (event: MatchEvent) => { audit('combat', event); replay?.recordFrame(game.state, true); replay?.recordEvent(event); });

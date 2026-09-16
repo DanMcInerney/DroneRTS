@@ -65,6 +65,7 @@ test('runtime routes readable native reasoning and summaries, omitting encrypted
 test('actor activity identifies compaction and pending tool intervals without retaining private content or changing control', () => {
   const { runtime, internal, events } = fixture();
   internal.roles.set('child', 'drone-1');
+  internal.ownTurn('child', 'turn-1');
   const catalog = runtime.toolsForRole('drone-1');
   for (const activity of ['reasoning', 'contextCompaction', 'mcpToolCall']) {
     for (const phase of ['started', 'completed']) {
@@ -79,11 +80,12 @@ test('actor activity identifies compaction and pending tool intervals without re
   assert.ok(activity.every(event => event.role === 'drone-1' && event.threadId === 'child' && event.turnId === 'turn-1' && Number.isFinite(event.observedAtMs)));
   internal.onMessage({ method: 'item/reasoning/textDelta', params: { threadId: 'child', delta: 'PRIVATE' } });
   internal.onMessage({ method: 'thread/compacted', params: { threadId: 'child', turnId: 'turn-1', content: 'PRIVATE' } });
-  assert.equal(events.at(-1).type, 'actor-context-compacted');
+  internal.onMessage({ method: 'item/completed', params: { threadId: 'child', turnId: 'old', item: { type: 'contextCompaction', id: 'late' } } });
+  assert.equal(events.filter(event => event.type === 'actor-context-compacted').length, 1, 'only the current correlated completion refreshes recovery');
   assert.doesNotMatch(JSON.stringify(events.filter(event => event.type === 'actor-activity' || event.type === 'actor-context-compacted')), /PRIVATE|SECRET/);
   assert.doesNotMatch(JSON.stringify(events), /SECRET/);
   assert.deepEqual(runtime.toolsForRole('drone-1'), catalog);
-  assert.equal(internal.activeTurns.size, 0); assert.equal(internal.resumptions.size, 0);
+  assert.equal(internal.activeTurns.size, 1); assert.equal(internal.resumptions.size, 0);
 });
 
 test('usage and retry diagnostics retain actor identity and numeric context size without copying payloads', () => {
@@ -199,18 +201,18 @@ test('destroying one native child interrupts only that child and revokes all its
   const { runtime, internal, events } = fixture(); internal.stopped = false;
   const requests: unknown[] = [];
   internal.rpc = { request: async (...args: unknown[]) => { requests.push(args); return {}; } };
-  internal.roles.set('parent-thread', 'parent'); internal.activeTurns.set('parent-thread', 'parent-turn');
-  internal.roles.set('dead-thread', 'drone-1'); internal.activeTurns.set('dead-thread', 'dead-turn');
-  internal.roles.set('live-thread', 'drone-2'); internal.activeTurns.set('live-thread', 'live-turn');
+  internal.roles.set('parent-thread', 'parent'); internal.ownTurn('parent-thread', 'parent-turn');
+  internal.roles.set('dead-thread', 'drone-1'); internal.ownTurn('dead-thread', 'dead-turn');
+  internal.roles.set('live-thread', 'drone-2'); internal.ownTurn('live-thread', 'live-turn');
   await runtime.retireDrone('drone-1');
   assert.deepEqual(requests, [['turn/interrupt', { threadId: 'dead-thread', turnId: 'dead-turn' }, 2000]]);
   assert.deepEqual(runtime.toolsForRole('drone-1'), []);
   assert.ok(runtime.toolsForRole('drone-2').some(tool => tool.name === 'observe'));
-  internal.onMessage({ method: 'turn/completed', params: { threadId: 'dead-thread', turn: { status: 'interrupted' } } });
+  internal.onMessage({ method: 'turn/completed', params: { threadId: 'dead-thread', turn: { id: 'dead-turn', status: 'interrupted' } } });
   for (let i = 0; i < 5; i++) assert.equal(internal.policy({ model: MODEL, tool_name: 'mcp__fleet_drone_1__observe', session_id: 'dead-thread' }).hookSpecificOutput.permissionDecision, 'deny');
   assert.equal(internal.stopped, false);
   assert.equal(events.some(event => event.status === 'error'), false);
-  assert.equal(internal.activeTurns.get('live-thread'), 'live-turn');
+  assert.equal(internal.activeTurns.get('live-thread').id, 'live-turn');
 });
 
 test('an early child completion resumes the same actor with fixed model and no new mission', async () => {
@@ -218,7 +220,8 @@ test('an early child completion resumes the same actor with fixed model and no n
   const requests: Array<{ method: string; params: any }> = [];
   internal.rpc = { request: async (method: string, params: unknown) => { requests.push({ method, params }); return { turn: { id: 'resumed-turn' } }; } };
   internal.roles.set('child', 'drone-2');
-  internal.onMessage({ method: 'turn/completed', params: { threadId: 'child', turn: { status: 'completed' } } });
+  internal.ownTurn('child', 'initial-turn');
+  internal.onMessage({ method: 'turn/completed', params: { threadId: 'child', turn: { id: 'initial-turn', status: 'completed' } } });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(requests.length, 1); assert.equal(requests[0].method, 'turn/start');
   assert.equal(requests[0].params.threadId, 'child'); assert.equal(requests[0].params.model, MODEL); assert.equal(requests[0].params.effort, EFFORT);
@@ -244,6 +247,7 @@ test('catalog changes yield only at a completed tool boundary and preserve every
   const internal = runtime as any; internal.stopped = false;
   internal.rpc = { request: async (method: string, params: any) => { requests.push({ method, params }); return { turn: { id: 'next-turn' } }; } };
   internal.roles.set('same-child', 'drone-1');
+  internal.ownTurn('same-child', 'initial-turn');
   internal.recordToolsListed('drone-1', runtime.toolsForRole('drone-1'));
   shop = true;
   await runtime.refreshTools();
@@ -254,7 +258,7 @@ test('catalog changes yield only at a completed tool boundary and preserve every
   assert.deepEqual(boundary.content.slice(0, 2), original.content);
   assert.match(boundary.content[2].text, /tool_catalog_changed/);
   assert.equal(requests.length, 0, 'the actor must finish naturally after reading the fresh bundle');
-  internal.onMessage({ method: 'turn/completed', params: { threadId: 'same-child', turn: { status: 'completed' } } });
+  internal.onMessage({ method: 'turn/completed', params: { threadId: 'same-child', turn: { id: 'initial-turn', status: 'completed' } } });
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.deepEqual(requests.map(request => request.method), ['config/mcpServer/reload', 'mcpServerStatus/list'], 'resumption waits for native MCP discovery acknowledgement');
   internal.recordToolsListed('drone-1', runtime.toolsForRole('drone-1'));

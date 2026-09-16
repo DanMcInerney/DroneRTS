@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 export class PythonRpc {
   private child?: ChildProcessWithoutNullStreams;
   private serial = 0;
-  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  private pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void; cleanup(): void }>();
   private ready?: { resolve: () => void; reject: (error: Error) => void };
   private buffer = '';
   private stderr = '';
@@ -54,7 +54,7 @@ export class PythonRpc {
     if (typeof message.id === 'number') {
       const pending = this.pending.get(message.id);
       if (!pending) return;
-      clearTimeout(pending.timer); this.pending.delete(message.id);
+      pending.cleanup(); this.pending.delete(message.id);
       if (message.error) pending.reject(new Error(String(message.error)));
       else pending.resolve(message.result);
       return;
@@ -65,18 +65,23 @@ export class PythonRpc {
 
   private fail(error: Error) {
     this.ready?.reject(error); this.ready = undefined;
-    for (const pending of this.pending.values()) { clearTimeout(pending.timer); pending.reject(error); }
+    for (const pending of this.pending.values()) { pending.cleanup(); pending.reject(error); }
     this.pending.clear();
     if (!this.stopping) this.onEvent({ event: 'fatal', message: error.message });
   }
 
-  request(method: string, params: Record<string, unknown> = {}, timeoutMs = 10_000): Promise<any> {
+  request(method: string, params: Record<string, unknown> = {}, timeoutMs = 10_000, signal?: AbortSignal): Promise<any> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     if (!this.child || this.child.killed) return Promise.reject(new Error('Network helper is not running'));
     const id = ++this.serial;
     return new Promise((resolveResult, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Network helper request timed out: ${method}`)); }, timeoutMs);
-      this.pending.set(id, { resolve: resolveResult, reject, timer });
-      this.child!.stdin.write(JSON.stringify({ id, method, params }) + '\n');
+      const cancel = (error: Error) => { this.pending.get(id)?.cleanup(); this.pending.delete(id); reject(error); };
+      const abort = () => cancel(signal!.reason);
+      const timer = setTimeout(() => cancel(new Error(`Network helper request timed out: ${method}`)), timeoutMs);
+      this.pending.set(id, { resolve: resolveResult, reject, cleanup: () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); } });
+      signal?.addEventListener('abort', abort, { once: true });
+      try { this.child!.stdin.write(JSON.stringify({ id, method, params }) + '\n'); }
+      catch (error) { cancel(error as Error); }
     });
   }
 

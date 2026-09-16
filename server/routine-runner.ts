@@ -17,7 +17,7 @@ export interface RoutineHost {
   onTrace?(trace: RoutineTrace): void;
 }
 export interface RoutineStart { path: string; mission: number; input?: object; replace?: boolean; origin?: unknown }
-interface ActiveRoutine { worker: Worker; status: RoutineStatus; snapshot: WorkspaceSnapshot; controller: AbortController; calls: Map<number, AbortController>; recentCalls: number[]; heartbeatAt: number; origin?: unknown; timer: ReturnType<typeof setInterval> }
+interface ActiveRoutine { worker: Worker; status: RoutineStatus; snapshot: WorkspaceSnapshot; argumentJson: string; controller: AbortController; calls: Map<number, AbortController>; recentCalls: number[]; heartbeatAt: number; origin?: unknown; timer: ReturnType<typeof setInterval> }
 const HOST_METHODS = new Set(['telemetry', 'camera', 'act', 'send', 'buy', 'fire', 'rearm', 'cameraMode', 'events']);
 const ALL_METHODS = new Set([...HOST_METHODS, 'sleep', 'files.list', 'files.read', 'files.write', 'files.delete', 'files.stat', 'files.status']);
 function boundedJson(value: unknown, limit: number): string { const json = JSON.stringify(value ?? null); if (Buffer.byteLength(json) > limit) throw new Error('host_payload_too_large'); return json; }
@@ -58,7 +58,7 @@ export class RoutineRunner {
     try {
       worker = new Worker(deployOnboardRuntime(), { workerData: { path: input.path, files: snapshot.files, argumentJson, limits: this.limits }, execArgv: [], resourceLimits: { maxOldGenerationSizeMb: 48, maxYoungGenerationSizeMb: 8, stackSizeMb: 2 } });
     } catch (error) { snapshot.release(); throw error; }
-    const active: ActiveRoutine = { worker, status, snapshot, controller: new AbortController(), calls: new Map(), recentCalls: [], heartbeatAt: now, origin: input.origin, timer: setInterval(() => this.watchdog(id), 100) };
+    const active: ActiveRoutine = { worker, status, snapshot, argumentJson, controller: new AbortController(), calls: new Map(), recentCalls: [], heartbeatAt: now, origin: input.origin, timer: setInterval(() => this.watchdog(id), 100) };
     this.active = active; this.last = status;
     worker.on('message', message => this.receive(active, message));
     worker.on('error', error => this.finish(active, 'failed', safeError(error)));
@@ -68,6 +68,11 @@ export class RoutineRunner {
     return { ...status };
   }
   status(): RoutineStatus | null { return this.last ? { ...this.last, cleanupPending: this.retiring.size > 0 } : null; }
+  arguments(id: string) {
+    const active = this.active;
+    return active?.status.id === id ? { path: active.status.path, input: JSON.parse(active.argumentJson),
+      sourceHash: active.status.sourceHash, version: active.status.version } : undefined;
+  }
   cancel(reason = 'cancelled', jobId?: string): RoutineStatus | null {
     if (jobId && this.last?.id !== jobId) throw new Error('routine_job_mismatch');
     if (this.active) this.finish(this.active, 'cancelled', reason);

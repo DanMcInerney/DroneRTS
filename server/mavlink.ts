@@ -60,14 +60,14 @@ export class MavlinkAdapter {
   }
 
   async sample(droneId: DroneId, pose: Pose, simTime: number,
-    velocity = { x: 0, y: 0, z: 0 }): Promise<MavlinkSample> {
+    velocity = { x: 0, y: 0, z: 0 }, signal?: AbortSignal): Promise<MavlinkSample> {
     this.requireDrone(droneId);
     // These own ideal estimates travel in LOCAL_POSITION_NED and the explicit
     // gimbal status message. No body roll/pitch dynamics are invented.
     const decoded = await this.rpc.request('sample', {
       droneId, pose: { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw, pitch: pose.pitch },
       velocity: { x: velocity.x, y: velocity.y, z: velocity.z }, simTime,
-    });
+    }, 10_000, signal);
     return {
       position: { x: decoded.position.x, y: decoded.position.y, z: decoded.position.z },
       velocity: { x: decoded.velocity.x, y: decoded.velocity.y, z: decoded.velocity.z },

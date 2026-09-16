@@ -6,6 +6,23 @@ const jpeg = 'data:image/jpeg;base64,/9j/AA==';
 class Socket { readyState = 1; sent: any[] = []; send(value: string) { this.sent.push(JSON.parse(value)); } }
 const pose = { x: 0, y: 2, z: 0, yaw: 0, pitch: -90 };
 
+test('request cancellation removes capture timers/listeners and late pixels cannot affect a peer', async () => {
+  const camera = new CameraChannel('current', () => {}), socket = new Socket();
+  camera.attach(socket); camera.receive(socket, { type: 'camera-ready', rendererId: 'current' });
+  const controller = new AbortController();
+  const first = camera.capture('drone-1', pose, 1, [], undefined, controller.signal);
+  const id = socket.sent.at(-1).requestId;
+  const peer = camera.capture('drone-2', pose, 1, []);
+  const peerId = socket.sent.at(-1).requestId;
+  controller.abort(); await assert.rejects(first, /cancelled/);
+  assert.equal((camera as any).pending.size, 1);
+  assert.deepEqual(socket.sent.at(-1), { type: 'capture-cancel', requestId: id, rendererId: 'current' });
+  camera.receive(socket, { type: 'capture-result', requestId: id, rendererId: 'current', image: jpeg });
+  assert.equal((camera as any).pending.size, 1);
+  camera.receive(socket, { type: 'capture-result', requestId: peerId, rendererId: 'current', image: jpeg });
+  assert.equal(await peer, jpeg); assert.equal((camera as any).pending.size, 0);
+});
+
 test('only a matching renderer can supply camera pixels, including after a stale client reconnects first', async () => {
   const readiness: boolean[] = [], evidence: any[] = [];
   const camera = new CameraChannel('current', ready => readiness.push(ready), record => evidence.push(record));

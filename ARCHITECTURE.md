@@ -4,6 +4,10 @@ A match has two teams of three drones, two mechanical native parents and one aut
 
 ## One concept, one owner
 
+The native pilot path now passes through one embedded Nervelet Bridge per drone in `server/nervelet.ts`. It owns acknowledgement/recovery/receipt coordination; the game retains sensors, jobs, mission receipt, quotas and cancellation. Existing direct tools are aliases: `wait` adds optional conditions and `exchange` is the only batch interface. Ordinary waits wake on events; numeric conditions receive simulation tick notifications. `TeamSession` retains native actor hosting. See [Nervelet integration](NERVELET-INTEGRATION.md).
+
+Optional attention uses the same Bridge and native runtime. `server/onboard-attention.ts` selects retained local evidence and governs episode/rearm eligibility; Nervelet owns transition/reconciliation. `server/runtime.ts` joins exact native termination with outstanding HTTP/result and native tool work, then submits fresh recovery/image to the same child. Final MCP HTTP submission is confirmed separately from bundle assembly, pilot acknowledgement and completed action. No second supervisor exists. `server/acoustic-sensor.ts` is an independently gated game-owned finite sensor; private world stimuli become uncertain local measurements before reaching the adapter. It supplies no source identity, coordinates or motion policy.
+
 | Concept | Owner | Boundary |
 | --- | --- | --- |
 | Membership | `shared/fleet.ts` | Explicit blue/red rosters and unique vehicle IDs. `MATCH_FLEET`/`MATCH_DRONE_IDS` cover six; default exports remain the three-member transport roster. |

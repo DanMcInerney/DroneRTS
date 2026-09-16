@@ -3,7 +3,7 @@ import type { Drone, DroneId, Pose } from '../shared/types.ts';
 import type { MatchState } from '../shared/rts.ts';
 
 interface CameraSocket { readyState: number; send(data: string): void }
-interface Pending { socket: CameraSocket; resolve(image: string): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
+interface Pending { socket: CameraSocket; resolve(image: string): void; reject(error: Error): void; cleanup(): void }
 
 /** One current renderer supplies captures; other matching browsers are standby.
  * An open WebSocket alone is never a sensor-readiness signal. */
@@ -37,16 +37,19 @@ export class CameraChannel {
     if (typeof packet.image !== 'string' || packet.image.length > 2_000_000 || !/^data:image\/(jpeg|png);base64,/.test(packet.image)) {
       this.reject(packet.requestId, 'Invalid camera result'); return;
     }
-    this.pending.delete(packet.requestId); clearTimeout(request.timer); request.resolve(packet.image);
+    this.pending.delete(packet.requestId); request.cleanup(); request.resolve(packet.image);
   }
-  capture(droneId: DroneId, pose: Pose, simTime: number, drones: Drone[], match?: MatchState): Promise<string> {
+  capture(droneId: DroneId, pose: Pose, simTime: number, drones: Drone[], match?: MatchState, signal?: AbortSignal): Promise<string> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const provider = [...this.peers].find(([socket, peer]) => peer.ready && socket.readyState === 1);
     if (!provider) return Promise.reject(new Error('No matching camera renderer is ready. Reload the game browser.'));
     const [socket, peer] = provider, requestId = randomUUID();
     this.evidence({ type: 'camera-acquisition', requestId, connectionId: peer.id, rendererId: this.rendererId, droneId, simTime, rulesVersion: match?.rulesVersion });
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => this.reject(requestId, 'Camera capture timed out'), 8000);
-      this.pending.set(requestId, { socket, resolve, reject, timer });
+      const abort = () => this.reject(requestId, 'Camera capture cancelled');
+      this.pending.set(requestId, { socket, resolve, reject, cleanup: () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); } });
+      signal?.addEventListener('abort', abort, { once: true });
       try { socket.send(JSON.stringify({ type: 'capture', requestId, rendererId: this.rendererId, droneId, pose, simTime, drones, match })); }
       catch { this.reject(requestId, 'Camera browser send failed'); }
     });
@@ -54,6 +57,8 @@ export class CameraChannel {
   cancel(reason = 'Match stopped') { for (const id of this.pending.keys()) this.reject(id, reason); }
   private reject(id: string, message: string) {
     const request = this.pending.get(id); if (!request) return;
-    this.pending.delete(id); clearTimeout(request.timer); request.reject(new Error(message));
+    this.pending.delete(id); request.cleanup();
+    try { if (request.socket.readyState === 1) request.socket.send(JSON.stringify({ type: 'capture-cancel', requestId: id, rendererId: this.rendererId })); } catch { /* Already disconnected. */ }
+    request.reject(new Error(message));
   }
 }

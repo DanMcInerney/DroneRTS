@@ -2,7 +2,7 @@ import type { Point } from './rts.ts';
 
 /** Public vehicle/application contract. No battlefield configuration belongs here. */
 export const ONBOARD_PROFILE = Object.freeze({
-  version: 'onboard/1', simulationUnitsPerMeter: 0.1, metersPerSimulationUnit: 10,
+  version: 'onboard/2', simulationUnitsPerMeter: 0.1, metersPerSimulationUnit: 10,
   frame: 'local-east-up-south', units: 'simulation-units',
   maxBatchOperations: 8, maxRouteSteps: 32, maxActiveRoutines: 1,
   velocityLeaseMs: 500, sensorMaxAgeMs: 150,

@@ -2,10 +2,15 @@
 import type { FleetGame } from '../server/game.ts';
 import { RTS_CONFIG } from '../shared/rts.ts';
 
-export const SCENARIOS = ['haul-single', 'haul-team', 'flight', 'aim-stationary', 'aim-moving', 'encounter', 'encounter-reversed', 'match'] as const;
+export const SCENARIOS = ['attention', 'haul-single', 'haul-team', 'flight', 'aim-stationary', 'aim-moving', 'encounter', 'encounter-reversed', 'match'] as const;
 export type TrialScenario = typeof SCENARIOS[number];
 
 export function arrangeTrial(game: FleetGame, scenario: TrialScenario) {
+  if (scenario === 'attention') {
+    const mission = 'This is a bounded controller and sensor qualification trial. Stay at your starting position; do not travel, buy, gather or attack. Observe your own camera and local feedback, answer actual teammate messages and wait between updates. Report new local notices or uncertain possible-shot observations to your teammates, including what you can see in the fresh camera image. The trial may supply synthetic local sound measurements; they do not establish an attacker or require a maneuver.';
+    game.queueMission(mission, 'blue'); game.queueMission(mission, 'red');
+    return { fixture: true, description: 'Six native pilots and production camera/geometry; stationary protocol qualification with explicitly synthetic local evidence, not an acoustic physics or autonomy claim.', missions: { blue: mission, red: mission } };
+  }
   if (scenario === 'match') return { fixture: false, description: 'Unmodified production opening and missions.' };
   if (scenario === 'haul-single' || scenario === 'haul-team') {
     const blue = scenario === 'haul-single'
