@@ -1,5 +1,11 @@
 # RTS verification — September 14, 2026
 
+## Camera transport repair - September 16, 2026, 05:40 UTC
+
+[Camera-timeout QA](CAMERA-TIMEOUT-QA.md) records the diagnosed spectator-state backlog, bounded acknowledgement fix and before/after evidence. A 75-second no-inference six-camera stress fixture delivered **162/162** images with a **476 ms** median observation call. The fixed stationary native Luna/xhigh trial delivered **55 committed images**, maximum age **738 ms**, with **zero five-second acquisition timeouts**. Reasoning interruption and held-wait recovery both submitted real pixels, after **455 ms** and **388 ms** respectively; no native turn overlap was observed. All six drones survived and owned processes stopped.
+
+**469 tests**, production build and deterministic browser fixture pass. Native source manifest: `deaca50158c57648c1e11a81924aeb7a482b3aa4e526b48f5af17159bfe4487c`. Evidence: `artifacts/test-runs/2026-09-16T05-16-39-109Z-camera-timeout-1e9aea36/`. This qualifies the measured capture repair and two synthetic protocol episodes, not autonomous hauling/battle, acoustic accuracy or all emergency races. Optional attention/acoustics remain off by default. Historical reports below preserve their recorded outcomes.
+
 ## Camera-age correction — September 16, 2026, 05:08 UTC
 
 [Camera-age QA](CAMERA-AGE-POLICY-QA.md) records **465 passing tests**, production build, and one bounded native stationary trial on isolated port 4318. Completed camera captures now retain their honest age without a hard two-second rejection. Same-session reasoning interruption delivered an actual **2,256 ms-old image** after **2.288 s**; the pilot acknowledged it and later reported the uncertain synthetic notice. The later held-wait episode failed to acquire replacement pixels within the existing bound and stopped at sim **70.077**, all six alive. No native turn overlap was observed; owned processes were stopped. Attention and acoustic sensing remain independently off by default. This qualifies delayed-image delivery in one native interruption, not the full emergency system, camera throughput, acoustic accuracy or autonomous gameplay.

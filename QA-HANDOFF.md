@@ -1,5 +1,11 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Camera transport repair - September 16, 2026, 05:40 UTC
+
+Read [CAMERA-TIMEOUT-QA.md](CAMERA-TIMEOUT-QA.md) first. Replaceable spectator state packets accumulated ahead of camera requests on the shared WebSocket; the server socket-buffer limit did not bound the browser's incoming queue. Production and trial hosts now permit one unacknowledged state snapshot per browser and send the latest state after its matching acknowledgement. Captures/cancellation, simulation/replay and actor receipts remain independent.
+
+The 75-second populated-radio stress fixture delivered **162/162 images**, median call **476 ms**. The fixed six-pilot Luna/xhigh native run had **zero acquisition timeouts**, **55 committed images** with maximum age **738 ms**, and successful reasoning/held-wait emergency submissions after **455/388 ms**. **469 tests**, production build and deterministic browser fixture pass. All owned processes stopped. Attention and acoustics remain independently opt-in pending the broader qualification gates; hauling and opposing-motion collision remain open. This supersedes the unresolved capture-backlog finding below, without changing its historical evidence.
+
 ## Camera-age correction — September 16, 2026, 05:08 UTC
 
 Read [CAMERA-AGE-POLICY-QA.md](CAMERA-AGE-POLICY-QA.md) for current behavior. A completed newly acquired image is delivered with its real timestamp/age even when older than two seconds. The age flag is descriptive; only missing/invalid captures trigger the one bounded retry. Physical range-sensor expiry and lifecycle guards are unchanged. **465 tests and production build pass**; runtime/SDK totals **3,546,848 / 8,388,608 bytes**.

@@ -1,11 +1,12 @@
 import { CameraChannel } from './camera-channel.ts';
+import { StateChannel } from './state-channel.ts';
 import { rendererIdentity } from './renderer-identity.ts';
 import express from 'express';
 import { createServer } from 'node:http';
 import { mkdirSync, createWriteStream } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { WebSocketServer, WebSocket } from 'ws';
+import { WebSocketServer } from 'ws';
 import { FleetGame } from './game.ts';
 import { TeamSession } from './team-session.ts';
 import { MODEL, EFFORT } from './runtime-tools.ts';
@@ -26,6 +27,7 @@ const app = express();
 const server = createServer(app);
 const sockets = new WebSocketServer({ noServer: true, maxPayload: 3_000_000 });
 const game = new FleetGame();
+const states = new StateChannel(() => game.state);
 const cockpit = createCockpit(game);
 let runtime: TeamSession | undefined;
 let starting = false, stopping = false;
@@ -47,8 +49,7 @@ function audit(type: string, value: unknown) {
 }
 function broadcast() {
   replay?.recordFrame(game.state);
-  const message = JSON.stringify({ type: 'state', state: game.state });
-  for (const socket of sockets.clients) if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 2_000_000) socket.send(message);
+  states.broadcast();
 }
 function setRuntime(status: Record<string, unknown>) {
   Object.assign(game.state.runtime, status); audit('runtime', status); broadcast();
@@ -172,11 +173,11 @@ server.on('upgrade', (req, socket, head) => {
   sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws, req));
 });
 sockets.on('connection', socket => {
-  cameras.attach(socket); broadcast();
+  cameras.attach(socket); states.attach(socket); broadcast();
   socket.on('message', bytes => {
-    try { cameras.receive(socket, JSON.parse(bytes.toString())); } catch { /* Invalid packets cannot become captures. */ }
+    try { const packet = JSON.parse(bytes.toString()); cameras.receive(socket, packet); states.receive(socket, packet); } catch { /* Invalid packets cannot become captures. */ }
   });
-  socket.on('close', () => cameras.detach(socket));
+  socket.on('close', () => { states.detach(socket); cameras.detach(socket); });
 });
 game.capture = (...args) => cameras.capture(...args);
 for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended', 'nervelet-trace']) game.on(event, value => audit(event, value));

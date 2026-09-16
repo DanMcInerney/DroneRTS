@@ -21,6 +21,7 @@ Optional attention uses the same Bridge and native runtime. `server/onboard-atte
 | Vehicle sensing | `server/local-sensors.ts` | Fixed finite proximity/downward coverage, sample identity/time/validity and anonymous distances. No requested-target raycast or classification. |
 | Continuous motion | `server/drone-motion.ts` | Own velocity, acceleration, braking, flight profiles, camera aim and finite-range local hold. No route selection or world-geometry access. |
 | Camera transport | `server/camera-channel.ts`, `server/renderer-identity.ts` | Shared production/trial broker; current source fingerprint, socket-bound capture ownership and acquisition provenance. |
+| Spectator state stream | `server/state-channel.ts` | One unacknowledged player snapshot per connection; later updates collapse to the latest state so camera/cancellation messages cannot sit behind a backlog of obsolete snapshots. |
 | Launch readiness | `server/launch-gate.ts` | Actual opening-objective bundle receipt by all six pilots gates initial simulation, movement and spending. |
 | Model observation format | `server/observation-format.ts` | Lossless beam-direction codebook, shared scalar columns and within-bundle references at the model boundary; nonstandard directions/metadata remain explicit. Internal telemetry and routine SDK retain named fields. |
 | Optical calibration | `shared/camera-profile.ts` | Actual wide/zoom projection shared by capture/rendering and exposed as own vehicle calibration. |
@@ -52,6 +53,8 @@ Optional attention uses the same Bridge and native runtime. `server/onboard-atte
 ## Isolation and temporal meaning
 
 `GameState` is the omniscient player/browser contract. A drone receives its own acquired pixels and state, permitted calibration, finite sensor distances, local feedback and actually delivered messages. One simulation unit equals ten meters. Exposing axes, sensor coverage or camera projection does not disclose resource coordinates, opponent poses, map bounds or authoritative collision shapes.
+
+The browser acknowledges each numbered spectator snapshot after applying it. The shared production/trial state channel waits for that connection's matching acknowledgement before sending another snapshot, retaining only a pending flag and reading the latest state when ready. Server socket-buffer size alone cannot detect a browser's incoming message backlog. This acknowledgement is only browser flow control, never a pilot receipt or radio acknowledgement. Camera requests/cancellations bypass it, captures retain their requested world snapshot, and authoritative simulation/replay sampling continues independently.
 
 The new observation contract labels sample sequence, local frame, units, acquisition time, host age and validity. Camera-associated pose stays attached to that frame; newer telemetry is separately labeled. Range sensors are a modeled capability, not an automatic consequence of adding MAVLink. State estimates are idealized. Neither observed free space nor a beam sample proves an entire route safe.
 

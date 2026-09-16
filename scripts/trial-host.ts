@@ -1,10 +1,11 @@
 import { CameraChannel } from '../server/camera-channel.ts';
+import { StateChannel } from '../server/state-channel.ts';
 import { rendererIdentity } from '../server/renderer-identity.ts';
 /** Test-only host: real renderer, game, team runtime, Zenoh, MAVLink and replay writer. */
 import express from 'express';
 import { createServer } from 'node:http';
 import type { Socket } from 'node:net';
-import { WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
 import { createWriteStream } from 'node:fs';
 import { resolve } from 'node:path';
 import { FleetGame } from '../server/game.ts';
@@ -23,6 +24,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   onAudit?: (type: string, value: any) => void) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || port === 4317) throw new Error('Invalid isolated trial port');
   const game = new FleetGame(), app = express(), server = createServer(app);
+  const states = new StateChannel(() => game.state);
   const cockpit = createCockpit(game);
   const connections = new Set<Socket>();
   server.on('connection', socket => {
@@ -44,8 +46,7 @@ export async function createTrialHost(projectDir: string, directory: string, sce
   };
   const broadcast = () => {
     recorder?.recordFrame(game.state);
-    const packet = JSON.stringify({ type: 'state', state: game.state });
-    for (const socket of sockets.clients) if (socket.readyState === WebSocket.OPEN && socket.bufferedAmount < 2_000_000) socket.send(packet);
+    states.broadcast();
   };
   const cameras = new CameraChannel(rendererIdentity(projectDir), ready => {
     clearTimeout(disconnect); game.setConnected(ready); broadcast();
@@ -80,11 +81,11 @@ export async function createTrialHost(projectDir: string, directory: string, sce
     sockets.handleUpgrade(req, socket, head, ws => sockets.emit('connection', ws, req));
   });
   sockets.on('connection', socket => {
-    cameras.attach(socket); broadcast();
+    cameras.attach(socket); states.attach(socket); broadcast();
     socket.on('message', bytes => {
-      try { cameras.receive(socket, JSON.parse(bytes.toString())); } catch { /* Invalid packets cannot become captures. */ }
+      try { const packet = JSON.parse(bytes.toString()); cameras.receive(socket, packet); states.receive(socket, packet); } catch { /* Invalid packets cannot become captures. */ }
     });
-    socket.on('close', () => cameras.detach(socket));
+    socket.on('close', () => { states.detach(socket); cameras.detach(socket); });
   });
   game.capture = (...args) => cameras.capture(...args);
   for (const event of ['radio', 'tool', 'observation', 'tool-error', 'transport-error', 'drone-destroyed', 'match-ended', 'nervelet-trace', 'acoustic-metrics']) game.on(event, value => audit(event, value));

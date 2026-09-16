@@ -136,7 +136,10 @@ function connect() {
       const message = JSON.parse(String(event.data));
       if (message.type === 'camera-accepted') setConnection(true);
       if (message.type === 'camera-rejected') { setConnection(false); alertMessage(message.message); }
-      if (message.type === 'state') renderState(message.state as WorldState);
+      if (message.type === 'state') {
+        renderState(message.state as WorldState);
+        connection.send(JSON.stringify({ type: 'state-ack', sequence: message.sequence }));
+      }
       if (message.type === 'capture-cancel') { clearTimeout(captures.get(message.requestId)); captures.delete(message.requestId); }
       if (message.type === 'capture') {
         if (message.rendererId !== __FLEET_RENDERER_ID__) throw new Error('Camera source changed. Reload the game browser.');
