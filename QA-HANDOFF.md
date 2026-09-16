@@ -1,5 +1,9 @@
 # Downtown battle QA handoff — 2026-09-14
 
+## Latest normal battle — September 16, 2026, 21:33 UTC
+
+[The 600-wall-second battle](QA-REPORT-2026-09-16-2133-BATTLE.md) on `0908252c` and npm Nervelet 0.2.0 completed with six survivors, no shots, red 90 delivered and blue zero. Camera/radio delivery and salvage conservation passed; temporary apron congestion recovered. The concrete audit follow-up is to recognize text-only `goal_changed` recovery envelopes: two were recorded, submitted and acknowledged but excluded from observation joins, leaving three required checks inconclusive. Optional revision/execution evidence remains limited. No runtime defect was confirmed and no QuickJS routines ran. All owned trial resources were stopped; see the report for exact scope and saved evidence.
+
 ## Street View art and bullet smoke — September 16, 2026
 
 The current Blender city adds three green guide signs, four streetlights and two hydrants, plus dedicated exterior patterns for Carew/Netherland, Fourth & Vine, Fifth Third and Great American Tower. Team paint is brighter and covers more of the airframe. White bullet trails spread and fade over 5.6 seconds with normal occlusion, exact acquisition restoration, bounded drawing and Stop/reset/victory handling. Geometry/collision, cargo services, weapons and actor data are unchanged. Street View reference links and approximation limits are in [GRAPHICS.md](GRAPHICS.md).

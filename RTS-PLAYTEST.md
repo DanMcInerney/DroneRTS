@@ -1,5 +1,9 @@
 # RTS verification — September 14, 2026
 
+## Normal battle after npm/runtime fixes — September 16, 2026, 21:33 UTC
+
+The requested **600-wall-second**, 1× Luna/xhigh battle on **`0908252c`** with npm **Nervelet 0.2.0** ended at sim **554.614**. Six survivors; no shots or winner. Red's three pilots each delivered 30 salvage, then bought two guns and one armor upgrade. Blue delivered none. Crowding caused temporary local-controller stops but resolved without intervention. All **411 camera images**, **89 pilot-recipient radio copies** and conservation across **1,173 frames** were verified. No unexpected runtime failure or browser error occurred. The audit remains **inconclusive** because its decoder skips two recorded startup recovery envelopes and optional receipt/execution traces lack fields. No QuickJS routines ran, so this does not retest the preceding memory/Windows fixes. Source hashes stayed unchanged; owned trial resources were stopped. See [the full report](QA-REPORT-2026-09-16-2133-BATTLE.md) for findings, evidence and limits.
+
 ## Street View PR integration — September 16, 2026
 
 Integrated the graphics revision with main `3903dba`, including its Nervelet `6c36b0a4` compact-bundle update. Preserved both sets of QA reports when resolving their adjacent additions. The exact pinned archive rebuilt with the documented digest, fresh `npm ci` succeeded, and **535/535 tests** (`npm test -- --test-concurrency=2`) plus the production build passed. No further renderer changes or inference were introduced; the inspected graphics/RTS browser evidence below remains tied to its recorded source. The build retains its existing chunk-size advisory.
