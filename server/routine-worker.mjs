@@ -19,7 +19,11 @@ function slice(fn) {
   const end = performance.now(), elapsedCpu = threadCpuMs() - sliceCpuStart, bucket = Math.ceil(end / 50) * 50;
   const current = cpuSamples.at(-1);
   if (current?.at === bucket) current.ms += elapsedCpu; else cpuSamples.push({ at: bucket, ms: elapsedCpu });
-  if (interrupted || elapsedCpu > limits.sliceMs) { result?.dispose?.(); fail('guest_slice_deadline'); return; }
+  // Windows CPU counters are coarse. One thread cannot consume more CPU than
+  // elapsed wall time; require both to cross the per-slice limit. Keep the full
+  // counter delta above so short slices cannot evade the rolling CPU budget.
+  const sliceExceeded = elapsedCpu > limits.sliceMs && end - sliceStart > limits.sliceMs;
+  if (interrupted || sliceExceeded) { result?.dispose?.(); fail('guest_slice_deadline'); return; }
   if (cpuUsed(end) > limits.cpuMsPerSecond) { result?.dispose?.(); fail('guest_cpu_budget'); return; }
   return result;
 }
@@ -82,7 +86,8 @@ try {
   runtime.setInterruptHandler(() => {
     const now = performance.now();
     const currentCpu = threadCpuMs() - sliceCpuStart;
-    if (stopped || currentCpu >= limits.sliceMs || cpuUsed(now) + currentCpu >= limits.cpuMsPerSecond) { interrupted = true; return true; }
+    const sliceExceeded = currentCpu >= limits.sliceMs && now - sliceStart >= limits.sliceMs;
+    if (stopped || sliceExceeded || cpuUsed(now) + currentCpu >= limits.cpuMsPerSecond) { interrupted = true; return true; }
     return false;
   });
   runtime.setModuleLoader(name => {
