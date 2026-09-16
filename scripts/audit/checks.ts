@@ -26,8 +26,9 @@ export function evaluate(run: Run, c: Correlated) {
   const sampleInterval = header?.sampleInterval;
   const frameGaps = finite(sampleInterval) && sampleInterval > 0 ? frames.filter((r, i) => i > 0 && r.data.simTime - frames[i - 1].data.simTime >= 2 * sampleInterval - 1e-6) : [];
   const incompleteRosters = rosterValid ? frames.filter(r => !same(list(r.data.drones).map(d => d?.id).sort(), roster.map(d => d.id).sort())) : [];
+  const terminalFrame = finite(end?.data.simTime) && frames.at(-1)?.data.simTime === end?.data.simTime;
   const replayClean = Boolean(frames.length) && !run.issues.some(i => i.ref.file.endsWith('/frames.jsonl')) && end?.data.reason === 'stopped'
-    && finite(sampleInterval) && sampleInterval > 0 && !frameGaps.length && !incompleteRosters.length;
+    && finite(sampleInterval) && sampleInterval > 0 && !frameGaps.length && !incompleteRosters.length && terminalFrame;
   const knownBodies = c.bundles.length > 0 && c.bundles.every(b => knownObservation(b.body) && b.body.nervelet?.schemaVersion === 2 && Array.isArray(b.body.events));
   const terminal = run.result.cleanup === 'complete' && run.result.stopped === true && end?.data.reason === 'stopped';
   function add(id: string, verdict: Status, summary: string, measurements: Record<string, unknown>, evidence: Ref[],
@@ -52,7 +53,7 @@ export function evaluate(run: Run, c: Correlated) {
   add('evidence.coverage', status(corrupt, auditClean && replayClean && run.issues.length === 0 && !unknownReplay.length && !unknownAudit.length && !redacted.length && !malformedEnvelopes.length && terminal),
     'Readable, bounded, stopped evidence with explicit gaps', { auditRecords: run.audit.length, replayRecords: run.replay.length,
       issues: run.issues.length, unknownAudit: unknownAudit.length, unknownReplay: unknownReplay.length, redactedRecords: redacted.length,
-      malformedEnvelopes: malformedEnvelopes.length, frameGaps: frameGaps.length, incompleteRosters: incompleteRosters.length,
+      malformedEnvelopes: malformedEnvelopes.length, frameGaps: frameGaps.length, incompleteRosters: incompleteRosters.length, terminalFrame,
       largestFrameInterval: Math.max(0, ...frames.slice(1).map((r, i) => r.data.simTime - frames[i].data.simTime)) },
     [...run.issues.map(i => i.ref), ...refs(unknownAudit), ...refs(unknownReplay), ...refs(redacted), ...refs(malformedEnvelopes), ...refs(frameGaps), ...refs(incompleteRosters)], ['Complete audit and replay, terminal writer evidence'],
     ['A gap of at least two nominal sample intervals is incomplete sampled coverage, not proof of a recorder defect. Diagnostic arrays/objects can be silently bounded by the writer; absence of an event is not proof of absence of its effect.']);
@@ -89,17 +90,35 @@ export function evaluate(run: Run, c: Correlated) {
     && list(b.body.events).some((e: any) => e?.type === 'player' && e.mission > 0)) }));
   const gateEnd = Math.max(-1, ...opening.map(o => o.bundle?.submission?.order ?? -1));
   const openingViolation = opening.filter(o => o.bundle && o.bundle.body.deliverySimTime !== 0).map(o => o.bundle!.record);
-  const earlyEffects = c.traces.filter(r => r.order < gateEnd && r.data.value.type === 'admission' && r.data.value.reason === 'accepted'
-    && ['act', 'route', 'buy', 'fire', 'rearm', 'routine'].includes(run.audit.findLast(call => call.order < r.order && call.data.type === 'agent'
-      && call.data.value?.type === 'tool' && call.data.value.role === r.data.value.drone)?.data.value.name));
+  const gatedTools = ['act', 'route', 'buy', 'fire', 'rearm', 'routine'];
+  const earlyEffects: RecordAt[] = [], missingOpeningOutcomes: RecordAt[] = [];
+  for (const r of c.traces.filter(r => r.order < gateEnd && r.data.value.type === 'admission' && ['accepted', 'completed'].includes(r.data.value.reason))) {
+    const trace = r.data.value;
+    const call = run.audit.findLast(call => call.order < r.order && call.data.type === 'agent'
+      && call.data.value?.type === 'tool' && call.data.value.role === trace.drone && call.data.value.arguments?.command_id === trace.id);
+    if (!call) { missingOpeningOutcomes.push(r); continue; }
+    if (gatedTools.includes(call.data.value.name)) earlyEffects.push(r);
+    if (call.data.value.name !== 'exchange') continue;
+    const receipt = c.bundles.filter(b => b.role === trace.drone && b.body.nervelet.loopRef === trace.loopRef)
+      .flatMap(b => list(b.body.nervelet.results)).find(receipt => receipt.id === trace.id && Array.isArray(receipt.data?.result?.outcomes));
+    const outcomes = receipt?.data.result.outcomes;
+    if (!outcomes?.length) { missingOpeningOutcomes.push(r); continue; }
+    for (const outcome of outcomes) {
+      if (!gatedTools.includes(outcome?.tool)) continue;
+      const result = outcome.result;
+      if (outcome.isError || result?.rejected || result?.launchPending || result?.stopped || result?.error) continue;
+      if (outcome.isError !== false || !object(result) || !Object.keys(result).length) missingOpeningOutcomes.push(r);
+      else earlyEffects.push(r);
+    }
+  }
   // Game 'tool' logs precede its launch guard: rejected attempts are not effects.
   const gateReady = submitted.filter(b => b.body.launchReady === true);
   const prematureReady = gateReady.filter(b => b.record.order < gateEnd).map(b => b.record);
-  const openingComplete = auditClean && knownBodies && rosterValid && opening.every(o => o.bundle) && gateReady.length > 0 && frames[0]?.data.simTime === 0;
+  const openingComplete = auditClean && knownBodies && rosterValid && opening.every(o => o.bundle) && gateReady.length > 0 && frames[0]?.data.simTime === 0 && !missingOpeningOutcomes.length;
   add('opening.objective', run.result.scenario !== 'match' ? 'not-applicable' : status([...openingViolation, ...earlyEffects, ...prematureReady], openingComplete),
     run.result.scenario === 'match' ? 'Opening objectives submitted at simulation zero before observed flight/spending gate release' : 'Normal-match opening gate is not asserted for arranged scenarios',
-    { pilots: roster.length, openingSubmissions: opening.filter(o => o.bundle).length, readyBundles: gateReady.length, earlyEffects: earlyEffects.length },
-    refs([...openingViolation, ...earlyEffects, ...prematureReady, ...opening.flatMap(o => o.bundle?.submission ? [o.bundle.submission] : [])]),
+    { pilots: roster.length, openingSubmissions: opening.filter(o => o.bundle).length, readyBundles: gateReady.length, earlyEffects: earlyEffects.length, missingOutcomes: missingOpeningOutcomes.length },
+    refs([...openingViolation, ...earlyEffects, ...missingOpeningOutcomes, ...prematureReady, ...opening.flatMap(o => o.bundle?.submission ? [o.bundle.submission] : [])]),
     ['Recorded roster, submitted player objectives, initial zero-time frame and ready bundle'], [], run.result.scenario === 'match');
 
   const cameraViolations: RecordAt[] = [], ageMissing: RecordAt[] = [];
@@ -250,7 +269,7 @@ export function evaluate(run: Run, c: Correlated) {
 
   const findings: Finding[] = [], groups = new Map<string, Finding>();
   for (const [rowIndex, row] of run.audit.entries()) for (const error of extractErrors(row.data)) {
-    const v = row.data.value, actor = v?.role ?? v?.drone ?? v?.droneId ?? 'system', operation = v?.name ?? v?.tool;
+    const v = row.data.value, actor = v?.role ?? v?.drone ?? v?.droneId ?? 'system', operation = error.operation ?? v?.name ?? v?.tool;
     const native = c.boundary.calls.find(call => !call.ambiguous && (call.resultIndex === rowIndex || call.completionIndex === rowIndex));
     const b = native?.delivery;
     const call = native?.callIndex === undefined ? undefined : run.audit[native.callIndex];
@@ -264,11 +283,11 @@ export function evaluate(run: Run, c: Correlated) {
     const reference = { ...row.ref, pointer: error.path };
     // Payload redelivery can group only with actor/loop/receipt identity, or a
     // positively paired native call. Message similarity/time proximity is not a join.
-    const group = error.receiptId && b ? JSON.stringify([actor, b.body.sessionId, b.body.nervelet.loopRef, error.receiptId, error.revision ?? null, error.message])
-      : call ? JSON.stringify([actor, v?.team, call.order, boundary?.order, category === 'lifecycle-cancellation' ? category : error.message]) : `${row.order}:${error.path}`;
+    const group = error.receiptId && b ? JSON.stringify([actor, b.body.sessionId, b.body.nervelet.loopRef, error.receiptId, error.revision ?? null, error.operationId, error.message])
+      : call ? JSON.stringify([actor, v?.team, call.order, boundary?.order, error.operationId, category === 'lifecycle-cancellation' ? category : error.message]) : `${row.order}:${error.path}:${error.receiptId ?? ''}:${error.operationId ?? ''}`;
     const existing = groups.get(group);
     if (existing) existing.appearances.push(reference);
-    else { const f: Finding = { category, actor, operation, message: error.message, appearances: [reference], ...(boundary ? { boundary: boundary.ref } : {}) }; groups.set(group, f); findings.push(f); }
+    else { const f: Finding = { category, actor, operation, ...(error.operationId ? { operationId: error.operationId } : {}), message: error.message, appearances: [reference], ...(boundary ? { boundary: boundary.ref } : {}) }; groups.set(group, f); findings.push(f); }
   }
   for (const [i, message] of (Array.isArray(run.result.failures) ? run.result.failures : []).entries()) findings.push({ category: 'unexpected-failure', actor: 'host', message: String(message), appearances: [{ file: 'result.json', pointer: `/failures/${i}` }] });
   const unexpected = findings.filter(f => f.category === 'unexpected-failure'), unclassified = findings.filter(f => f.category === 'unclassified-error');
@@ -281,14 +300,16 @@ export function evaluate(run: Run, c: Correlated) {
 
   const events = run.replay.filter(r => r.data.type === 'event');
   const summary = run.replayStatus.summary, last = frames.at(-1), lastTotals = totals(last?.data), recordingViolations: Ref[] = [], missingSummaryFields: string[] = [];
-  if (summary && last && end?.data.reason === 'stopped' && summary.coveredThrough === last.data.simTime) {
-    const expected: Record<string, any> = { simTime: end.data.simTime, stock: lastTotals?.stock, aboard: lastTotals?.aboard, lost: lastTotals?.lost,
-      survivors: list(last.data.drones).filter((d: any) => d?.alive !== false).map((d: any) => d?.id), winner: last.data.match?.winner,
-      blueDelivered: last.data.match?.teams?.blue?.earned, redDelivered: last.data.match?.teams?.red?.earned,
-      blueCredits: last.data.match?.teams?.blue?.credits, redCredits: last.data.match?.teams?.red?.credits, shots: events.filter(r => r.data.event?.type === 'fired').length };
+  if (summary && end?.data.reason === 'stopped') {
+    const final = terminalFrame ? last?.data : undefined;
+    const expected: Record<string, any> = { simTime: end.data.simTime, stock: terminalFrame ? lastTotals?.stock : undefined,
+      aboard: terminalFrame ? lastTotals?.aboard : undefined, lost: terminalFrame ? lastTotals?.lost : undefined,
+      survivors: final ? list(final.drones).filter((d: any) => d?.alive !== false).map((d: any) => d?.id) : undefined, winner: final?.match?.winner,
+      blueDelivered: final?.match?.teams?.blue?.earned, redDelivered: final?.match?.teams?.red?.earned,
+      blueCredits: final?.match?.teams?.blue?.credits, redCredits: final?.match?.teams?.red?.credits, shots: events.filter(r => r.data.event?.type === 'fired').length };
     for (const [key, value] of Object.entries(expected)) {
-      if (value === undefined || summary[key] === undefined) missingSummaryFields.push(key);
-      else if (!same(summary[key], value)) recordingViolations.push({ file: `${run.replayDirectory}/status.json`, pointer: `/summary/${key}` });
+      if (summary[key] === undefined || terminalFrame && value === undefined) missingSummaryFields.push(key);
+      else if (value !== undefined && !same(summary[key], value)) recordingViolations.push({ file: `${run.replayDirectory}/status.json`, pointer: `/summary/${key}` });
     }
   }
   metrics.battle = { shots: events.filter(r => r.data.event?.type === 'fired').length, deaths: replayDeaths.length,

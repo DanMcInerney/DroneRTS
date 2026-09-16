@@ -20,23 +20,27 @@ export function decodeContent(result: any) {
   return { body, resultBody, values, parsed, diagnostics, textBytes, imageCount: content.filter(block => block?.type === 'image').length };
 }
 
-export type ErrorAt = { message: string; path: string; domain: boolean; receiptId?: string; revision?: number };
+export type ErrorAt = { message: string; path: string; domain: boolean; receiptId?: string; revision?: number; operationId?: string; operation?: string };
 /** Only inspect result envelopes, never arbitrary archived workspace/argument strings. */
 export function extractErrors(record: any): ErrorAt[] {
   const errors: ErrorAt[] = [], value = record?.value;
-  function envelope(v: any, path: string, receiptId?: string, revision?: number) {
+  function envelope(v: any, path: string, identity: Pick<ErrorAt, 'receiptId' | 'revision' | 'operationId' | 'operation'> = {}) {
     if (!object(v)) return;
+    const start = errors.length;
+    if (object(v.result)) envelope(v.result, `${path}/result`, identity);
+    if ('receiptId' in identity && object(v.data)) envelope(v.data, `${path}/data`, identity);
+    for (const [i, r] of (Array.isArray(v.results) ? v.results : []).entries()) envelope(r, `${path}/results/${i}`, identity);
+    for (const [i, r] of (Array.isArray(v.outcomes) ? v.outcomes : []).entries())
+      envelope(r, `${path}/outcomes/${i}`, { ...identity, operationId: r?.id, operation: r?.tool });
+    for (const [i, r] of (Array.isArray(v.nervelet?.results) ? v.nervelet.results : []).entries())
+      envelope(r, `${path}/nervelet/results/${i}`, { ...identity, receiptId: r?.id, revision: r?.revision });
     if (v.error || v.fault || v.isError === true || ['failed', 'unknown', 'rejected', 'not_executed'].includes(v.status) || v.rejected === true) {
       const message = typeof v.error === 'string' ? v.error : v.error?.message ?? v.fault ?? v.reason ?? v.message ?? 'Failed result';
       const code = v.error?.code;
-      errors.push({ message: String(message), path, receiptId, revision,
+      // A child failure explains its enclosing flag; an unexplained generic
+      // failure must survive, including separate failed receipts/operations.
+      if (message !== 'Failed result' || errors.length === start) errors.splice(start, 0, { message: String(message), path, ...identity,
         domain: v.rejected === true || ['rejected', 'not_executed'].includes(v.status) || ['invalid_request', 'invalid_input', 'command_conflict', 'unknown_bundle', 'expired_command'].includes(code) });
-    }
-    if (object(v.result)) envelope(v.result, `${path}/result`, receiptId, revision);
-    for (const [i, r] of (Array.isArray(v.results) ? v.results : []).entries()) envelope(r, `${path}/results/${i}`, receiptId, revision);
-    for (const [i, r] of (Array.isArray(v.nervelet?.results) ? v.nervelet.results : []).entries()) {
-      envelope(r, `${path}/nervelet/results/${i}`, r?.id, r?.revision);
-      envelope(r?.data, `${path}/nervelet/results/${i}/data`, r?.id, r?.revision);
     }
   }
   if (/-error$/.test(record?.type ?? '') && object(value)) {
@@ -53,6 +57,7 @@ export function extractErrors(record: any): ErrorAt[] {
   }
   if (record?.type === 'agent' && value?.type === 'tool-result') {
     const decoded = decodeContent(value.result);
+    const outerErrors = errors.length;
     // The outer isError and inner structured error describe the same appearance.
     for (const { index, value: body } of decoded.parsed) {
       const start = errors.length;
@@ -62,7 +67,8 @@ export function extractErrors(record: any): ErrorAt[] {
       for (const error of errors.slice(start)) error.path = `/value/result/content/${index}/text`;
     }
     if (errors.length > 1) {
-      const unique = new Map(errors.filter(e => e.message !== 'Failed result').map(e => [JSON.stringify(e), e]));
+      const unique = new Map(errors.filter((e, i) => !(i < outerErrors && e.message === 'Failed result' && errors.length > outerErrors))
+        .map(e => [JSON.stringify(e), e]));
       return [...unique.values()];
     }
   }

@@ -99,11 +99,58 @@ test('all nested native and structured result errors are extracted without scann
   assert.equal(extractErrors(duplicateEnvelope).length, 1);
 });
 
+test('generic receipt failures and individual exchange errors remain visible and distinct', () => {
+  const generic = { type: 'agent', value: { type: 'tool-result', result: { isError: true, ...content({ nervelet: { results: [
+    { id: 'c1', status: 'failed' }, { id: 'c2', status: 'failed' },
+  ] } }) } } };
+  assert.deepEqual(extractErrors(generic).map(e => [e.receiptId, e.message]), [['c1', 'Failed result'], ['c2', 'Failed result']]);
+  const run = fixture();
+  editBody(bodyAt(run, 'drone-1'), b => b.nervelet.results = [{ id: 'batch', revision: 1, status: 'completed', data: { isError: false, result: { outcomes: [
+    { id: 'one', tool: 'send', isError: true, result: { error: 'Transport unavailable' } },
+    { id: 'two', tool: 'send', isError: true, result: { error: 'Transport unavailable' } },
+    { id: 'three', tool: 'buy', isError: false, result: { accepted: false, rejected: true, reason: 'No credits' } },
+  ] } } }]);
+  const errors = extractErrors(bodyAt(run, 'drone-1').data);
+  assert.deepEqual(errors.map(e => [e.receiptId, e.operationId, e.operation, e.domain]), [
+    ['batch', 'one', 'send', false], ['batch', 'two', 'send', false], ['batch', 'three', 'buy', true],
+  ]);
+  const evaluated = evaluate(run, correlate(run));
+  assert.equal(evaluated.findings.length, 3);
+  assert.deepEqual(evaluated.findings.map(f => f.operationId), ['one', 'two', 'three']);
+  assert.equal(check(run, 'errors.lifecycle').status, 'inconclusive');
+  editBody(bodyAt(run, 'drone-1'), b => b.nervelet.results = [{ id: 'generic', status: 'failed' }]);
+  assert.equal(check(run, 'errors.lifecycle').status, 'inconclusive');
+});
+
 test('positive fixture passes required checks with recorded roster and historical manifest', () => {
   const run = fixture(), result = evaluate(run, correlate(run));
   assert.equal(result.supported, true);
   assert.deepEqual(result.checks.filter(c => c.required && !['pass', 'not-applicable'].includes(c.status)).map(c => [c.id, c.status]), []);
   assert.equal(check(run, 'cleanup.processes').status, 'inconclusive');
+});
+
+test('opening gate checks completed direct effects and each exchange outcome', () => {
+  function early(name: string, reason = 'completed', outcomes?: any[]) {
+    const run = fixture(), index = run.audit.findIndex(r => r.data.value?.type === 'submission') + 1;
+    const data = [
+      { type: 'agent', value: { type: 'tool', role: 'drone-1', team: 'blue', name, arguments: { command_id: 'early' } } },
+      { type: 'nervelet-trace', value: { type: 'admission', drone: 'drone-1', loopRef: 'drone-1:epoch', id: 'early', reason } },
+    ];
+    run.audit.splice(index, 0, ...data.map(data => ({ data, ref: { file: session }, order: 0 })));
+    run.audit.forEach((row, i) => { row.order = i + 1; row.ref.line = i + 1; row.data.wallTime = time(i * 10); });
+    if (outcomes) editBody(bodyAt(run, 'drone-1'), b => b.nervelet.results = [{ id: 'early', status: reason, data: { isError: false, result: { outcomes } } }]);
+    return run;
+  }
+  for (const name of ['buy', 'fire']) assert.equal(check(early(name), 'opening.objective').status, 'fail');
+  assert.equal(check(early('act', 'accepted'), 'opening.objective').status, 'fail');
+  assert.equal(check(early('buy', 'rejected'), 'opening.objective').status, 'pass');
+  const rejected = { id: 'one', tool: 'buy', isError: false, result: { rejected: true, reason: 'No credits' } };
+  const waiting = { id: 'two', tool: 'fire', isError: false, result: { launchPending: true } };
+  assert.equal(check(early('exchange', 'completed', [rejected, waiting]), 'opening.objective').status, 'pass');
+  const successful = { id: 'three', tool: 'buy', isError: false, result: { equipped: 'gun', commandMission: 1 } };
+  const violation = check(early('exchange', 'completed', [rejected, successful]), 'opening.objective');
+  assert.equal(violation.status, 'fail'); assert.equal(violation.measurements.earlyEffects, 1);
+  assert.equal(check(early('exchange'), 'opening.objective').status, 'inconclusive');
 });
 
 test('actor-scoped compact IDs, recovery redelivery and revisions do not fabricate repeated execution', () => {
@@ -175,6 +222,7 @@ test('all-frame conservation includes initial earned/lost, reservations, partial
   sequence[3].match.resources = [{ remaining: 45, reserved: 0 }, { remaining: 15, dropped: true }];
   sequence[2].match.teams.blue.credits = 1;
   const header = run.replay[0], end = run.replay.at(-1)!;
+  end.data.simTime = sequence.at(-1).simTime;
   run.replay = [header, ...sequence.map((data, i) => ({ data, order: i + 2, ref: { file: 'frames.jsonl', line: i + 2 } })), end];
   assert.equal(check(run, 'cargo.conservation').status, 'pass');
   sequence[2].match.resources[0].remaining++;
@@ -206,7 +254,7 @@ test('unknown records, capped replay and missing retirement retain coverage gaps
   assert.equal(check(run, 'lifecycle.retirement').status, 'inconclusive');
 });
 
-test('missing frames or summary fields are inconclusive, contradictory summaries fail', () => {
+test('missing frames or summary fields are inconclusive, contradictory summaries fail', async t => {
   const run = fixture(); run.replay = run.replay.filter(r => r.data.type !== 'frame' || r.data.simTime !== .5);
   assert.equal(check(run, 'evidence.coverage').status, 'inconclusive');
   assert.equal(check(run, 'cargo.conservation').status, 'inconclusive');
@@ -214,6 +262,12 @@ test('missing frames or summary fields are inconclusive, contradictory summaries
   assert.equal(check(other, 'recording.final').status, 'inconclusive');
   other.replayStatus.summary.shots = 10;
   assert.equal(check(other, 'recording.final').status, 'fail');
+  const noTerminal = fixture(); noTerminal.replay = noTerminal.replay.filter(r => r.data.type !== 'frame' || r.data.simTime !== 1);
+  for (const id of ['evidence.coverage', 'cargo.conservation', 'recording.final']) assert.equal(check(noTerminal, id).status, 'inconclusive');
+  assert.equal(exitCode(await auditRun(await saved(t, noTerminal))), 2);
+  noTerminal.replayStatus.summary.shots = 999;
+  assert.equal(check(noTerminal, 'recording.final').status, 'fail');
+  assert.equal(exitCode(await auditRun(await saved(t, noTerminal))), 1);
 });
 
 test('late completion is distinct from a post-death new call or execution', () => {

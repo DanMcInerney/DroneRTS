@@ -16,7 +16,7 @@ export type Check = {
 };
 export type Finding = {
   category: 'domain-rejection' | 'lifecycle-cancellation' | 'unexpected-failure' | 'unclassified-error';
-  actor: string; operation?: string; message: string; appearances: Ref[]; boundary?: Ref;
+  actor: string; operation?: string; operationId?: string; message: string; appearances: Ref[]; boundary?: Ref;
 };
 export type Report = {
   schema: 'fleet-offline-audit/1'; reportId: string; verdict: 'pass' | 'fail' | 'inconclusive';
