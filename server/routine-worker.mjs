@@ -1,7 +1,7 @@
 // This host worker boots one isolated QuickJS heap. Guest source is never evaluated by Node.
 import { parentPort, workerData } from 'node:worker_threads';
 import { posix } from 'node:path';
-import { newQuickJSWASMModuleFromVariant } from 'quickjs-emscripten-core';
+import { newQuickJSWASMModuleFromVariant, newVariant } from 'quickjs-emscripten-core';
 import RELEASE_SYNC from '@jitl/quickjs-wasmfile-release-sync';
 
 const { path: entry, files, argumentJson, limits } = workerData;
@@ -72,7 +72,11 @@ parentPort.on('message', message => {
 try {
   if (typeof process.threadCpuUsage !== 'function') throw new Error('thread_cpu_accounting_unavailable: routines require Node 22.19+ or 24+');
   threadCpuMs();
-  const quickJS = await newQuickJSWASMModuleFromVariant(RELEASE_SYNC);
+  // Bound linear memory too: the engine's allocation accounting alone does not
+  // cap accumulated ArrayBuffer backing storage. Each worker owns this memory.
+  const memoryPages = Math.floor(limits.heapBytes / 65536);
+  const wasmMemory = new WebAssembly.Memory({ initial: Math.min(256, memoryPages), maximum: memoryPages });
+  const quickJS = await newQuickJSWASMModuleFromVariant(newVariant(RELEASE_SYNC, { wasmMemory }));
   runtime = quickJS.newRuntime();
   runtime.setMemoryLimit(limits.heapBytes); runtime.setMaxStackSize(256 * 1024);
   runtime.setInterruptHandler(() => {

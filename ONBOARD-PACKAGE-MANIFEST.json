@@ -5496,8 +5496,8 @@
       "package": "DroneRTS onboard SDK",
       "version": "1",
       "license": "Project source; local application",
-      "bytes": 7674,
-      "sha256": "41231e21ef52f74b70a9a728e25cd7e2b9deab019373459f5447e424e2cb01c3"
+      "bytes": 8040,
+      "sha256": "e4490468a20bcbdb921b70518a6df1333d8ada09b65fa6984e627d4478eec004"
     },
     {
       "path": "server/rts-geometry.ts",
@@ -5572,9 +5572,9 @@
       "sha256": "bca2ce70d67cf8ffc68305448287510f7087dfce66db183131fea2b83353cf75"
     }
   ],
-  "artifactBytes": 3420712,
+  "artifactBytes": 3421078,
   "manifestBytes": 184664,
-  "installedBytes": 3605376,
+  "installedBytes": 3605742,
   "limitBytes": 8388608,
   "fits": true,
   "optionalGuestLibraries": [],
