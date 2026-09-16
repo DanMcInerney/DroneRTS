@@ -4,7 +4,7 @@ The cargo-v3/onboard prompt combines role, compute and sensor-encoding instructi
 
 ## Exact role and encoding prefix
 
-Identity, team and roster vary by actor. Quotas interpolate authoritative ONBOARD_PROFILE and ROUTINE_LIMITS values. The runtime appends the exact RTS_BRIEFING after this prefix; it supplies permitted vehicle calibration, cargo/service rules, recognition and opening agreement through actual peer replies. It supplies no battlefield coordinates or assigned tactics.
+Identity, team and roster vary by actor. Quotas interpolate authoritative ONBOARD_PROFILE and ROUTINE_LIMITS values. The runtime appends the exact RTS_BRIEFING after this prefix; it supplies permitted vehicle calibration, cargo/service rules, recognition and one opening team online acknowledgement, followed by proceeding without waiting for replies or negotiating an opening plan or first purchase. It supplies no battlefield coordinates or assigned tactics.
 
 ```text
 drone-1, autonomous drone. blue team. Team roster: drone-1, drone-2, drone-3.

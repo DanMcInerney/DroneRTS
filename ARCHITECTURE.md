@@ -14,7 +14,7 @@ Optional attention uses the same Bridge and native runtime. `server/onboard-atte
 | Sourced geography | `shared/city.ts`, generated `shared/city-data.json`, `scripts/build-city.mjs` | Cincinnati buildings, roads, parks and river; no geometry enters the actor interface. |
 | Layout | `shared/battlefield.ts` | Opposite rooftop spawns/base aprons, three supported rooftop caches, explicit collision enclosure and spectator focus. |
 | Rules/contracts | `shared/rts.ts` | Current cargo contracts and historical cube interpretation, equipment, finite economy, shared service bands and physical tuning. |
-| Common briefing | `shared/mission.ts` | Objective, recognition, rules, vehicle calibration and general cooperation. Actual replies must establish opening agreement. No assigned strategy or battlefield locations. |
+| Common briefing | `shared/mission.ts` | Objective, recognition, rules, vehicle calibration and general cooperation. Each pilot sends one team online acknowledgement, then proceeds without waiting for replies or opening negotiation. No assigned strategy or battlefield locations. |
 | Economy/combat | `server/rts.ts` | Cargo stock reservations, pickup/deposit/drop/loss, atomic team purchases, slots/ammunition/armor, rearming and last-team-standing resolution. |
 | Collision geometry | `server/rts-geometry.ts`, `server/world-geometry.ts` | Swept contacts and shared oriented/tiered buildings; consumed by the simulator and modeled sensors, not guest code. |
 | Cargo presentation | `client/combat-view.ts`, `client/drone-model.ts`, `client/drone-visuals.ts` | Authoritative stock, empty pallets, attached cargo and equipment. No fixture-only live state or invisible resource marker. |

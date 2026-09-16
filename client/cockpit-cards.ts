@@ -1,5 +1,5 @@
 import type { CockpitSnapshot, CockpitEvent } from '../shared/cockpit';
-import { json, record, timestamp } from './cockpit-model';
+import { json, outgoingSendAttempts, record, timestamp } from './cockpit-model';
 import { CockpitWorkspaceView } from './cockpit-workspace';
 import { formatBytes } from './onboard-presentation';
 
@@ -120,20 +120,20 @@ const interactionCard: CockpitCardDefinition = {
   },
 };
 const outboxCard: CockpitCardDefinition = {
-  id: 'outbox', label: '05 / TRANSMITTED', title: 'Radio outbox', className: 'cockpit-outbox-card',
-  evidence: ({ events }) => events.filter(event => event.kind === 'call' && event.name === 'send'),
+  id: 'outbox', label: '05 / OUTGOING', title: 'Radio outbox', className: 'cockpit-outbox-card',
+  evidence: ({ events }) => outgoingSendAttempts(events),
   render(host, { events }) {
-    const sends = events.filter(event => event.kind === 'call' && event.name === 'send');
-    if (!sends.length) { empty(host, 'No sends in this window', 'Outgoing send calls appear here. Delivery receipts remain in tool results.', '↗'); return; }
+    const sends = outgoingSendAttempts(events);
+    if (!sends.length) { empty(host, 'No sends in this window', 'Outgoing send attempts, including exchange batches, appear here. Delivery receipts remain in tool results.', '↗'); return; }
     const list = node('div', 'cockpit-outbox-list');
-    for (const event of [...sends].reverse()) {
-      const value = record(event.data), args = record(value.arguments ?? value.args ?? value);
+    for (const send of [...sends].reverse()) {
+      const args = send.arguments;
       const row = node('article', 'cockpit-message');
-      const meta = node('div'); meta.append(node('strong', '', `→ ${args.to ?? 'TEAM'}`), node('span', '', timestamp(event.at))); row.append(meta);
+      const meta = node('div'); meta.append(node('strong', '', `→ ${args.to ?? 'TEAM'}`), node('span', '', timestamp(send.at))); row.append(meta);
       if (typeof args.text === 'string') row.append(node('p', '', args.text));
-      row.append(detail('Send arguments', args)); list.append(row);
+      row.append(detail('Send arguments', args), detail('Source call', { sequence: send.sequence, ...send.source })); list.append(row);
     }
-    host.replaceChildren(list, note('Send calls in the retained event window. A call alone does not confirm delivery.'));
+    host.replaceChildren(list, note('Send attempts in the retained event window. An attempt alone does not confirm acceptance or delivery; check tool results for receipts.'));
   },
 };
 const workspaceViews = new WeakMap<HTMLElement, CockpitWorkspaceView>();
