@@ -109,9 +109,9 @@ For another port, set `FLEET_PORT`; `CODEX_BIN` and `FLEET_PYTHON` override exec
 
 ## What has actually worked
 
-A [recorded native cargo-v3 trial](QA-REPORT-2026-09-16-1705-BATTLE.md) completed **six pickups, five deliveries, and four gun purchases**. All 85 expected pilot-recipient copies of peer messages appeared in submitted bundles. Pilots shared discoveries and pad estimates, and multiple drones contributed income. Those results belong to the source revision recorded in that report.
+A [recorded native cargo-v3 trial](https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/QA-REPORT-2026-09-16-1705-BATTLE.md) completed **six pickups, five deliveries, and four gun purchases**. All 85 expected pilot-recipient copies of peer messages appeared in submitted bundles. Pilots shared discoveries and pad estimates, and multiple drones contributed income. Those results belong to the source revision recorded in that report.
 
-That trial also ended with **all six drones alive, zero shots, and no completed second haul**. Repeated logistics, reliable targeting, moving-target hits, and full autonomous battle outcomes remain open evaluation work. Native held-wait camera behavior also has an [unresolved qualification gate](CAMERA-AGE-POLICY-QA.md). Watching a good-looking replay is not sufficient evidence of reliable autonomy.
+That trial also ended with **all six drones alive, zero shots, and no completed second haul**. Repeated logistics, reliable targeting, moving-target hits, and full autonomous battle outcomes remain open evaluation work. Native held-wait camera behavior also has an [unresolved qualification gate](https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/CAMERA-AGE-POLICY-QA.md). Watching a good-looking replay is not sufficient evidence of reliable autonomy.
 
 The deterministic suite exercises conservation, collision/control behavior, observation isolation, bounded storage, cancellation, and real native Zenoh/MAVLink traffic **without model inference**:
 
@@ -120,7 +120,7 @@ npm test -- --test-concurrency=2
 npm run build
 ```
 
-See [current and historical playtest evidence](RTS-PLAYTEST.md) and the [documentation index](DOCUMENTATION.md) for the tested revisions and their limits.
+See [historical playtest evidence](https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/RTS-PLAYTEST.md) and the [documentation index](DOCUMENTATION.md) for the tested revisions and their limits.
 
 ## Audit a saved trial
 
@@ -130,7 +130,7 @@ Saved focused trials can be audited without a browser, actors or network access:
 npm run audit:run -- artifacts/test-runs/<stopped-run>
 ```
 
-The command writes `audit-report.json` and `audit-report.md`. Exit codes are `0` for all required checks passing, `1` for a confirmed violation and `2` for incomplete required evidence. Focused trials also run it after their writers and helpers close. Optional evidence gaps remain explicit and do not imply a pass for that check. See [the design](OFFLINE-AUDIT-DESIGN.md) and [implementation QA](OFFLINE-AUDIT-QA.md) for coverage, historical compatibility and limits. The auditor never launches inference or changes Nervelet.
+The command writes `audit-report.json` and `audit-report.md`. Exit codes are `0` for all required checks passing, `1` for a confirmed violation and `2` for incomplete required evidence. Focused trials also run it after their writers and helpers close. Optional evidence gaps remain explicit and do not imply a pass for that check. See [the design](https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/OFFLINE-AUDIT-DESIGN.md) and [implementation QA](https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/OFFLINE-AUDIT-QA.md) for coverage, historical compatibility and limits. The auditor never launches inference or changes Nervelet.
 
 ## Explore or contribute
 

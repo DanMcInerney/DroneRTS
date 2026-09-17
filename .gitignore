@@ -9,6 +9,21 @@ coverage/
 *.tsbuildinfo
 runtime-spike-evidence.json
 
+# Local development reports and plans belong under artifacts/
+/QA-*.md
+/*-QA.md
+/*-PLAYTEST.md
+/PLAYTEST.md
+/*-REVIEW.md
+/REVIEW.md
+/*-VERIFICATION.md
+/*-PLAN.md
+/*-HANDOFF.md
+/*-ANALYSIS.md
+/*-DESIGN.md
+/PUBLIC-RELEASE.md
+/server/runtime-notes.md
+
 # Python bytecode and tool caches
 __pycache__/
 *.py[cod]

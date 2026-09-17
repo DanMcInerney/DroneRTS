@@ -24,7 +24,7 @@ For a UI change, also run the relevant deterministic browser fixture documented 
 - Give pilots only their own acquired pixels, calibrated local sensors, private state, and delivered messages. Keep spectator maps, opponent state, resource coordinates, and hidden geometry out of tools and files.
 - Keep the two teams isolated and parent actors mechanical. The common briefing may explain rules and vehicle calibration; it must not supply tactics or solved routes.
 - Preserve finite salvage, atomic spending, bounded storage, explicit cancellation, and native protocol failures. A deterministic fixture proves mechanics, not perception or teamwork.
-- Record source identity and actual observations for gameplay claims. Keep historical reports intact and identify the tested revision.
+- Record source identity and actual observations for gameplay claims. Keep development reports, plans, handoffs and review notes under ignored `artifacts/`, and summarize validation in the pull request. Update maintained documentation when behavior changes. Earlier reports remain available in Git history and apply only to their tested revision.
 
 Test runners retain only the newest completed raw run under ignored `artifacts/test-runs/`. Analyze a trial before launching another check. Group related checks using the managed `FLEET_TEST_RUN` mechanism; preserve active runs and player archives.
 

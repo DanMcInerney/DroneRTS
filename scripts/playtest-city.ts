@@ -140,7 +140,7 @@ try {
   try { await post('stop'); } catch (error) { result.failures.push(`4318 cleanup request failed: ${error instanceof Error ? error.message : String(error)}`); }
   try { const stopped = await waitFor(page, v => !v.running && v.runtime.status === 'stopped', 30_000, '4318 fleet stop'); result.checks.stop = { running: stopped.running, runtimeStatus: stopped.runtime.status, dronesOffline: stopped.drones.every(drone => !drone.online) }; await record(page, 'stopped'); await capture(page, 'stopped.png'); } catch (error) { result.failures.push(`Stop verification failed: ${error instanceof Error ? error.message : String(error)}`); }
   await inspectSession(beforeSessions);
-  result.checks.cameraComparison = { historicalReport: 'CITY-PLAYTEST.md', current: result.checks.sessionAudit?.sensorByDrone ?? null };
+  result.checks.cameraComparison = { historicalReport: 'https://github.com/DanMcInerney/DroneRTS/blob/72717d725166f5e4dca1870c55640152ed9e0d49/CITY-PLAYTEST.md', current: result.checks.sessionAudit?.sensorByDrone ?? null };
   result.checks.browserErrors = result.console.filter((item: { type: string }) => item.type === 'error' || item.type === 'pageerror');
   if (result.checks.browserErrors.length) result.failures.push(`Browser reported ${result.checks.browserErrors.length} console/page errors.`);
   if (result.checks.stop?.running === false && result.checks.sessionFile) {
