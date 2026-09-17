@@ -116,7 +116,7 @@ That trial also ended with **all six drones alive, zero shots, and no completed 
 The deterministic suite exercises conservation, collision/control behavior, observation isolation, bounded storage, cancellation, and real native Zenoh/MAVLink traffic **without model inference**:
 
 ```sh
-npm test -- --test-concurrency=2
+npm test
 npm run build
 ```
 

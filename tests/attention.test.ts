@@ -129,10 +129,12 @@ test('coalesced burst advances generation once and cannot schedule overlapping r
 for (const override of ['stop', 'reset', 'death'] as const) test(`${override} wins over an emergency waiting for native termination`, async t => {
   const { game, pilot, runtime, requests, terminal, evidence } = await fixture(t);
   const work = runtime.requestAttention(pilot.id, pilot, evidence()); await delay(5);
-  if (override === 'reset') { game.stop(); game.reset(); await runtime.stop(); }
+  let shutdown: Promise<void> | undefined;
+  if (override === 'reset') { game.stop(); game.reset(); shutdown = runtime.stop(); }
   else if (override === 'death') { game.state.drones[0].alive = false; game.emit('change'); await pilot.close(); await runtime.retireDrone(pilot.id); }
-  else { game.stop(); await runtime.stop(); }
-  terminal(); await work;
+  else { game.stop(); shutdown = runtime.stop(); }
+  // The fixture supplies native termination while Stop is joining it, not after its timeout.
+  terminal(); await shutdown; await work;
   assert.equal(requests.some(r => r.method === 'turn/start'), false);
 });
 
@@ -227,8 +229,11 @@ test('compaction during closing-turn settlement precedes fresh acquisition witho
 for (const boundary of ['reasoning', 'held-wait'] as const) test(`delayed acquired camera reaches ${boundary} emergency once with its true age`, async t => {
   const { game, pilot, runtime, requests, terminal, evidence, ready } = await fixture(t, 6000);
   let captures = 0;
+  const now = performance.now.bind(performance); let cameraDelay = 0;
+  t.mock.method(performance, 'now', () => now() + cameraDelay);
   const acquisitionStarted = performance.now();
-  game.capture = async () => { captures++; await delay(2100); return 'data:image/jpeg;base64,ZGVsYXllZA=='; };
+  // Advance the acquisition clock across the freshness boundary without sleeping for two seconds.
+  game.capture = async () => { captures++; await delay(0); cameraDelay += 2100; return 'data:image/jpeg;base64,ZGVsYXllZA=='; };
   const capture = pilot.capture.bind(pilot), images: any[] = [];
   pilot.capture = async signal => { const result = await capture(signal); images.push(...result); return result; };
   const waiting = boundary === 'held-wait' ? pilot.call('wait', { seen: ready.nervelet.id, timeout_ms: 30000 }) : undefined;

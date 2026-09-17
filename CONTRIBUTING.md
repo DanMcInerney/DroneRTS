@@ -9,13 +9,15 @@ Use Node.js 24+ and Python 3.12+:
 ```sh
 npm ci
 npm run network:setup
-npm test -- --test-concurrency=2
+npm test
 npm run build
 ```
 
 `npm ci` installs the exact Nervelet npm release pinned by `package.json` and the lockfile's registry URL and integrity checksum. No local source clone or archive build is required. Do not patch installed dependencies or change integrity hashes to accept different contents. Python dependencies belong in `.venv`.
 
 Tests include native Zenoh and MAVLink processes and require loopback sockets. They do not use model inference or require Codex credentials. The CI workflow runs these checks on Windows and Linux. Actual hosted CI results are the evidence of platform support; a workflow definition alone is not.
+
+`npm test` runs up to four test files in parallel, capped by available CPUs, and streams progress while saving the managed log. Native peer scenarios also run two at a time with separate ports, namespaces and databases. Use `npm test -- --test-concurrency=1` when debugging file-level scheduling. Capacity fixtures use smaller test-only quotas to reach their boundaries quickly; production limits and SQLite durability are unchanged.
 
 For a UI change, also run the relevant deterministic browser fixture documented in [GUIDE.md](GUIDE.md#architecture-and-verification). Install its browser with `npx playwright install chromium` if needed. Before starting or restarting a server, inspect its `/api/state`. Preserve the player's port 4317; use a free isolated port, normally 4318. Live playtests consume Codex usage, require Luna/xhigh and a current camera browser, and must be bounded with owned processes stopped afterward.
 
