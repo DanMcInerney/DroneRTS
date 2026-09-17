@@ -28,6 +28,11 @@ async function source(game: FleetGame, content: string) {
   const written = await game.tool('drone-1', 'workspace', { mission: 1, op: 'write', path: 'entry.js', content });
   assert.notEqual(written.isError, true, JSON.stringify(body(written)));
 }
+async function retired(game: FleetGame) {
+  const expires = performance.now() + 5000;
+  while (game.onboardRoutine('drone-1')?.cleanupPending && performance.now() < expires) await delay(5);
+  assert.equal(game.onboardRoutine('drone-1')?.cleanupPending, false, 'Cancelled worker must exit before checking for late effects');
+}
 
 test('game workspace and real routine tools save only own telemetry with one camera per model boundary', async t => {
   const { game, captures } = await ready(); t.after(() => game.stop());
@@ -49,10 +54,10 @@ test('a routine owns movement until explicit direct replacement and cancelled co
   const { game } = await ready(); t.after(() => game.stop());
   const drone = game.state.drones[0];
   drone.x = 0; // This ownership fixture needs room for both opposing targets.
-  await source(game, 'await drone.act({kind:"fly_to",...input.target}); await drone.files.write("started.md","yes"); await drone.sleep(700); await drone.files.write("late.md","invalid");');
+  await source(game, 'await drone.act({kind:"fly_to",...input.target}); await drone.sleep(1000); await drone.files.write("late.md","invalid");');
   const started = body(await game.tool(drone.id, 'routine', { mission: 1, op: 'start', path: 'entry.js', input: { target: { x: drone.x + 8, y: drone.y, z: drone.z } } }));
   assert.equal(started.routine.state, 'accepted');
-  await until(game, () => game.onboardWorkspace(drone.id).list().some(file => file.path === 'started.md'));
+  await until(game, () => drone.action?.target?.x === drone.x + 8);
   const originalAction = drone.action?.id;
   assert.ok(originalAction, JSON.stringify(drone.job));
   assert.equal(drone.action?.target?.x, drone.x + 8);
@@ -60,7 +65,7 @@ test('a routine owns movement until explicit direct replacement and cancelled co
   const rejected = body(await game.tool(drone.id, 'act', { mission: 1, kind: 'fly_to', x: drone.x - 8, y: drone.y, z: drone.z }));
   assert.equal(rejected.rejected, true); assert.equal(drone.action?.id, originalAction);
   const replaced = body(await game.tool(drone.id, 'act', { mission: 1, kind: 'fly_to', x: drone.x - 8, y: drone.y, z: drone.z, replace: true }));
-  assert.equal(replaced.accepted, true); await delay(800);
+  assert.equal(replaced.accepted, true); await retired(game);
   assert.equal(drone.action?.target?.x, drone.x - 8);
   assert.throws(() => game.onboardWorkspace(drone.id).read('late.md'), /does not exist/);
   const status = body(await game.tool(drone.id, 'routine', { mission: 1, op: 'status' }));
@@ -75,7 +80,7 @@ test('queued objectives preserve current execution until received; receipt cance
   game.queueMission('A fresh player objective.');
   assert.equal(game.receivedMission('drone-1'), 1); assert.equal(game.state.drones[0].job?.state, 'running');
   await game.forwardTeam('blue'); assert.equal(game.receivedMission('drone-1'), 2);
-  assert.equal(game.state.drones[0].job?.state, 'cancelled'); await delay(800);
+  assert.equal(game.state.drones[0].job?.state, 'cancelled'); await retired(game);
   assert.throws(() => game.onboardWorkspace('drone-1').read('late.md'), /does not exist/);
 });
 
@@ -87,9 +92,9 @@ test('Stop revokes execution and a fresh match starts an empty private workspace
   game.stop(); assert.equal(game.state.drones[0].job?.state, 'cancelled');
   const stopped = body(await game.tool('drone-1', 'workspace', { mission: 1, op: 'write', path: 'forbidden.md', content: 'x' }));
   assert.equal(stopped.stopped, true);
+  await retired(game);
   game.start(); assert.deepEqual(game.onboardWorkspace('drone-1').list(), []);
   assert.throws(() => previous.read('entry.js'), /revoked/);
-  await delay(800); assert.deepEqual(game.onboardWorkspace('drone-1').list(), []);
 });
 
 test('destruction terminates the worker and revokes its workspace while other drones remain independent', async t => {
@@ -103,7 +108,7 @@ test('destruction terminates the worker and revokes its workspace while other dr
   game.tick(0.05); assert.equal(drone.alive, false); assert.equal(drone.job?.state, 'cancelled');
   assert.equal(workspace.status().revoked, true); assert.throws(() => workspace.read('entry.js'), /revoked/);
   assert.equal(game.onboardWorkspace('drone-2').status().revoked, false);
-  await delay(800); assert.equal(workspace.status().workspace.usedBytes, 0);
+  await retired(game); assert.equal(workspace.status().workspace.usedBytes, 0);
 });
 
 test('routine event reads preserve independently unread actual peer messages for the next model bundle', async t => {

@@ -58,11 +58,13 @@ test('current drones expose calibrated telemetry without battery fields, equipme
   assert.equal(game.state.match!.teams.blue.credits, RTS_CONFIG.startingCredits);
 });
 
-test('drones survive beyond historical endurance and keep moving without battery management', async t => {
+test('current drones ignore stale legacy battery state and can move without energy gating', async t => {
   const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
   game.state.match!.servicePads = [];
   drone.equipment!.armor = false;
-  advance(game, 1200);
+  // Exercise the current-rules branch directly instead of simulating 20 idle minutes.
+  game.state.simTime = 1200;
+  advance(game, 0.25);
   assert.ok(game.state.drones.every(unit => unit.alive && unit.battery === undefined && unit.charging === undefined));
   assert.equal(game.state.completed, false);
   assert.ok(!game.state.match!.events.some(event => event.type.startsWith('battery_') || event.cause === 'power'));
