@@ -19,6 +19,8 @@ Tests include native Zenoh and MAVLink processes and require loopback sockets. T
 
 `npm test` runs up to four test files in parallel, capped by available CPUs, and streams progress while saving the managed log. Native peer scenarios also run two at a time with separate ports, namespaces and databases. Use `npm test -- --test-concurrency=1` when debugging file-level scheduling. Capacity fixtures use smaller test-only quotas to reach their boundaries quickly; production limits and SQLite durability are unchanged.
 
+Long-duration endurance simulations, including the 20-minute run, are manual tests only and must stay out of `npm test` and CI. Automated checks use short, focused fixtures.
+
 For a UI change, also run the relevant deterministic browser fixture documented in [GUIDE.md](GUIDE.md#architecture-and-verification). Install its browser with `npx playwright install chromium` if needed. Before starting or restarting a server, inspect its `/api/state`. Preserve the player's port 4317; use a free isolated port, normally 4318. Live playtests consume Codex usage, require Luna/xhigh and a current camera browser, and must be bounded with owned processes stopped afterward.
 
 ## Preserve the experiment
