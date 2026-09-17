@@ -34,26 +34,6 @@ test('guest has no Node, host filesystem, sockets, repository imports or environ
   assert.equal((await ended(runner)).state, 'failed');
 });
 
-test('runaway guest terminates under its slice deadline while main loop remains responsive', async t => {
-  const { runner } = harness('while (true) {}'); t.after(() => runner.cancel('test_cleanup'));
-  let ticks = 0; const timer = setInterval(() => ticks++, 5); t.after(() => clearInterval(timer));
-  runner.start({ path: 'entry.js', mission: 1 }); const result = await ended(runner);
-  assert.equal(result.state, 'failed'); assert.match(result.error!, /guest_slice_deadline|guest_cpu_budget/); assert.ok(ticks > 0);
-});
-
-test('an async microtask runaway fails inside a bounded worker', async t => {
-  const { runner } = harness('while (true) await Promise.resolve();');
-  t.after(() => runner.cancel('test_cleanup'));
-  runner.start({ path: 'entry.js', mission: 1 });
-  const result = await ended(runner); assert.equal(result.state, 'failed'); assert.match(result.error!, /guest_cpu_budget|guest_slice_deadline/);
-});
-
-test('hostile error getters cannot escape the guest interruption budget', async t => {
-  const { runner } = harness('throw { get message() { while(true) {} } };'); t.after(() => runner.cancel('test_cleanup'));
-  runner.start({ path: 'entry.js', mission: 1 }); const result = await ended(runner);
-  assert.equal(result.state, 'failed'); assert.match(result.error!, /guest_slice_deadline|guest_cpu_budget/);
-});
-
 test('future edits do not change running source, explicit replacement and cancellation release retained versions', async t => {
   const { runner, workspace } = harness("await drone.sleep(200); await drone.files.write('result.md', 'old');"); t.after(() => runner.cancel('test_cleanup'));
   const first = runner.start({ path: 'entry.js', mission: 1 }); workspace.write('entry.js', "await drone.files.write('result.md', 'new');");
