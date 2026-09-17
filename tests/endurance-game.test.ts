@@ -62,9 +62,7 @@ test('current drones ignore stale legacy battery state and can move without ener
   const game = await ready(), drone = game.state.drones[0]; t.after(() => game.stop());
   game.state.match!.servicePads = [];
   drone.equipment!.armor = false;
-  // Exercise the current-rules branch directly instead of simulating 20 idle minutes.
-  game.state.simTime = 1200;
-  advance(game, 0.25);
+  game.tick(0.25);
   assert.ok(game.state.drones.every(unit => unit.alive && unit.battery === undefined && unit.charging === undefined));
   assert.equal(game.state.completed, false);
   assert.ok(!game.state.match!.events.some(event => event.type.startsWith('battery_') || event.cause === 'power'));
